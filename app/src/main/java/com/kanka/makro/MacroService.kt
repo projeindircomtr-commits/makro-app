@@ -251,11 +251,14 @@ class MacroService : AccessibilityService() {
             textSize = 14f
             setPadding(dp(8), dp(4), dp(8), dp(8))
         })
+        val bw = dp(220)
         for ((label, action) in items) {
-            box.addView(menuBtn(label) { removeOverlay(); action() })
+            box.addView(menuBtn(label) { removeOverlay(); action() },
+                LinearLayout.LayoutParams(bw, LinearLayout.LayoutParams.WRAP_CONTENT))
             box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
-        box.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) })
+        box.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) },
+            LinearLayout.LayoutParams(bw, LinearLayout.LayoutParams.WRAP_CONTENT))
         overlay = box
         try {
             wm.addView(
@@ -315,8 +318,13 @@ class MacroService : AccessibilityService() {
             toast("Önce uygulamadan 'Ekran okumayı başlat'a bas"); return
         }
         removeOverlay()
+        updateScreenSize()
 
-        val v = FrameLayout(this).apply { setBackgroundColor(0x22000000) }
+        // Tam ekran, boyutu elle verilen kayit katmani (MATCH_PARENT bazi cihazlarda sorun cikariyor)
+        val v = FrameLayout(this).apply {
+            setBackgroundColor(0x44000000)
+            isClickable = true
+        }
         val info = TextView(this).apply {
             text = when (mode) {
                 Mod.BUTON -> "Kaydedilecek tuşa dokun"
@@ -327,23 +335,25 @@ class MacroService : AccessibilityService() {
                 Mod.COLLECT -> "'Collect All' butonunun SOL ÜST köşesine dokun (biraz içinden)"
             }
             setTextColor(Color.WHITE)
-            textSize = 15f
-            background = rounded(0xCC000000.toInt())
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            textSize = 14f
+            background = rounded(0xDD000000.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
         }
         val cancel = btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) }
+        // Talimat kutusu: sabit genislik, ekranin sol ortasinda (oyun tuslarini kapatmaz)
         val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(info)
-            addView(cancel)
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
         }
+        top.addView(info, LinearLayout.LayoutParams(dp(240), LinearLayout.LayoutParams.WRAP_CONTENT))
+        top.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+        top.addView(cancel, LinearLayout.LayoutParams(dp(120), LinearLayout.LayoutParams.WRAP_CONTENT))
         v.addView(
             top,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            ).apply { bottomMargin = dp(90) }
+                Gravity.CENTER_VERTICAL or Gravity.START
+            ).apply { leftMargin = dp(16) }
         )
 
         val iki = mode == Mod.OPEN || mode == Mod.COLLECT
@@ -371,7 +381,7 @@ class MacroService : AccessibilityService() {
 
         overlay = v
         try {
-            wm.addView(v, lp(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT))
+            wm.addView(v, lp(screenW, screenH).apply { x = 0; y = 0 })
         } catch (e: Exception) {
             overlay = null
             toast("Kayıt ekranı açılamadı")
