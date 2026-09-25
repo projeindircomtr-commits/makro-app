@@ -49,8 +49,9 @@ object Preset {
         c.tgtBar = RenkNokta(x(1262), y(60), 0xB22D29) // hedef can bari (sol taraf)
 
         loadTemplate(ctx, "open.png", w, 20, 0.5f, 0.5f)?.let { c.openT = it }
-        // Collect All + Close penceresi birlikte; dokunus ust butona (Collect All)
-        loadTemplate(ctx, "collect.png", w, 25, 0.5f, 0.27f)?.let { c.collectT = it }
+        // Collect All + Close penceresi birlikte; dokunus ust butonun ortasina (Close'a asla degil)
+        loadTemplate(ctx, "collect.png", w, 25, 0.5f, 0.22f)?.let { c.collectT = it }
+        loadTemplate(ctx, "collect_btn.png", w, 19, 0.5f, 0.5f)?.let { c.collectT2 = it }
         c.lootEvery = 350
         c.collectWait = 2500
         c.save(ctx)

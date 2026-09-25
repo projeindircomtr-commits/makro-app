@@ -60,6 +60,7 @@ class Config {
     var tgtBar: RenkNokta? = null
     var openT: Sablon? = null
     var collectT: Sablon? = null
+    var collectT2: Sablon? = null   // yedek: sadece Collect All butonu
 
     // Genel
     var minutes = 30
@@ -90,6 +91,9 @@ class Config {
     var lootEvery = 350      // ekran tarama araligi (ms)
     var collectWait = 3000   // Open'dan sonra Collect All bekleme (ms)
 
+    // Kutu toplama acik mi
+    var lootOn = true
+
     // Guvenlik
     var hpStop = 25          // HP bu kadar sn dusuk kalirsa dur (0 = kapali)
 
@@ -108,13 +112,14 @@ class Config {
         tgtBar?.let { o.put("tgtBar", it.toJson()) }
         openT?.let { o.put("openT", it.toJson()) }
         collectT?.let { o.put("collectT", it.toJson()) }
+        collectT2?.let { o.put("collectT2", it.toJson()) }
         o.put("minutes", minutes).put("radius", radius).put("tol", tol).put("ttol", ttol)
             .put("minDelay", minDelay).put("maxDelay", maxDelay)
             .put("pauseChance", pauseChance).put("pauseMin", pauseMin).put("pauseMax", pauseMax)
             .put("tgtMin", tgtMin).put("tgtMax", tgtMax).put("tgtFast", tgtFast)
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
-            .put("hpStop", hpStop)
+            .put("hpStop", hpStop).put("lootOn", lootOn)
         return o
     }
 
@@ -154,6 +159,7 @@ class Config {
                 c.tgtBar = RenkNokta.from(o.optJSONObject("tgtBar"))
                 c.openT = Sablon.from(o.optJSONObject("openT"))
                 c.collectT = Sablon.from(o.optJSONObject("collectT"))
+                c.collectT2 = Sablon.from(o.optJSONObject("collectT2"))
                 c.minutes = o.optInt("minutes", c.minutes)
                 c.radius = o.optInt("radius", c.radius)
                 c.tol = o.optInt("tol", c.tol)
@@ -172,6 +178,7 @@ class Config {
                 c.lootEvery = o.optInt("lootEvery", c.lootEvery)
                 c.collectWait = o.optInt("collectWait", c.collectWait)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
+                c.lootOn = o.optBoolean("lootOn", true)
             } catch (e: Exception) {
                 return null
             }

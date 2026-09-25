@@ -32,6 +32,12 @@ import java.util.Random
 
 class MacroService : AccessibilityService() {
 
+    companion object {
+        /** Uygulama ekranindan servise ulasmak icin (ayni surec) */
+        @Volatile
+        var instance: MacroService? = null
+    }
+
     private enum class Mod { BUTON, HP, MP, HEDEF_BAR, OPEN, COLLECT }
 
     private class Hedef(val x: Float, val y: Float, val r: Float, val fast: Boolean = false)
@@ -66,6 +72,11 @@ class MacroService : AccessibilityService() {
     private var phaseUntil = 0L
     private var lootPauseUntil = 0L
     private var collectStreak = 0
+    private var lastOpenX = -9999f
+    private var lastOpenY = -9999f
+    private var lastOpenAt = 0L
+    private var collectedSinceOpen = true
+    private var warnedCollect = false
 
     @Volatile
     private var screenW = 1080
@@ -78,6 +89,7 @@ class MacroService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        instance = this
         updateScreenSize()
         showPanel()
     }
@@ -94,6 +106,7 @@ class MacroService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        instance = null
         stopMacro()
         removeOverlay()
         panel?.let { safeRemove(it) }
@@ -222,9 +235,7 @@ class MacroService : AccessibilityService() {
 
         root.addView(drag)
         root.addView(play)
-        root.addView(btn("+") { startRecord(Mod.BUTON) })
-        root.addView(btn("🎨") { showBarChooser() })
-        root.addView(btn("📦") { showLootChooser() })
+        root.addView(btn("⋯") { showMainMenu() })
         root.addView(st)
 
         try {
@@ -273,6 +284,28 @@ class MacroService : AccessibilityService() {
         } catch (e: Exception) {
             overlay = null
         }
+    }
+
+    private fun showMainMenu() {
+        if (running) {
+            toast("Menü için önce makroyu durdur (⏸)"); return
+        }
+        showMenu(
+            "Menü",
+            listOf(
+                "➕ Tuş kaydet" to { startRecord(Mod.BUTON) },
+                "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
+                "📦 Kutu butonu kaydet" to { showLootChooser() },
+                "⚙ Uygulamayı aç" to {
+                    try {
+                        startActivity(
+                            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (e: Exception) {
+                    }
+                }
+            )
+        )
     }
 
     private fun showBarChooser() {
@@ -420,7 +453,12 @@ class MacroService : AccessibilityService() {
                 toast("Kaydedilemedi. Butonun köşelerine daha geniş dokun")
             } else {
                 val cf = Config.load(this)
-                if (mode == Mod.OPEN) cf.openT = t else cf.collectT = t
+                if (mode == Mod.OPEN) {
+                    cf.openT = t
+                } else {
+                    cf.collectT = t
+                    cf.collectT2 = null
+                }
                 cf.save(this)
                 toast(if (mode == Mod.OPEN) "Open kaydedildi ✓" else "Collect All kaydedildi ✓")
             }
@@ -442,6 +480,15 @@ class MacroService : AccessibilityService() {
     }
 
     // ================= Motor =================
+
+    /** Uygulamadaki buyuk BASLAT butonu: oyun acildiktan sonra baslat */
+    fun startFromApp(delayMs: Long) {
+        ui.postDelayed({
+            if (!running && !pendingStart) startMacro()
+        }, delayMs)
+    }
+
+    fun isRunning() = running
 
     private fun toggle() {
         when {
@@ -499,7 +546,8 @@ class MacroService : AccessibilityService() {
         override fun run() {
             if (!running) return
             val left = ((endAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0)
-            statusTv?.text = "%d:%02d".format(left / 60, left % 60)
+            val ne = if (lootPhase != Loot.BOS) "📦" else "⚔"
+            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60)
             ui.postDelayed(this, 1000)
         }
     }
@@ -542,6 +590,8 @@ class MacroService : AccessibilityService() {
             phaseUntil = 0L
             lootPauseUntil = 0L
             collectStreak = 0
+            lastOpenAt = 0L
+            collectedSinceOpen = true
         }
         running = true
         playBtn?.text = "⏸"
@@ -684,7 +734,7 @@ class MacroService : AccessibilityService() {
         val r = minOf(
             cfg.radius.toFloat(),
             ScreenSampler.toScreen(t.w.toFloat()) * 0.15f,
-            ScreenSampler.toScreen(t.h.toFloat()) * 0.1f
+            ScreenSampler.toScreen(t.h.toFloat()) * 0.07f
         )
         return Hedef(cx, cy, r)
     }
@@ -700,11 +750,32 @@ class MacroService : AccessibilityService() {
      *  COLLECT_BEKLE -> Collect All cikinca bas, SONRAKI_KUTU'ya gec
      *  SONRAKI_KUTU  -> kisa sure baska Open var mi bak (seri toplama), yoksa saldiriya don
      */
+    /** Collect All penceresini ara: once tum pencere, olmazsa sadece buton */
+    private fun findCollect(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
+        cfg.collectT?.let { t -> findT(f, t)?.let { return t to it } }
+        cfg.collectT2?.let { t -> findT(f, t)?.let { return t to it } }
+        return null
+    }
+
+    /** Ayni Open'a, kutu toplanmadan tekrar basma */
+    private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {
+        if (collectedSinceOpen) return false
+        if (now - lastOpenAt > 6000) return false
+        val t = sablonHedef(op, pos)
+        return kotlin.math.abs(t.x - lastOpenX) < 80 && kotlin.math.abs(t.y - lastOpenY) < 80
+    }
+
+    /**
+     * Kutu akisi:
+     *  BOS           -> Open gorulurse BIR KERE bas, COLLECT_BEKLE'ye gec
+     *  COLLECT_BEKLE -> sadece Collect All ara (Open'a basma), cikinca bas
+     *  SONRAKI_KUTU  -> kisa sure yeni kutu var mi bak (seri toplama), yoksa saldiriya don
+     */
     private fun lootAction(now: Long): Hedef? {
         val op = cfg.openT
-        val co = cfg.collectT
-        if (op == null && co == null) return null
-        if (!ScreenSampler.running || now < lootPauseUntil) {
+        val hasCollect = cfg.collectT != null || cfg.collectT2 != null
+        if (op == null && !hasCollect) return null
+        if (!cfg.lootOn || !ScreenSampler.running || now < lootPauseUntil) {
             lootPhase = Loot.BOS
             return null
         }
@@ -713,28 +784,27 @@ class MacroService : AccessibilityService() {
 
         when (lootPhase) {
             Loot.COLLECT_BEKLE -> {
-                if (co != null) {
-                    val pos = findT(f, co)
-                    if (pos != null) return collectHit(now, co, pos)
-                }
+                findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
-                    lootPhase = Loot.BOS   // pencere gelmedi, vazgec
+                    lootPhase = Loot.BOS
+                    nextLootScan = now + scanGap()
+                    if (!warnedCollect) {
+                        warnedCollect = true
+                        toast("Collect All penceresi tanınmadı. Uygulamada Gelişmiş → ⚡ ayarları yeniden yükle")
+                    }
                 } else {
                     nextLootScan = now + rand(90, 160)
-                    return null
                 }
+                return null
             }
             Loot.SONRAKI_KUTU -> {
-                if (co != null) {
-                    val pos = findT(f, co)
-                    if (pos != null) return collectHit(now, co, pos)
-                }
+                findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (op != null) {
                     val pos = findT(f, op)
-                    if (pos != null) return openHit(now, op, pos)
+                    if (pos != null && !openBlocked(now, op, pos)) return openHit(now, op, pos)
                 }
                 if (now > phaseUntil) {
-                    lootPhase = Loot.BOS   // baska kutu yok, saldiriya don
+                    lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
                     nextLootScan = now + rand(100, 170)
@@ -746,13 +816,10 @@ class MacroService : AccessibilityService() {
 
         nextLootScan = now + scanGap()
         // Acik kalmis kutu penceresi varsa once onu topla
-        if (co != null) {
-            val pos = findT(f, co)
-            if (pos != null) return collectHit(now, co, pos)
-        }
+        findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
         if (op != null) {
             val pos = findT(f, op)
-            if (pos != null) return openHit(now, op, pos)
+            if (pos != null && !openBlocked(now, op, pos)) return openHit(now, op, pos)
         }
         return null
     }
@@ -763,6 +830,10 @@ class MacroService : AccessibilityService() {
         phaseUntil = now + cfg.collectWait
         nextLootScan = now + rand(140, 220)
         val t = sablonHedef(op, pos)
+        lastOpenX = t.x
+        lastOpenY = t.y
+        lastOpenAt = now
+        collectedSinceOpen = false
         return Hedef(t.x, t.y, t.r, fast = true)
     }
 
@@ -776,6 +847,7 @@ class MacroService : AccessibilityService() {
             toast("Collect All işe yaramıyor, envanter dolu olabilir. 30 sn kutu atlanıyor")
             return null
         }
+        collectedSinceOpen = true
         lootPhase = Loot.SONRAKI_KUTU
         // Pencerenin kapanmasina firsat ver, sonra siradaki kutuya bak
         phaseUntil = now + 900
