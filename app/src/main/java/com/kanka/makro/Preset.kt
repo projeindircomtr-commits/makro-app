@@ -24,15 +24,6 @@ object Preset {
         return maxOf(dm.widthPixels, dm.heightPixels) to minOf(dm.widthPixels, dm.heightPixels)
     }
 
-    /** Hedef mob isminin yazdigi alan (hedef barinin hemen ustu) */
-    fun nameRect(ctx: Context): IntArray {
-        val (w, h) = landscapeSize(ctx)
-        return intArrayOf(
-            (1100 * w / BW).roundToInt(), 0,
-            (1640 * w / BW).roundToInt(), (44 * h / BH).roundToInt()
-        )
-    }
-
     fun apply(ctx: Context) {
         val (w, h) = landscapeSize(ctx)
         fun x(v: Int) = (v * w / BW).roundToInt()

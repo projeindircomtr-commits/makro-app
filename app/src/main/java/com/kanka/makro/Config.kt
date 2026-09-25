@@ -94,9 +94,6 @@ class Config {
     // Kutu toplama acik mi
     var lootOn = true
 
-    // Sadece bu isimdeki moblara vur (virgulle ayrilmis, bos = hepsi)
-    var mobFilter = ""
-
     // Guvenlik
     var hpStop = 25          // HP bu kadar sn dusuk kalirsa dur (0 = kapali)
 
@@ -122,7 +119,7 @@ class Config {
             .put("tgtMin", tgtMin).put("tgtMax", tgtMax).put("tgtFast", tgtFast)
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
-            .put("hpStop", hpStop).put("lootOn", lootOn).put("mobFilter", mobFilter)
+            .put("hpStop", hpStop).put("lootOn", lootOn)
         return o
     }
 
@@ -182,7 +179,6 @@ class Config {
                 c.collectWait = o.optInt("collectWait", c.collectWait)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
                 c.lootOn = o.optBoolean("lootOn", true)
-                c.mobFilter = o.optString("mobFilter", "")
             } catch (e: Exception) {
                 return null
             }

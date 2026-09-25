@@ -105,7 +105,6 @@ class MainActivity : Activity() {
     private lateinit var speedNormal: Button
     private lateinit var speedFast: Button
     private lateinit var lootSwitch: Switch
-    private lateinit var mobEdit: EditText
     private lateinit var advBox: LinearLayout
     private lateinit var advToggle: TextView
     private lateinit var listBox: LinearLayout
@@ -222,28 +221,6 @@ class MainActivity : Activity() {
         }
         lRow.addView(lootSwitch)
         quick.addView(lRow)
-
-        // Mob ismi filtresi
-        quick.addView(TextView(this).apply {
-            text = "Sadece bu moblara vur"
-            textSize = 15f
-            setTextColor(Color.WHITE)
-            setPadding(dp(4), dp(10), 0, dp(2))
-        })
-        mobEdit = EditText(this).apply {
-            hint = "Örn: Werewolf  (birden fazla: Werewolf, Kecoon)"
-            inputType = InputType.TYPE_CLASS_TEXT
-            setSingleLine(true)
-            setTextColor(Color.WHITE)
-            setHintTextColor(MUTED)
-        }
-        quick.addView(mobEdit)
-        quick.addView(TextView(this).apply {
-            text = "Boş bırakırsan her moba vurur. İsmi hedef barının üstünde yazdığı gibi yaz."
-            textSize = 12f
-            setTextColor(MUTED)
-            setPadding(dp(4), 0, 0, 0)
-        })
 
         // --- Gelismis ---
         advToggle = TextView(this).apply {
@@ -393,7 +370,6 @@ class MainActivity : Activity() {
         speedNormal.background = rounded(if (!fast) ACCENT else 0xFF2D3846.toInt(), 10)
         speedFast.background = rounded(if (fast) ACCENT else 0xFF2D3846.toInt(), 10)
         lootSwitch.isChecked = cfg.lootOn
-        if (!mobEdit.hasFocus()) mobEdit.setText(cfg.mobFilter)
         for ((a, e) in alanEdits) e.setText(a.get(cfg).toString())
         buildList()
         buildProfiles()
@@ -757,7 +733,6 @@ class MainActivity : Activity() {
         if (latest.pauseMax < latest.pauseMin) latest.pauseMax = latest.pauseMin
         if (latest.tgtMax < latest.tgtMin) latest.tgtMax = latest.tgtMin
         if (latest.skMax < latest.skMin) latest.skMax = latest.skMin
-        latest.mobFilter = mobEdit.text.toString().trim()
 
         val sameList = latest.points.size >= cfg.points.size &&
             cfg.points.indices.all { latest.points[it].x == cfg.points[it].x && latest.points[it].y == cfg.points[it].y }
