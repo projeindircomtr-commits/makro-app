@@ -24,6 +24,19 @@ object Preset {
         return maxOf(dm.widthPixels, dm.heightPixels) to minOf(dm.widthPixels, dm.heightPixels)
     }
 
+    /**
+     * Hedef can barinin tamami: [x1, x2, y]. Barin herhangi bir yerinde kirmizi varsa
+     * hedef yasiyor demektir (can %1'e insede).
+     */
+    fun tgtStrip(ctx: Context): IntArray {
+        val (w, h) = landscapeSize(ctx)
+        return intArrayOf(
+            (1195 * w / BW).roundToInt(),
+            (1560 * w / BW).roundToInt(),
+            (66 * h / BH).roundToInt()
+        )
+    }
+
     fun apply(ctx: Context) {
         val (w, h) = landscapeSize(ctx)
         fun x(v: Int) = (v * w / BW).roundToInt()

@@ -40,6 +40,9 @@ class MacroService : AccessibilityService() {
 
     private enum class Mod { BUTON, HP, MP, HEDEF_BAR, OPEN, COLLECT }
 
+    // Oyun icinde tus duzenleme ekrani
+    private var editor: FrameLayout? = null
+
     private class Hedef(val x: Float, val y: Float, val r: Float, val fast: Boolean = false)
 
     private enum class Loot { BOS, COLLECT_BEKLE, SONRAKI_KUTU }
@@ -67,6 +70,8 @@ class MacroService : AccessibilityService() {
     private var lastMpPot = 0L
     private var hpLowSince = 0L
     private val skillReady = HashMap<Int, Long>()
+    private val skillLast = HashMap<Int, Long>()
+    private var tgtStrip = IntArray(3)
     private var nextLootScan = 0L
     private var lootPhase = Loot.BOS
     private var phaseUntil = 0L
@@ -107,6 +112,7 @@ class MacroService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        closeEditor()
         stopMacro()
         removeOverlay()
         panel?.let { safeRemove(it) }
@@ -266,11 +272,20 @@ class MacroService : AccessibilityService() {
             textSize = 14f
             setPadding(dp(8), dp(4), dp(8), dp(8))
         })
-        val bw = dp(220)
-        for ((label, action) in items) {
-            box.addView(menuBtn(label) { removeOverlay(); action() },
+        val cols = if (items.size > 5) 2 else 1
+        val bw = if (cols == 2) dp(170) else dp(220)
+        var rowView: LinearLayout? = null
+        items.forEachIndexed { idx, (label, action) ->
+            if (idx % cols == 0) {
+                val nr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                rowView = nr
+                box.addView(nr)
+                box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+            }
+            val rv = rowView!!
+            if (idx % cols == 1) rv.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            rv.addView(menuBtn(label) { removeOverlay(); action() },
                 LinearLayout.LayoutParams(bw, LinearLayout.LayoutParams.WRAP_CONTENT))
-            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
         box.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) },
             LinearLayout.LayoutParams(bw, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -293,7 +308,7 @@ class MacroService : AccessibilityService() {
         showMenu(
             "Menü",
             listOf(
-                "➕ Tuş kaydet" to { startRecord(Mod.BUTON) },
+                "🛠 Tuşları düzenle" to { openEditor() },
                 "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
                 "⚙ Uygulamayı aç" to {
@@ -306,6 +321,233 @@ class MacroService : AccessibilityService() {
                 }
             )
         )
+    }
+
+    // ================= Oyun icinde tus duzenleme =================
+
+    private fun closeEditor() {
+        editor?.let { safeRemove(it) }
+        editor = null
+    }
+
+    private fun etiket(p: Nokta): String = when (p.type) {
+        "saldiri" -> "⚔"
+        "hedef" -> "🎯"
+        "hp_pot" -> "HP"
+        "mp_pot" -> "MP"
+        else -> {
+            val no = p.name.removePrefix("Skill ").trim()
+            val sure = if (p.cd <= 0f) "∞" else (if (p.cd == p.cd.toLong().toFloat()) "${p.cd.toLong()}s" else "${p.cd}s")
+            "S$no\n$sure"
+        }
+    }
+
+    private fun renk(p: Nokta): Int = when {
+        p.type == "saldiri" -> 0xE0C0392B.toInt()
+        p.type == "hedef" -> 0xE0D35400.toInt()
+        p.type == "hp_pot" -> 0xE0B03030.toInt()
+        p.type == "mp_pot" -> 0xE02E5BBA.toInt()
+        !p.on -> 0xC0555555.toInt()
+        else -> 0xE0208A4E.toInt()
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun openEditor() {
+        if (running) {
+            toast("Önce makroyu durdur"); return
+        }
+        removeOverlay()
+        closeEditor()
+        updateScreenSize()
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(0x33000000)
+            isClickable = true
+        }
+        editor = root
+        root.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_UP) {
+                if (overlay != null) {
+                    removeOverlay()     // acik menuyu kapat
+                } else {
+                    val x = e.rawX.toInt()
+                    val y = e.rawY.toInt()
+                    editorAdd(x, y)
+                }
+            }
+            true
+        }
+        try {
+            wm.addView(root, lp(screenW, screenH).apply { x = 0; y = 0 })
+        } catch (e: Exception) {
+            editor = null
+            toast("Düzenleme ekranı açılamadı"); return
+        }
+        editorRefresh()
+    }
+
+    /** Isaretleri ve ust cubugu yeniden ciz */
+    private fun editorRefresh() {
+        val root = editor ?: return
+        root.removeAllViews()
+        val cf = Config.load(this)
+        val size = dp(44)
+        cf.points.forEachIndexed { i, p ->
+            val m = TextView(this).apply {
+                text = etiket(p)
+                setTextColor(Color.WHITE)
+                textSize = 11f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(renk(p))
+                    setStroke(dp(2), Color.WHITE)
+                }
+                setOnClickListener { if (overlay != null) removeOverlay() else editorPointMenu(i) }
+            }
+            root.addView(m, FrameLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.TOP or Gravity.START
+                leftMargin = (p.x - size / 2).coerceAtLeast(0)
+                topMargin = (p.y - size / 2).coerceAtLeast(0)
+            })
+        }
+
+        // Ust cubuk: bilgi + Hepsini sil + Bitti
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(0xE0202020.toInt())
+            setPadding(dp(10), dp(4), dp(6), dp(4))
+        }
+        bar.addView(TextView(this).apply {
+            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(0, 0, dp(10), 0)
+        })
+        bar.addView(btn("Hepsini sil") {
+            if (overlay != null) removeOverlay()
+            showMenu("Tüm tuşlar silinsin mi?", listOf("Evet, hepsini sil" to {
+                val cf2 = Config.load(this)
+                cf2.points.clear()
+                cf2.save(this)
+                editorRefresh()
+            }))
+        }.apply { background = rounded(0xCC8B0000.toInt()) })
+        bar.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+        bar.addView(btn("Bitti ✓") {
+            removeOverlay()
+            closeEditor()
+            toast("Kaydedildi")
+        }.apply { background = rounded(0xFF2E9E5B.toInt()) })
+        root.addView(bar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL or Gravity.START
+        ).apply { leftMargin = dp(12) })
+    }
+
+    private fun turListesi(onPick: (String) -> Unit): List<Pair<String, () -> Unit>> = listOf(
+        "✨ Skill" to { onPick("skill") },
+        "❤ HP pot" to { onPick("hp_pot") },
+        "💧 MP pot" to { onPick("mp_pot") },
+        "⚔ Saldırı" to { onPick("saldiri") },
+        "🎯 Mob seç" to { onPick("hedef") }
+    )
+
+    private fun cdMenu(onPick: (Float) -> Unit) {
+        showMenu(
+            "Skill ne sıklıkla basılsın?",
+            listOf(
+                "∞ Sürekli (beklemeden)" to { onPick(0f) },
+                "1 sn" to { onPick(1f) },
+                "2 sn" to { onPick(2f) },
+                "3 sn" to { onPick(3f) },
+                "5 sn" to { onPick(5f) },
+                "10 sn" to { onPick(10f) },
+                "30 sn" to { onPick(30f) },
+                "60 sn" to { onPick(60f) }
+            )
+        )
+    }
+
+    /** Bos yere dokunuldu: yeni tus ekle */
+    private fun editorAdd(x: Int, y: Int) {
+        showMenu("Bu slot ne olsun?", turListesi { type ->
+            if (type == "skill") {
+                cdMenu { cd ->
+                    val cf = Config.load(this)
+                    cf.points.add(Nokta("Skill", "skill", x, y, cd, true))
+                    renumber(cf)
+                    cf.save(this)
+                    editorRefresh()
+                }
+            } else {
+                val cf = Config.load(this)
+                cf.points.removeAll { it.type == type }
+                cf.points.add(Nokta(Config.label(type), type, x, y))
+                cf.save(this)
+                editorRefresh()
+            }
+        })
+    }
+
+    /** Var olan isarete dokunuldu */
+    private fun editorPointMenu(i: Int) {
+        val cf = Config.load(this)
+        if (i >= cf.points.size) return
+        val p = cf.points[i]
+        val items = ArrayList<Pair<String, () -> Unit>>()
+        if (p.type == "skill") {
+            items.add("⏱ Bekleme süresi" to {
+                cdMenu { cd ->
+                    val c = Config.load(this)
+                    if (i < c.points.size) {
+                        c.points[i].cd = cd
+                        c.save(this)
+                    }
+                    editorRefresh()
+                }
+            })
+            items.add((if (p.on) "⏸ Kapat" else "▶ Aç") to {
+                val c = Config.load(this)
+                if (i < c.points.size) {
+                    c.points[i].on = !c.points[i].on
+                    c.save(this)
+                }
+                editorRefresh()
+            })
+        }
+        items.add("🔁 Türünü değiştir" to {
+            showMenu("Yeni tür", turListesi { type ->
+                val uygula = { cd: Float ->
+                    val c = Config.load(this)
+                    if (i < c.points.size) {
+                        val old = c.points[i]
+                        c.points.removeAt(i)
+                        if (type != "skill") c.points.removeAll { it.type == type }
+                        c.points.add(Nokta(Config.label(type), type, old.x, old.y, cd, true))
+                        renumber(c)
+                        c.save(this)
+                    }
+                    editorRefresh()
+                }
+                if (type == "skill") cdMenu { cd -> uygula(cd) } else uygula(0f)
+            })
+        })
+        items.add("🗑 Sil" to {
+            val c = Config.load(this)
+            if (i < c.points.size) {
+                c.points.removeAt(i)
+                renumber(c)
+                c.save(this)
+            }
+            editorRefresh()
+        })
+        showMenu("${p.name}", items)
+    }
+
+    private fun renumber(c: Config) {
+        var n = 1
+        c.points.forEach { if (it.type == "skill") it.name = "Skill ${n++}" }
     }
 
     private fun showBarChooser() {
@@ -554,6 +796,7 @@ class MacroService : AccessibilityService() {
 
     private fun startMacro() {
         removeOverlay()
+        closeEditor()
         cfg = Config.load(this)
         // Hic ayar yoksa MykoMobile hazir ayarini otomatik yukle
         if (cfg.points.isEmpty()) {
@@ -576,6 +819,7 @@ class MacroService : AccessibilityService() {
             toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
         }
         updateScreenSize()
+        tgtStrip = Preset.tgtStrip(this)
         h.removeCallbacksAndMessages(null)
         h.post {
             val now = SystemClock.uptimeMillis()
@@ -585,6 +829,7 @@ class MacroService : AccessibilityService() {
             lastMpPot = 0L
             hpLowSince = 0L
             skillReady.clear()
+            skillLast.clear()
             nextLootScan = 0L
             lootPhase = Loot.BOS
             phaseUntil = 0L
@@ -691,6 +936,30 @@ class MacroService : AccessibilityService() {
         return out
     }
 
+    private fun isRed(c: Int): Boolean {
+        val r = (c shr 16) and 0xff
+        val g = (c shr 8) and 0xff
+        val b = c and 0xff
+        return r >= 90 && r > g * 2 && r > b * 2
+    }
+
+    /** Hedef barinin herhangi bir yerinde kirmizi var mi? */
+    private fun targetAlive(bar: RenkNokta): Boolean {
+        val x1 = tgtStrip[0]
+        val x2 = tgtStrip[1]
+        val y = tgtStrip[2]
+        if (x2 > x1) {
+            val n = 12
+            for (k in 0 until n) {
+                val x = x1 + (x2 - x1) * k / (n - 1)
+                val c = ScreenSampler.readPixel(x, y)
+                if (c >= 0 && isRed(c)) return true
+            }
+            return false
+        }
+        return !isLow(bar)
+    }
+
     private fun pick(now: Long): Nokta? {
         val pts = cfg.points
         val target = pts.firstOrNull { it.type == "hedef" }
@@ -698,7 +967,7 @@ class MacroService : AccessibilityService() {
 
         if (target != null && bar != null && ScreenSampler.running) {
             // Akilli mod: hedef barina bak
-            val alive = !isLow(bar)
+            val alive = targetAlive(bar)
             if (!alive) {
                 // Hedef yok / oldu: sadece yeni mob sec, skill harcama
                 if (now >= nextTarget) {
@@ -713,15 +982,27 @@ class MacroService : AccessibilityService() {
             return target
         }
 
-        // Liste sirasina gore oncelikli skill
+        // Hazir skiller arasindan en uzun suredir basilmayani sec (sirayla doner).
+        // Esitlikte listedeki sira onceliklidir. Bekleme 0 = surekli.
+        var best = -1
+        var bestLast = Long.MAX_VALUE
         for (i in pts.indices) {
             val p = pts[i]
             if (p.type != "skill" || !p.on) continue
-            val ready = skillReady[i] ?: 0L
-            if (now >= ready) {
-                skillReady[i] = now + (p.cd * 1000).toLong() + rand(cfg.skMin, cfg.skMax)
-                return p
+            if (now < (skillReady[i] ?: 0L)) continue
+            val last = skillLast[i] ?: 0L
+            if (last < bestLast) {
+                bestLast = last
+                best = i
             }
+        }
+        if (best >= 0) {
+            val p = pts[best]
+            skillLast[best] = now
+            skillReady[best] = now + if (p.cd > 0f) {
+                (p.cd * 1000).toLong() + rand(cfg.skMin, cfg.skMax)
+            } else 0L
+            return p
         }
 
         return pts.firstOrNull { it.type == "saldiri" }
