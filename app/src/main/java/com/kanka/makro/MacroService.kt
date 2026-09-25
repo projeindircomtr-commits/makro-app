@@ -78,6 +78,13 @@ class MacroService : AccessibilityService() {
     private var collectedSinceOpen = true
     private var warnedCollect = false
 
+    // Mob ismi filtresi
+    private var nameReader: MobNameReader? = null
+    private var filtre: List<String> = emptyList()
+    private var nameRect = IntArray(4)
+    private var badStreak = 0
+    private var warnedNoMob = false
+
     @Volatile
     private var screenW = 1080
 
@@ -107,6 +114,8 @@ class MacroService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        nameReader?.close()
+        nameReader = null
         stopMacro()
         removeOverlay()
         panel?.let { safeRemove(it) }
@@ -547,7 +556,8 @@ class MacroService : AccessibilityService() {
             if (!running) return
             val left = ((endAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0)
             val ne = if (lootPhase != Loot.BOS) "📦" else "⚔"
-            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60)
+            val isim = if (filtre.isNotEmpty()) " " + (nameReader?.lastText ?: "").take(12) else ""
+            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60) + isim
             ui.postDelayed(this, 1000)
         }
     }
@@ -576,6 +586,18 @@ class MacroService : AccessibilityService() {
             toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
         }
         updateScreenSize()
+        filtre = MobNameReader.liste(cfg.mobFilter)
+        nameRect = Preset.nameRect(this)
+        if (filtre.isNotEmpty() && nameReader == null) {
+            nameReader = try {
+                MobNameReader()
+            } catch (e: Exception) {
+                null
+            }
+        }
+        if (filtre.isNotEmpty() && cfg.tgtBar == null) {
+            toast("Mob ismi filtresi için hedef barı gerekli (⋯ → Bar kaydet → Hedef barı)")
+        }
         h.removeCallbacksAndMessages(null)
         h.post {
             val now = SystemClock.uptimeMillis()
@@ -592,6 +614,8 @@ class MacroService : AccessibilityService() {
             collectStreak = 0
             lastOpenAt = 0L
             collectedSinceOpen = true
+            badStreak = 0
+            warnedNoMob = false
         }
         running = true
         playBtn?.text = "⏸"
@@ -623,14 +647,17 @@ class MacroService : AccessibilityService() {
         }
         if (safetyStop(now)) return
 
+        // Pot ayri bir parmakla, saldiri/kutu ile AYNI ANDA basilir
+        val pot = potAction(now)?.let { Hedef(it.x.toFloat(), it.y.toFloat(), cfg.radius.toFloat()) }
         val p = pickTarget(now)
-        if (p == null) {
+        val list = listOfNotNull(p, pot)
+        if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
-            h.postDelayed({ step() }, if (lootPhase != Loot.BOS) 60L else 250L)
+            h.postDelayed({ step() }, if (lootPhase != Loot.BOS) 60L else 200L)
             return
         }
-        tap(p.x, p.y, p.r) {
-            if (running) h.postDelayed({ step() }, if (p.fast) rand(60, 140) else nextDelay())
+        tapMulti(list) {
+            if (running) h.postDelayed({ step() }, if (p?.fast == true) rand(60, 140) else nextDelay())
         }
     }
 
@@ -658,9 +685,7 @@ class MacroService : AccessibilityService() {
 
     private fun pickTarget(now: Long): Hedef? {
         val r = cfg.radius.toFloat()
-        // 1) Pot her seyden once
-        potAction(now)?.let { return Hedef(it.x.toFloat(), it.y.toFloat(), r) }
-        // 2) Kutu (Open / Collect All)
+        // 1) Kutu (Open / Collect All) - pot ayrica ayni anda basilir
         lootAction(now)?.let { return it }
         // Kutu toplama suruyorsa saldiri/skill yapma
         if (lootPhase != Loot.BOS) return null
@@ -695,13 +720,39 @@ class MacroService : AccessibilityService() {
         if (target != null && bar != null && ScreenSampler.running) {
             // Akilli mod: hedef barina bak
             val alive = !isLow(bar)
+            val reader = nameReader
             if (!alive) {
+                reader?.invalidate(now)
                 // Hedef yok / oldu: sadece yeni mob sec, skill harcama
                 if (now >= nextTarget) {
                     nextTarget = now + rand(cfg.tgtFast, cfg.tgtFast + 400)
                     return target
                 }
                 return null
+            }
+            // Isim filtresi: sadece yazilan moblara vur
+            if (filtre.isNotEmpty() && reader != null) {
+                reader.request(now, nameRect)
+                when (reader.durum(now, filtre)) {
+                    MobNameReader.Durum.UYGUN -> {
+                        badStreak = 0
+                    }
+                    MobNameReader.Durum.BILINMIYOR -> return null   // okunuyor, bekle
+                    MobNameReader.Durum.DEGIL -> {
+                        if (now >= nextTarget) {
+                            badStreak++
+                            // Cevrede istenen mob yoksa cok hizli dongude kalma
+                            nextTarget = now + if (badStreak > 6) rand(1200, 1800) else rand(250, 450)
+                            if (badStreak == 7 && !warnedNoMob) {
+                                warnedNoMob = true
+                                toast("Yakında '${filtre.joinToString(", ")}' bulunamadı, arıyor...")
+                            }
+                            reader.invalidate(now)
+                            return target
+                        }
+                        return null
+                    }
+                }
             }
         } else if (target != null && now >= nextTarget) {
             // Basit mod: belirli araliklarla mob sec
@@ -865,6 +916,54 @@ class MacroService : AccessibilityService() {
         var d = (rand(lo, hi) + rand(lo, hi)) / 2
         if (rnd.nextInt(100) < cfg.pauseChance.coerceIn(0, 100)) d += rand(cfg.pauseMin, cfg.pauseMax)
         return d
+    }
+
+    private fun stroke(x: Float, y: Float, radius: Float, start: Long): GestureDescription.StrokeDescription {
+        val r = radius.coerceAtLeast(0f)
+        val maxX = (screenW - 2).toFloat().coerceAtLeast(2f)
+        val maxY = (screenH - 2).toFloat().coerceAtLeast(2f)
+        val dx = (rnd.nextGaussian() * r / 2.5).toFloat().coerceIn(-r, r)
+        val dy = (rnd.nextGaussian() * r / 2.5).toFloat().coerceIn(-r, r)
+        val sx = (x + dx).coerceIn(1f, maxX)
+        val sy = (y + dy).coerceIn(1f, maxY)
+        val ex = (sx + rnd.nextInt(7) - 3).coerceIn(1f, maxX)
+        val ey = (sy + rnd.nextInt(7) - 3).coerceIn(1f, maxY)
+        val path = Path().apply {
+            moveTo(sx, sy)
+            lineTo(ex, ey)
+        }
+        return GestureDescription.StrokeDescription(path, start, rand(55, 140))
+    }
+
+    /** Birden fazla noktaya ayni anda (farkli parmaklarla) dokun */
+    private fun tapMulti(list: List<Hedef>, done: () -> Unit) {
+        if (list.size == 1) {
+            tap(list[0].x, list[0].y, list[0].r, done); return
+        }
+        val g = try {
+            val b = GestureDescription.Builder()
+            list.forEachIndexed { i, t ->
+                // Ikinci parmak cok hafif gecikmeli, insan gibi
+                b.addStroke(stroke(t.x, t.y, t.r, if (i == 0) 0L else rand(0, 40)))
+            }
+            b.build()
+        } catch (e: Exception) {
+            // Coklu dokunus desteklenmezse sirayla bas
+            tap(list[0].x, list[0].y, list[0].r) {
+                tap(list[1].x, list[1].y, list[1].r, done)
+            }
+            return
+        }
+        val ok = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                done()
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                done()
+            }
+        }, h)
+        if (!ok) h.postDelayed({ done() }, 300)
     }
 
     private fun tap(x: Float, y: Float, radius: Float, done: () -> Unit) {

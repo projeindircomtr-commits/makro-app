@@ -44,3 +44,8 @@ android {
         abortOnError false
     }
 }
+
+dependencies {
+    // Mob ismini okumak icin cihaz ici metin tanima (internet gerekmez)
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+}
