@@ -3,6 +3,7 @@ package com.kanka.makro
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
@@ -33,7 +34,9 @@ class MacroService : AccessibilityService() {
 
     private enum class Mod { BUTON, HP, MP, HEDEF_BAR, OPEN, COLLECT }
 
-    private class Hedef(val x: Float, val y: Float, val r: Float)
+    private class Hedef(val x: Float, val y: Float, val r: Float, val fast: Boolean = false)
+
+    private enum class Loot { BOS, COLLECT_BEKLE, SONRAKI_KUTU }
 
     private lateinit var wm: WindowManager
     private val ui = Handler(Looper.getMainLooper())
@@ -48,6 +51,7 @@ class MacroService : AccessibilityService() {
 
     @Volatile
     private var running = false
+    private var pendingStart = false
     private var cfg = Config()
 
     // Motor durumu (sadece worker thread'inde degisir)
@@ -58,9 +62,9 @@ class MacroService : AccessibilityService() {
     private var hpLowSince = 0L
     private val skillReady = HashMap<Int, Long>()
     private var nextLootScan = 0L
-    private var lootWaitUntil = 0L
+    private var lootPhase = Loot.BOS
+    private var phaseUntil = 0L
     private var lootPauseUntil = 0L
-    private var lastCollectAt = 0L
     private var collectStreak = 0
 
     @Volatile
@@ -440,7 +444,55 @@ class MacroService : AccessibilityService() {
     // ================= Motor =================
 
     private fun toggle() {
-        if (running) stopMacro() else startMacro()
+        when {
+            running -> stopMacro()
+            pendingStart -> {
+                pendingStart = false
+                statusTv?.text = "Hazır"
+            }
+            else -> startMacro()
+        }
+    }
+
+    /** Ekran izni yoksa izni iste, verilince makroyu kendiliginden baslat */
+    private fun requestCaptureThenStart() {
+        pendingStart = true
+        statusTv?.text = "İzin..."
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(MainActivity.EXTRA_AUTO, true)
+            )
+        } catch (e: Exception) {
+            pendingStart = false
+            statusTv?.text = "Hazır"
+            toast("Uygulamayı açıp 'Ekran okumayı başlat'a bas")
+            return
+        }
+        val deadline = SystemClock.uptimeMillis() + 30_000
+        ui.postDelayed(object : Runnable {
+            override fun run() {
+                if (!pendingStart) return
+                if (ScreenSampler.running) {
+                    // Oyuna donulmesini ve ilk karelerin gelmesini bekle
+                    ui.postDelayed({
+                        if (pendingStart) {
+                            pendingStart = false
+                            startMacro()
+                        }
+                    }, 1500)
+                    return
+                }
+                if (SystemClock.uptimeMillis() > deadline) {
+                    pendingStart = false
+                    statusTv?.text = "Hazır"
+                    toast("Ekran izni verilmedi, makro başlamadı")
+                    return
+                }
+                ui.postDelayed(this, 400)
+            }
+        }, 400)
     }
 
     private val statusTick = object : Runnable {
@@ -455,6 +507,18 @@ class MacroService : AccessibilityService() {
     private fun startMacro() {
         removeOverlay()
         cfg = Config.load(this)
+        // Hic ayar yoksa MykoMobile hazir ayarini otomatik yukle
+        if (cfg.points.isEmpty()) {
+            Preset.apply(this)
+            cfg = Config.load(this)
+            toast("MykoMobile ayarları otomatik yüklendi")
+        }
+        val wantsScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
+            cfg.openT != null || cfg.collectT != null
+        if (wantsScreen && !ScreenSampler.running) {
+            requestCaptureThenStart()
+            return
+        }
         if (cfg.points.none { it.type == "saldiri" || it.type == "hedef" || (it.type == "skill" && it.on) }) {
             toast("Önce + ile saldırı / mob seç / skill tuşu kaydet"); return
         }
@@ -474,9 +538,9 @@ class MacroService : AccessibilityService() {
             hpLowSince = 0L
             skillReady.clear()
             nextLootScan = 0L
-            lootWaitUntil = 0L
+            lootPhase = Loot.BOS
+            phaseUntil = 0L
             lootPauseUntil = 0L
-            lastCollectAt = 0L
             collectStreak = 0
         }
         running = true
@@ -511,11 +575,12 @@ class MacroService : AccessibilityService() {
 
         val p = pickTarget(now)
         if (p == null) {
-            h.postDelayed({ step() }, 300)
+            // Kutu toplarken cok sik kontrol et, normalde biraz bekle
+            h.postDelayed({ step() }, if (lootPhase != Loot.BOS) 60L else 250L)
             return
         }
         tap(p.x, p.y, p.r) {
-            if (running) h.postDelayed({ step() }, nextDelay())
+            if (running) h.postDelayed({ step() }, if (p.fast) rand(60, 140) else nextDelay())
         }
     }
 
@@ -547,8 +612,8 @@ class MacroService : AccessibilityService() {
         potAction(now)?.let { return Hedef(it.x.toFloat(), it.y.toFloat(), r) }
         // 2) Kutu (Open / Collect All)
         lootAction(now)?.let { return it }
-        // Kutu penceresi bekleniyorsa saldiri/skill yapma
-        if (now < lootWaitUntil) return null
+        // Kutu toplama suruyorsa saldiri/skill yapma
+        if (lootPhase != Loot.BOS) return null
         // 3) Hedef / skill / saldiri
         val p = pick(now) ?: return null
         return Hedef(p.x.toFloat(), p.y.toFloat(), r)
@@ -610,13 +675,16 @@ class MacroService : AccessibilityService() {
 
     // ---------- Kutu ----------
 
+    private fun findT(f: ScreenSampler.Frame, t: Sablon): IntArray? =
+        ScreenSampler.find(f, t, if (t.tol > 0) t.tol else cfg.ttol)
+
     private fun sablonHedef(t: Sablon, pos: IntArray): Hedef {
-        val cx = ScreenSampler.toScreen(pos[0] + t.w / 2f)
-        val cy = ScreenSampler.toScreen(pos[1] + t.h / 2f)
+        val cx = ScreenSampler.toScreen(pos[0] + t.w * t.tx)
+        val cy = ScreenSampler.toScreen(pos[1] + t.h * t.ty)
         val r = minOf(
             cfg.radius.toFloat(),
-            ScreenSampler.toScreen(t.w.toFloat()) * 0.25f,
-            ScreenSampler.toScreen(t.h.toFloat()) * 0.3f
+            ScreenSampler.toScreen(t.w.toFloat()) * 0.15f,
+            ScreenSampler.toScreen(t.h.toFloat()) * 0.1f
         )
         return Hedef(cx, cy, r)
     }
@@ -626,56 +694,94 @@ class MacroService : AccessibilityService() {
         return rand((b * 0.8).toInt(), (b * 1.2).toInt())
     }
 
+    /**
+     * Kutu akisi:
+     *  BOS           -> Open gorulurse bas, COLLECT_BEKLE'ye gec
+     *  COLLECT_BEKLE -> Collect All cikinca bas, SONRAKI_KUTU'ya gec
+     *  SONRAKI_KUTU  -> kisa sure baska Open var mi bak (seri toplama), yoksa saldiriya don
+     */
     private fun lootAction(now: Long): Hedef? {
         val op = cfg.openT
         val co = cfg.collectT
         if (op == null && co == null) return null
-        if (!ScreenSampler.running || now < nextLootScan || now < lootPauseUntil) return null
-        val f = ScreenSampler.grab() ?: return null
-
-        // Open'a basildi, Collect All bekleniyor
-        if (now < lootWaitUntil) {
-            nextLootScan = now + rand(250, 400)
-            if (co != null) {
-                val pos = ScreenSampler.find(f, co, cfg.ttol)
-                if (pos != null) {
-                    lootWaitUntil = 0L
-                    nextLootScan = now + scanGap()
-                    return collectHit(now, co, pos)
-                }
-            }
+        if (!ScreenSampler.running || now < lootPauseUntil) {
+            lootPhase = Loot.BOS
             return null
         }
+        if (now < nextLootScan) return null
+        val f = ScreenSampler.grab() ?: return null
 
-        lootWaitUntil = 0L
+        when (lootPhase) {
+            Loot.COLLECT_BEKLE -> {
+                if (co != null) {
+                    val pos = findT(f, co)
+                    if (pos != null) return collectHit(now, co, pos)
+                }
+                if (now > phaseUntil) {
+                    lootPhase = Loot.BOS   // pencere gelmedi, vazgec
+                } else {
+                    nextLootScan = now + rand(90, 160)
+                    return null
+                }
+            }
+            Loot.SONRAKI_KUTU -> {
+                if (co != null) {
+                    val pos = findT(f, co)
+                    if (pos != null) return collectHit(now, co, pos)
+                }
+                if (op != null) {
+                    val pos = findT(f, op)
+                    if (pos != null) return openHit(now, op, pos)
+                }
+                if (now > phaseUntil) {
+                    lootPhase = Loot.BOS   // baska kutu yok, saldiriya don
+                    nextLootScan = now + scanGap()
+                } else {
+                    nextLootScan = now + rand(100, 170)
+                }
+                return null
+            }
+            Loot.BOS -> {}
+        }
+
         nextLootScan = now + scanGap()
         // Acik kalmis kutu penceresi varsa once onu topla
         if (co != null) {
-            val pos = ScreenSampler.find(f, co, cfg.ttol)
+            val pos = findT(f, co)
             if (pos != null) return collectHit(now, co, pos)
         }
         if (op != null) {
-            val pos = ScreenSampler.find(f, op, cfg.ttol)
-            if (pos != null) {
-                lootWaitUntil = now + cfg.collectWait
-                nextLootScan = now + rand(350, 550)
-                return sablonHedef(op, pos)
-            }
+            val pos = findT(f, op)
+            if (pos != null) return openHit(now, op, pos)
         }
         return null
     }
 
-    /** Envanter doluysa Collect All sonsuza kadar basilmasin */
+    private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
+        collectStreak = 0
+        lootPhase = Loot.COLLECT_BEKLE
+        phaseUntil = now + cfg.collectWait
+        nextLootScan = now + rand(140, 220)
+        val t = sablonHedef(op, pos)
+        return Hedef(t.x, t.y, t.r, fast = true)
+    }
+
+    /** Pencere kapanmadan ust uste Collect All cikiyorsa envanter dolu demektir */
     private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
-        collectStreak = if (now - lastCollectAt < 4000) collectStreak + 1 else 1
-        lastCollectAt = now
+        collectStreak++
         if (collectStreak >= 4) {
             collectStreak = 0
+            lootPhase = Loot.BOS
             lootPauseUntil = now + 30_000
-            toast("Collect All çalışmıyor, envanter dolu olabilir. 30 sn kutu atlanıyor")
+            toast("Collect All işe yaramıyor, envanter dolu olabilir. 30 sn kutu atlanıyor")
             return null
         }
-        return sablonHedef(co, pos)
+        lootPhase = Loot.SONRAKI_KUTU
+        // Pencerenin kapanmasina firsat ver, sonra siradaki kutuya bak
+        phaseUntil = now + 900
+        nextLootScan = now + rand(330, 420)
+        val t = sablonHedef(co, pos)
+        return Hedef(t.x, t.y, t.r, fast = true)
     }
 
     // ---------- Zamanlama ve dokunus ----------

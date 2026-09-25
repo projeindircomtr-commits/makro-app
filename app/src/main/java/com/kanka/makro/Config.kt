@@ -23,11 +23,19 @@ data class RenkNokta(val x: Int, val y: Int, val color: Int) {
 }
 
 /** Ekranda aranacak kucuk goruntu (izgara cozunurlugunde RGB) */
-class Sablon(val w: Int, val h: Int, val px: IntArray) {
+class Sablon(
+    val w: Int,
+    val h: Int,
+    val px: IntArray,
+    val tol: Int = 0,       // 0 = genel toleransi kullan
+    val tx: Float = 0.5f,   // dokunulacak nokta (sablon icinde oran)
+    val ty: Float = 0.5f
+) {
     fun toJson(): JSONObject {
         val a = JSONArray()
         for (v in px) a.put(v)
         return JSONObject().put("w", w).put("h", h).put("px", a)
+            .put("tol", tol).put("tx", tx.toDouble()).put("ty", ty.toDouble())
     }
 
     companion object {
@@ -37,7 +45,10 @@ class Sablon(val w: Int, val h: Int, val px: IntArray) {
             val w = o.getInt("w")
             val h = o.getInt("h")
             if (a.length() != w * h) return null
-            return Sablon(w, h, IntArray(a.length()) { a.getInt(it) })
+            return Sablon(
+                w, h, IntArray(a.length()) { a.getInt(it) },
+                o.optInt("tol", 0), o.optDouble("tx", 0.5).toFloat(), o.optDouble("ty", 0.5).toFloat()
+            )
         }
     }
 }
@@ -76,7 +87,7 @@ class Config {
     var skMax = 1500
 
     // Kutu
-    var lootEvery = 750      // ekran tarama araligi (ms)
+    var lootEvery = 350      // ekran tarama araligi (ms)
     var collectWait = 3000   // Open'dan sonra Collect All bekleme (ms)
 
     // Guvenlik

@@ -22,6 +22,13 @@ import android.widget.Toast
 
 class MainActivity : Activity() {
 
+    companion object {
+        const val EXTRA_AUTO = "autoCapture"
+    }
+
+    /** Panelden ▶ ile acildiysa: izni al, sonra oyuna geri don */
+    private var autoMode = false
+
     /** Ayar ekranindaki sayi alanlari: tek listeden uretiliyor */
     private class Alan(
         val label: String,
@@ -94,6 +101,18 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
         root.addView(button("2) Ekran okumayı başlat") { askCapture() })
+        root.addView(button("⚡ MykoMobile ayarlarını otomatik yükle") {
+            AlertDialog.Builder(this)
+                .setMessage("Tüm tuşlar, HP/MP/hedef barları ve kutu butonları MykoMobile için otomatik ayarlansın mı? Şu anki kayıtlı tuşların yerine geçer.")
+                .setPositiveButton("Yükle") { _, _ ->
+                    saveAll()
+                    Preset.apply(this)
+                    refresh()
+                    toast("Yüklendi. Oyunda ▶'a basman yeterli")
+                }
+                .setNegativeButton("Vazgeç", null)
+                .show()
+        })
         root.addView(button("Ekran okumayı durdur") {
             stopService(Intent(this, CaptureService::class.java))
             infoTv.postDelayed({ refreshInfo() }, 400)
@@ -172,6 +191,20 @@ class MainActivity : Activity() {
         })
 
         setContentView(ScrollView(this).apply { addView(root) })
+        handleAuto(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleAuto(intent)
+    }
+
+    private fun handleAuto(i: Intent?) {
+        if (i?.getBooleanExtra(EXTRA_AUTO, false) == true) {
+            i.removeExtra(EXTRA_AUTO)
+            autoMode = true
+            askCapture()
+        }
     }
 
     override fun onResume() {
@@ -412,7 +445,12 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 5)
         }
         if (ScreenSampler.running) {
-            toast("Zaten çalışıyor"); return
+            toast("Zaten çalışıyor")
+            if (autoMode) {
+                autoMode = false
+                moveTaskToBack(true)
+            }
+            return
         }
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(mpm.createScreenCaptureIntent(), 100)
@@ -424,12 +462,22 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != 100) return
         if (resultCode != RESULT_OK || data == null) {
-            toast("İzin verilmedi"); return
+            toast("İzin verilmedi")
+            if (autoMode) {
+                autoMode = false
+                moveTaskToBack(true)
+            }
+            return
         }
         val i = Intent(this, CaptureService::class.java)
             .putExtra("code", resultCode)
             .putExtra("data", data)
         startForegroundService(i)
         infoTv.postDelayed({ refreshInfo() }, 800)
+        if (autoMode) {
+            // Oyuna geri don; makro kendiliginden baslayacak
+            autoMode = false
+            moveTaskToBack(true)
+        }
     }
 }

@@ -118,8 +118,8 @@ class CaptureService : Service() {
                 null
             } ?: return@setOnImageAvailableListener
             val now = SystemClock.uptimeMillis()
-            // Saniyede en fazla ~5 kare tut, gerisini hemen at -> kasma yok
-            if (now - lastKeep >= 200) {
+            // Saniyede en fazla ~10 kare tut, gerisini hemen at -> kasma yok
+            if (now - lastKeep >= 90) {
                 lastKeep = now
                 ScreenSampler.offer(img)
             } else {
