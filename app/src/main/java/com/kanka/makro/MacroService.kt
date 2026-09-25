@@ -1,0 +1,715 @@
+package com.kanka.makro
+
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.annotation.SuppressLint
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.hardware.display.DisplayManager
+import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.util.DisplayMetrics
+import android.view.Display
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import java.util.Random
+
+class MacroService : AccessibilityService() {
+
+    private enum class Mod { BUTON, HP, MP, HEDEF_BAR, OPEN, COLLECT }
+
+    private class Hedef(val x: Float, val y: Float, val r: Float)
+
+    private lateinit var wm: WindowManager
+    private val ui = Handler(Looper.getMainLooper())
+    private val worker = HandlerThread("macro").apply { start() }
+    private val h = Handler(worker.looper)
+    private val rnd = Random()
+
+    private var panel: View? = null
+    private var overlay: View? = null
+    private var playBtn: TextView? = null
+    private var statusTv: TextView? = null
+
+    @Volatile
+    private var running = false
+    private var cfg = Config()
+
+    // Motor durumu (sadece worker thread'inde degisir)
+    private var endAt = 0L
+    private var nextTarget = 0L
+    private var lastHpPot = 0L
+    private var lastMpPot = 0L
+    private var hpLowSince = 0L
+    private val skillReady = HashMap<Int, Long>()
+    private var nextLootScan = 0L
+    private var lootWaitUntil = 0L
+    private var lootPauseUntil = 0L
+    private var lastCollectAt = 0L
+    private var collectStreak = 0
+
+    @Volatile
+    private var screenW = 1080
+
+    @Volatile
+    private var screenH = 2400
+
+    // ================= Yasam dongusu =================
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        updateScreenSize()
+        showPanel()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+    override fun onInterrupt() {
+        stopMacro()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateScreenSize()
+    }
+
+    override fun onDestroy() {
+        stopMacro()
+        removeOverlay()
+        panel?.let { safeRemove(it) }
+        panel = null
+        worker.quitSafely()
+        super.onDestroy()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateScreenSize() {
+        val dm = DisplayMetrics()
+        (getSystemService(DISPLAY_SERVICE) as DisplayManager)
+            .getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(dm)
+        screenW = dm.widthPixels
+        screenH = dm.heightPixels
+    }
+
+    // ================= Yardimcilar =================
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun rand(a: Int, b: Int): Long {
+        val lo = minOf(a, b)
+        val hi = maxOf(a, b)
+        return (lo + rnd.nextInt((hi - lo + 1).coerceAtLeast(1))).toLong()
+    }
+
+    private fun toast(msg: String) = ui.post { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+
+    @Suppress("DEPRECATION")
+    private fun vibrate() {
+        try {
+            val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
+            v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 400, 200, 400, 200, 600), -1))
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun safeRemove(v: View) {
+        try {
+            wm.removeView(v)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun lp(w: Int, hh: Int): WindowManager.LayoutParams =
+        WindowManager.LayoutParams(
+            w, hh,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= 28) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+
+    private fun rounded(color: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(12).toFloat()
+    }
+
+    private fun btn(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        setTextColor(Color.WHITE)
+        textSize = 15f
+        gravity = Gravity.CENTER
+        setPadding(dp(11), dp(9), dp(11), dp(9))
+        setOnClickListener { onClick() }
+    }
+
+    private fun menuBtn(text: String, onClick: () -> Unit) =
+        btn(text, onClick).apply { background = rounded(0xFF3A3A3A.toInt()) }
+
+    // ================= Yuzen panel =================
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showPanel() {
+        if (panel != null) return
+        val params = lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+            .apply { x = dp(8); y = dp(60) }
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(0xCC202020.toInt())
+        }
+
+        val drag = btn("⠿") {}
+        drag.setOnTouchListener(object : View.OnTouchListener {
+            var sx = 0
+            var sy = 0
+            var tx = 0f
+            var ty = 0f
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        sx = params.x; sy = params.y; tx = e.rawX; ty = e.rawY
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = sx + (e.rawX - tx).toInt()
+                        params.y = sy + (e.rawY - ty).toInt()
+                        try {
+                            wm.updateViewLayout(root, params)
+                        } catch (ex: Exception) {
+                        }
+                    }
+                }
+                return true
+            }
+        })
+
+        val play = btn("▶") { toggle() }
+        playBtn = play
+        val st = TextView(this).apply {
+            text = "Hazır"
+            setTextColor(0xFFB0FFB0.toInt())
+            textSize = 12f
+            setPadding(dp(6), 0, dp(10), 0)
+        }
+        statusTv = st
+
+        root.addView(drag)
+        root.addView(play)
+        root.addView(btn("+") { startRecord(Mod.BUTON) })
+        root.addView(btn("🎨") { showBarChooser() })
+        root.addView(btn("📦") { showLootChooser() })
+        root.addView(st)
+
+        try {
+            wm.addView(root, params)
+            panel = root
+        } catch (e: Exception) {
+            toast("Panel açılamadı: ${e.message}")
+        }
+    }
+
+    // ================= Menuler =================
+
+    private fun removeOverlay() {
+        overlay?.let { safeRemove(it) }
+        overlay = null
+    }
+
+    private fun showMenu(title: String, items: List<Pair<String, () -> Unit>>) {
+        removeOverlay()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xEE202020.toInt())
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        box.addView(TextView(this).apply {
+            text = title
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setPadding(dp(8), dp(4), dp(8), dp(8))
+        })
+        for ((label, action) in items) {
+            box.addView(menuBtn(label) { removeOverlay(); action() })
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+        }
+        box.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) })
+        overlay = box
+        try {
+            wm.addView(
+                box,
+                lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+                    .apply { gravity = Gravity.CENTER }
+            )
+        } catch (e: Exception) {
+            overlay = null
+        }
+    }
+
+    private fun showBarChooser() {
+        if (running) {
+            toast("Önce makroyu durdur"); return
+        }
+        showMenu(
+            "Hangi bar? (bar DOLUYKEN kaydet)",
+            listOf(
+                "HP barı" to { startRecord(Mod.HP) },
+                "MP barı" to { startRecord(Mod.MP) },
+                "Hedef mobun can barı" to { startRecord(Mod.HEDEF_BAR) }
+            )
+        )
+    }
+
+    private fun showLootChooser() {
+        if (running) {
+            toast("Önce makroyu durdur"); return
+        }
+        showMenu(
+            "Buton ekranda GÖRÜNÜRKEN kaydet",
+            listOf(
+                "'Open' butonu" to { startRecord(Mod.OPEN) },
+                "'Collect All' butonu" to { startRecord(Mod.COLLECT) }
+            )
+        )
+    }
+
+    private fun showTypeChooser(x: Int, y: Int) {
+        showMenu(
+            "Bu tuş ne? ($x, $y)",
+            listOf("saldiri", "hedef", "skill", "hp_pot", "mp_pot").map { t ->
+                Config.label(t) to { savePoint(t, x, y) }
+            }
+        )
+    }
+
+    // ================= Kayit =================
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun startRecord(mode: Mod) {
+        if (running) {
+            toast("Önce makroyu durdur"); return
+        }
+        if (mode != Mod.BUTON && !ScreenSampler.running) {
+            toast("Önce uygulamadan 'Ekran okumayı başlat'a bas"); return
+        }
+        removeOverlay()
+
+        val v = FrameLayout(this).apply { setBackgroundColor(0x22000000) }
+        val info = TextView(this).apply {
+            text = when (mode) {
+                Mod.BUTON -> "Kaydedilecek tuşa dokun"
+                Mod.HP -> "HP barı DOLUYKEN, pot basılacak seviyeye dokun"
+                Mod.MP -> "MP barı DOLUYKEN, pot basılacak seviyeye dokun"
+                Mod.HEDEF_BAR -> "Bir mob seçiliyken, onun can barının SOL ucuna yakın kırmızı kısma dokun"
+                Mod.OPEN -> "'Open' butonunun SOL ÜST köşesine dokun (biraz içinden)"
+                Mod.COLLECT -> "'Collect All' butonunun SOL ÜST köşesine dokun (biraz içinden)"
+            }
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            background = rounded(0xCC000000.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+        }
+        val cancel = btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(info)
+            addView(cancel)
+        }
+        v.addView(
+            top,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply { bottomMargin = dp(90) }
+        )
+
+        val iki = mode == Mod.OPEN || mode == Mod.COLLECT
+        var fx = -1
+        var fy = -1
+        v.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_UP) {
+                val x = e.rawX.toInt()
+                val y = e.rawY.toInt()
+                if (iki && fx < 0) {
+                    fx = x
+                    fy = y
+                    info.text = "Şimdi aynı butonun SAĞ ALT köşesine dokun (biraz içinden)"
+                } else {
+                    removeOverlay()
+                    when {
+                        iki -> onTemplate(mode, fx, fy, x, y)
+                        mode == Mod.BUTON -> showTypeChooser(x, y)
+                        else -> onColorPoint(mode, x, y)
+                    }
+                }
+            }
+            true
+        }
+
+        overlay = v
+        try {
+            wm.addView(v, lp(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT))
+        } catch (e: Exception) {
+            overlay = null
+            toast("Kayıt ekranı açılamadı")
+        }
+    }
+
+    private fun onColorPoint(mode: Mod, x: Int, y: Int) {
+        // Kayit ekrani kapandiktan sonra temiz kareyi bekle
+        ui.postDelayed({
+            val c = ScreenSampler.readPixel(x, y)
+            if (c < 0) {
+                toast("Renk okunamadı, tekrar dene")
+            } else {
+                val cf = Config.load(this)
+                val rn = RenkNokta(x, y, c)
+                val ad = when (mode) {
+                    Mod.HP -> { cf.hp = rn; "HP" }
+                    Mod.MP -> { cf.mp = rn; "MP" }
+                    else -> { cf.tgtBar = rn; "Hedef barı" }
+                }
+                cf.save(this)
+                toast("$ad kaydedildi (%d,%d) #%06X".format(x, y, c))
+            }
+        }, 500)
+    }
+
+    private fun onTemplate(mode: Mod, x1: Int, y1: Int, x2: Int, y2: Int) {
+        ui.postDelayed({
+            val f = ScreenSampler.grab()
+            val t = if (f == null) null else ScreenSampler.crop(f, x1, y1, x2, y2)
+            if (t == null) {
+                toast("Kaydedilemedi. Butonun köşelerine daha geniş dokun")
+            } else {
+                val cf = Config.load(this)
+                if (mode == Mod.OPEN) cf.openT = t else cf.collectT = t
+                cf.save(this)
+                toast(if (mode == Mod.OPEN) "Open kaydedildi ✓" else "Collect All kaydedildi ✓")
+            }
+        }, 500)
+    }
+
+    private fun savePoint(type: String, x: Int, y: Int) {
+        val cf = Config.load(this)
+        if (type == "skill") {
+            val n = cf.points.count { it.type == "skill" } + 1
+            cf.points.add(Nokta("Skill $n", "skill", x, y, 10f))
+            toast("Skill $n kaydedildi. Cooldown'u uygulamadan ayarla")
+        } else {
+            cf.points.removeAll { it.type == type }
+            cf.points.add(Nokta(Config.label(type), type, x, y))
+            toast("${Config.label(type)} kaydedildi")
+        }
+        cf.save(this)
+    }
+
+    // ================= Motor =================
+
+    private fun toggle() {
+        if (running) stopMacro() else startMacro()
+    }
+
+    private val statusTick = object : Runnable {
+        override fun run() {
+            if (!running) return
+            val left = ((endAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0)
+            statusTv?.text = "%d:%02d".format(left / 60, left % 60)
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun startMacro() {
+        removeOverlay()
+        cfg = Config.load(this)
+        if (cfg.points.none { it.type == "saldiri" || it.type == "hedef" || (it.type == "skill" && it.on) }) {
+            toast("Önce + ile saldırı / mob seç / skill tuşu kaydet"); return
+        }
+        val needScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
+            cfg.openT != null || cfg.collectT != null
+        if (needScreen && !ScreenSampler.running) {
+            toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
+        }
+        updateScreenSize()
+        h.removeCallbacksAndMessages(null)
+        h.post {
+            val now = SystemClock.uptimeMillis()
+            endAt = now + cfg.minutes * 60_000L
+            nextTarget = 0L
+            lastHpPot = 0L
+            lastMpPot = 0L
+            hpLowSince = 0L
+            skillReady.clear()
+            nextLootScan = 0L
+            lootWaitUntil = 0L
+            lootPauseUntil = 0L
+            lastCollectAt = 0L
+            collectStreak = 0
+        }
+        running = true
+        playBtn?.text = "⏸"
+        h.postDelayed({ step() }, 700)
+        ui.removeCallbacks(statusTick)
+        ui.post(statusTick)
+    }
+
+    private fun stopMacro(reason: String? = null) {
+        running = false
+        h.removeCallbacksAndMessages(null)
+        ui.removeCallbacks(statusTick)
+        ui.post {
+            playBtn?.text = "▶"
+            statusTv?.text = "Durdu"
+        }
+        if (reason != null) {
+            toast(reason)
+            vibrate()
+        }
+    }
+
+    /** worker thread'inde calisir; her adimda tek dokunus, bitince sonraki planlanir */
+    private fun step() {
+        if (!running) return
+        val now = SystemClock.uptimeMillis()
+        if (now >= endAt) {
+            stopMacro("Süre bitti, makro durdu"); return
+        }
+        if (safetyStop(now)) return
+
+        val p = pickTarget(now)
+        if (p == null) {
+            h.postDelayed({ step() }, 300)
+            return
+        }
+        tap(p.x, p.y, p.r) {
+            if (running) h.postDelayed({ step() }, nextDelay())
+        }
+    }
+
+    private fun isLow(cp: RenkNokta): Boolean {
+        val c = ScreenSampler.readPixel(cp.x, cp.y)
+        if (c < 0) return false
+        return ScreenSampler.diff(c, cp.color) > cfg.tol
+    }
+
+    /** HP uzun sure dusuk kaldiysa (pot bitti / oldun) durdur */
+    private fun safetyStop(now: Long): Boolean {
+        val hp = cfg.hp ?: return false
+        if (cfg.hpStop <= 0 || !ScreenSampler.running) return false
+        if (isLow(hp)) {
+            if (hpLowSince == 0L) hpLowSince = now
+            else if (now - hpLowSince > cfg.hpStop * 1000L) {
+                stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Makro durdu")
+                return true
+            }
+        } else {
+            hpLowSince = 0L
+        }
+        return false
+    }
+
+    private fun pickTarget(now: Long): Hedef? {
+        val r = cfg.radius.toFloat()
+        // 1) Pot her seyden once
+        potAction(now)?.let { return Hedef(it.x.toFloat(), it.y.toFloat(), r) }
+        // 2) Kutu (Open / Collect All)
+        lootAction(now)?.let { return it }
+        // Kutu penceresi bekleniyorsa saldiri/skill yapma
+        if (now < lootWaitUntil) return null
+        // 3) Hedef / skill / saldiri
+        val p = pick(now) ?: return null
+        return Hedef(p.x.toFloat(), p.y.toFloat(), r)
+    }
+
+    private fun potAction(now: Long): Nokta? {
+        val hp = cfg.hp
+        if (hp != null && now - lastHpPot > cfg.potCd && isLow(hp)) {
+            val pot = cfg.points.firstOrNull { it.type == "hp_pot" }
+            if (pot != null) {
+                lastHpPot = now; return pot
+            }
+        }
+        val mp = cfg.mp
+        if (mp != null && now - lastMpPot > cfg.potCd && isLow(mp)) {
+            val pot = cfg.points.firstOrNull { it.type == "mp_pot" }
+            if (pot != null) {
+                lastMpPot = now; return pot
+            }
+        }
+        return null
+    }
+
+    private fun pick(now: Long): Nokta? {
+        val pts = cfg.points
+        val target = pts.firstOrNull { it.type == "hedef" }
+        val bar = cfg.tgtBar
+
+        if (target != null && bar != null && ScreenSampler.running) {
+            // Akilli mod: hedef barina bak
+            val alive = !isLow(bar)
+            if (!alive) {
+                // Hedef yok / oldu: sadece yeni mob sec, skill harcama
+                if (now >= nextTarget) {
+                    nextTarget = now + rand(cfg.tgtFast, cfg.tgtFast + 400)
+                    return target
+                }
+                return null
+            }
+        } else if (target != null && now >= nextTarget) {
+            // Basit mod: belirli araliklarla mob sec
+            nextTarget = now + rand(cfg.tgtMin, cfg.tgtMax)
+            return target
+        }
+
+        // Liste sirasina gore oncelikli skill
+        for (i in pts.indices) {
+            val p = pts[i]
+            if (p.type != "skill" || !p.on) continue
+            val ready = skillReady[i] ?: 0L
+            if (now >= ready) {
+                skillReady[i] = now + (p.cd * 1000).toLong() + rand(cfg.skMin, cfg.skMax)
+                return p
+            }
+        }
+
+        return pts.firstOrNull { it.type == "saldiri" }
+    }
+
+    // ---------- Kutu ----------
+
+    private fun sablonHedef(t: Sablon, pos: IntArray): Hedef {
+        val cx = ScreenSampler.toScreen(pos[0] + t.w / 2f)
+        val cy = ScreenSampler.toScreen(pos[1] + t.h / 2f)
+        val r = minOf(
+            cfg.radius.toFloat(),
+            ScreenSampler.toScreen(t.w.toFloat()) * 0.25f,
+            ScreenSampler.toScreen(t.h.toFloat()) * 0.3f
+        )
+        return Hedef(cx, cy, r)
+    }
+
+    private fun scanGap(): Long {
+        val b = cfg.lootEvery.coerceAtLeast(200)
+        return rand((b * 0.8).toInt(), (b * 1.2).toInt())
+    }
+
+    private fun lootAction(now: Long): Hedef? {
+        val op = cfg.openT
+        val co = cfg.collectT
+        if (op == null && co == null) return null
+        if (!ScreenSampler.running || now < nextLootScan || now < lootPauseUntil) return null
+        val f = ScreenSampler.grab() ?: return null
+
+        // Open'a basildi, Collect All bekleniyor
+        if (now < lootWaitUntil) {
+            nextLootScan = now + rand(250, 400)
+            if (co != null) {
+                val pos = ScreenSampler.find(f, co, cfg.ttol)
+                if (pos != null) {
+                    lootWaitUntil = 0L
+                    nextLootScan = now + scanGap()
+                    return collectHit(now, co, pos)
+                }
+            }
+            return null
+        }
+
+        lootWaitUntil = 0L
+        nextLootScan = now + scanGap()
+        // Acik kalmis kutu penceresi varsa once onu topla
+        if (co != null) {
+            val pos = ScreenSampler.find(f, co, cfg.ttol)
+            if (pos != null) return collectHit(now, co, pos)
+        }
+        if (op != null) {
+            val pos = ScreenSampler.find(f, op, cfg.ttol)
+            if (pos != null) {
+                lootWaitUntil = now + cfg.collectWait
+                nextLootScan = now + rand(350, 550)
+                return sablonHedef(op, pos)
+            }
+        }
+        return null
+    }
+
+    /** Envanter doluysa Collect All sonsuza kadar basilmasin */
+    private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
+        collectStreak = if (now - lastCollectAt < 4000) collectStreak + 1 else 1
+        lastCollectAt = now
+        if (collectStreak >= 4) {
+            collectStreak = 0
+            lootPauseUntil = now + 30_000
+            toast("Collect All çalışmıyor, envanter dolu olabilir. 30 sn kutu atlanıyor")
+            return null
+        }
+        return sablonHedef(co, pos)
+    }
+
+    // ---------- Zamanlama ve dokunus ----------
+
+    private fun nextDelay(): Long {
+        val lo = cfg.minDelay.coerceAtLeast(50)
+        val hi = cfg.maxDelay.coerceAtLeast(lo + 1)
+        // Iki rastgele sayinin ortalamasi: ortaya yakin, dogal dagilim
+        var d = (rand(lo, hi) + rand(lo, hi)) / 2
+        if (rnd.nextInt(100) < cfg.pauseChance.coerceIn(0, 100)) d += rand(cfg.pauseMin, cfg.pauseMax)
+        return d
+    }
+
+    private fun tap(x: Float, y: Float, radius: Float, done: () -> Unit) {
+        val r = radius.coerceAtLeast(0f)
+        val maxX = (screenW - 2).toFloat().coerceAtLeast(2f)
+        val maxY = (screenH - 2).toFloat().coerceAtLeast(2f)
+        val dx = (rnd.nextGaussian() * r / 2.5).toFloat().coerceIn(-r, r)
+        val dy = (rnd.nextGaussian() * r / 2.5).toFloat().coerceIn(-r, r)
+        val sx = (x + dx).coerceIn(1f, maxX)
+        val sy = (y + dy).coerceIn(1f, maxY)
+        val ex = (sx + rnd.nextInt(7) - 3).coerceIn(1f, maxX)
+        val ey = (sy + rnd.nextInt(7) - 3).coerceIn(1f, maxY)
+
+        val path = Path().apply {
+            moveTo(sx, sy)
+            lineTo(ex, ey)
+        }
+        val g = try {
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, rand(55, 140)))
+                .build()
+        } catch (e: Exception) {
+            h.postDelayed({ done() }, 300); return
+        }
+        val ok = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                done()
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                done()
+            }
+        }, h)
+        if (!ok) h.postDelayed({ done() }, 300)
+    }
+}
