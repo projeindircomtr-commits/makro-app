@@ -860,7 +860,7 @@ class MacroService : AccessibilityService() {
             toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
         }
         updateScreenSize()
-        tgtStrip = Preset.tgtStrip(this)
+        tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
         h.removeCallbacksAndMessages(null)
         h.post {
             val now = SystemClock.uptimeMillis()

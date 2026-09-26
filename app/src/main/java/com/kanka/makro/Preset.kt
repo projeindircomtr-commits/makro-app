@@ -28,12 +28,21 @@ object Preset {
      * Hedef can barinin tamami: [x1, x2, y]. Barin herhangi bir yerinde kirmizi varsa
      * hedef yasiyor demektir (can %1'e insede).
      */
-    fun tgtStrip(ctx: Context): IntArray {
+    fun tgtStrip(ctx: Context, bar: RenkNokta?): IntArray {
         val (w, h) = landscapeSize(ctx)
+        if (bar == null) {
+            return intArrayOf(
+                (1195 * w / BW).roundToInt(),
+                (1560 * w / BW).roundToInt(),
+                (66 * h / BH).roundToInt()
+            )
+        }
+        // Kaydedilen noktaya gore (tablet vb. farkli ekranlarda da dogru yere bakar):
+        // nokta barin sol tarafinda; bar saga dogru uzanir.
         return intArrayOf(
-            (1195 * w / BW).roundToInt(),
-            (1560 * w / BW).roundToInt(),
-            (66 * h / BH).roundToInt()
+            (bar.x - 0.025f * w).roundToInt().coerceAtLeast(0),
+            (bar.x + 0.11f * w).roundToInt().coerceAtMost(w - 1),
+            (bar.y + 6f * h / BH).roundToInt().coerceAtMost(h - 1)
         )
     }
 
