@@ -194,6 +194,33 @@ object Preset {
         return null
     }
 
+    // Referans (2712x1220) tus olculeri. Sira = skill onceligi.
+    private class Ref(val ad: String, val type: String, val x: Int, val y: Int, val cd: Float = 0f, val on: Boolean = true)
+
+    private val REF = listOf(
+        Ref("Saldırı", "saldiri", 2418, 930),
+        Ref("Mob seç", "hedef", 2570, 1008),
+        Ref("HP pot", "hp_pot", 2370, 757),
+        Ref("MP pot", "mp_pot", 2255, 877),
+        Ref("Skill 1", "skill", 2522, 760, 4f),   // kirmizi isin
+        Ref("Skill 2", "skill", 2338, 615, 4f),   // mavi isin (ust)
+        Ref("Skill 3", "skill", 2108, 862, 4f),   // mavi isin (alt)
+        Ref("Skill 4", "skill", 2212, 727, 5f),   // mavi kilic
+        Ref("Skill 5", "skill", 2107, 1013, 60f, false), // buff olabilir
+        Ref("Skill 6", "skill", 2255, 1013, 60f, false)
+    )
+
+    /**
+     * Hazir tuslarin bu ekrandaki yerleri (sag alta gore olceklenir).
+     * Kullanicinin ayarladigi bekleme/acik-kapali secimleri korunur.
+     */
+    fun otoTuslar(o: Olcek, eski: List<Nokta>): List<Nokta> =
+        REF.map { r ->
+            val p = sagAlt(o, r.x, r.y)
+            val e = eski.firstOrNull { it.name == r.ad && it.type == r.type }
+            Nokta(r.ad, r.type, p[0], p[1], e?.cd ?: r.cd, e?.on ?: r.on)
+        }
+
     /** Tanima olmazsa: eski usul (genislige gore) olcek */
     fun varsayilanOlcek(ctx: Context): Olcek {
         val (w, h) = landscapeSize(ctx)
