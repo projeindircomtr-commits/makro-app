@@ -17,6 +17,14 @@ try {
     $u = $q->fetch();
     if (!$u) cik(['ok' => 0]);
 
+    // Uygulamadan gelen son hata kaydi
+    $hata = trim(mb_substr($_GET['hata'] ?? '', 0, 500));
+    if ($hata !== '') {
+        $hz = (int)($_GET['hz'] ?? 0);
+        $pdo->prepare('UPDATE makro_uyeler SET son_hata = ?, son_hata_zaman = ? WHERE id = ?')
+            ->execute([$hata, $hz > 0 ? $hz : time(), $u['id']]);
+    }
+
     $surum = (int)($_GET['surum'] ?? 0);
     $pdo->prepare('UPDATE makro_uyeler SET surum = ? WHERE id = ?')->execute([$surum, $u['id']]);
     $engel = surum_engeli($surum);

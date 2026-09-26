@@ -176,6 +176,11 @@ a{color:#e0b04a}
 <b><?= e($u['kullanici']) ?></b> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?><br>
 <?= $durum ?> <span class="gri">• bitiş <?= date('d.m.Y H:i', (int)$u['bitis']) ?></span><br>
 <span class="gri">Sürüm: <?= !empty($u['surum']) ? (int)$u['surum'] : '-' ?> • Cihaz: <?= $u['cihaz'] ? e($u['cihaz']) : 'henüz bağlanmadı' ?> • Son giriş: <?= $u['son_giris'] ? date('d.m H:i', (int)$u['son_giris']) : '-' ?></span><br>
+<?php if (!empty($u['son_hata'])): ?>
+<div style="background:#3a2226;border-left:3px solid #e06464;padding:6px 8px;margin:6px 0;border-radius:0 8px 8px 0;font-size:12px;word-break:break-all">
+⚠ Son hata (<?= date('d.m H:i', (int)$u['son_hata_zaman']) ?>): <?= e($u['son_hata']) ?>
+</div>
+<?php endif; ?>
 <?= form('uzat', (int)$u['id'], '+ Süre ekle', '#2e9e5b', true) ?>
 <?= form('durum', (int)$u['id'], (int)$u['aktif'] ? 'Kapat' : 'Aç', '#8a6d1f') ?>
 <?= form('cihaz', (int)$u['id'], 'Cihaz sıfırla', '#2d3846', false, 'Cihaz bağlantısı sıfırlansın mı?') ?>

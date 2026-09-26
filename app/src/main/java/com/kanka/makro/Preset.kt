@@ -226,6 +226,10 @@ object Preset {
         return Olcek(w / BW, 0, 0, w, h)
     }
 
+    /** Alt ortaya gore (Town/Map... alt cubugu) */
+    fun altOrta(o: Olcek, xr: Int, yr: Int) =
+        intArrayOf((o.w / 2f + (xr - BW / 2f) * o.s).roundToInt(), (o.h - (BH - yr) * o.s).roundToInt())
+
     /** Sol uste gore */
     fun solUst(o: Olcek, xr: Int, yr: Int) =
         intArrayOf((o.ox + xr * o.s).roundToInt(), (o.oy + yr * o.s).roundToInt())

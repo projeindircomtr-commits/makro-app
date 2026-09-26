@@ -23,6 +23,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -129,6 +130,17 @@ class MacroService : AccessibilityService() {
     private var kilitUyarildi = false
     @Volatile private var kilitBekleUntil = 0L   // kilitli mob yok: bu ana kadar hicbir sey yapma
 
+    // Guvenlik: oyun onde mi, ekran acik mi, goruntu taze mi
+    @Volatile private var sonPaket = ""      // en son one gelen uygulama
+    @Volatile private var oyunPaketi = ""    // ▶'a basildiginda ondeki uygulama
+    @Volatile private var bekleNeden = ""    // panelde gosterilecek bekleme sebebi
+
+    // Banka turu
+    private var innT: Sablon? = null
+    private var bankaT: Sablon? = null
+    @Volatile private var bankaIstendi = false
+    @Volatile private var bankaCalisiyor = false
+
     // Istatistik
     @Volatile private var kesilen = 0
     @Volatile private var toplanan = 0
@@ -162,12 +174,29 @@ class MacroService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
         Lisans.yukle(this)
+        // Beklenmedik cokmeleri kaydet (panele raporlanir)
+        val onceki = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            hataKaydet("ÇÖKME", e)
+            onceki?.uncaughtException(t, e)
+        }
         updateScreenSize()
         showPanel()
         ah.postDelayed(mesajDongu, 3000)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val p = event.packageName?.toString() ?: return
+        if (gormezdenGel(p)) return
+        sonPaket = p
+    }
+
+    /** Bu paketler one gelse de "oyundan cikildi" sayilmaz */
+    private fun gormezdenGel(p: String): Boolean =
+        p == packageName || p == "com.android.systemui" || p == "android" ||
+            p.contains("inputmethod") || p.contains("keyboard") || p.contains(".ime") ||
+            p.contains("permissioncontroller") || p.contains("securitycenter")
 
     override fun onInterrupt() {
         stopMacro()
@@ -400,6 +429,7 @@ class MacroService : AccessibilityService() {
             "Menü",
             listOf(
                 "⚙ Ayarlar" to { ayarKarti() },
+                "🏦 Banka" to { bankaKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
@@ -547,6 +577,278 @@ class MacroService : AccessibilityService() {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         ortadaGoster(box, dp(440))
+    }
+
+    // ================= Banka turu =================
+    // Town -> joystick ile Inn hostess'e yuru (Open gorunce dur) -> Open -> Inn Hostes Open
+    // -> envanterin ust 3 sirasina cift dokun (otomatik bankaya gider) -> X -> Town -> kasmaya devam
+
+    private fun uyu(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (e: InterruptedException) {
+        }
+    }
+
+    private fun anlikDokun(x: Float, y: Float) {
+        val p = Path().apply { moveTo(x, y); lineTo(x + 1, y + 1) }
+        try {
+            dispatchGesture(GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p, 0, rand(50, 80))).build(), null, null)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** Iki kez hizli dokunus (esyayi bankaya atar) */
+    private fun ciftDokun(x: Float, y: Float) {
+        val a = Path().apply { moveTo(x, y); lineTo(x + 1, y) }
+        val b = Path().apply { moveTo(x + 1, y + 1); lineTo(x, y + 1) }
+        try {
+            dispatchGesture(GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(a, 0, 45))
+                .addStroke(GestureDescription.StrokeDescription(b, rand(120, 150), 45))
+                .build(), null, null)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun joyMerkez(): FloatArray = floatArrayOf(screenW * 0.194f, screenH * 0.625f)
+
+    /**
+     * Joystick'i yon kadar itip sure boyunca basili tutar. Parmak hedefe ~0.1 sn'de varir,
+     * kalan surede orada kucuk titremelerle bekler (yonu degismez).
+     */
+    private fun joystick(yon: Int, sureMs: Long) {
+        val m = joyMerkez()
+        val a = Math.toRadians(yon * 45.0)
+        val r = 110f * (olcek?.s ?: 1f)
+        val ex = (m[0] + r * Math.sin(a)).toFloat()
+        val ey = (m[1] - r * Math.cos(a)).toFloat()
+        val sure = sureMs.coerceIn(200L, 59_000L)
+        val p = Path().apply {
+            moveTo(m[0], m[1])
+            lineTo(ex, ey)
+            // Kalan sure icin titreme: toplam yol, ilk hareket ~0.1 sn surecek kadar uzun
+            val titreme = (r * (sure / 100f - 1f)).coerceAtLeast(0f)
+            val adim = 4f
+            var yol = 0f
+            var k = 0
+            while (yol < titreme && k < 40_000) {
+                if (k % 2 == 0) lineTo(ex + adim, ey) else lineTo(ex, ey)
+                yol += adim
+                k++
+            }
+        }
+        try {
+            dispatchGesture(GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p, 0, sure)).build(), null, null)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun bul(t: Sablon?): IntArray? {
+        if (t == null) return null
+        val f = ScreenSampler.grab() ?: return null
+        return findT(f, t)
+    }
+
+    private fun bekleBul(t: Sablon?, ms: Long): IntArray? {
+        val son = SystemClock.uptimeMillis() + ms
+        while (SystemClock.uptimeMillis() < son) {
+            bul(t)?.let { return it }
+            uyu(150)
+        }
+        return null
+    }
+
+    private fun sablonMerkez(t: Sablon, pos: IntArray) = floatArrayOf(
+        ScreenSampler.toScreen(pos[0] + t.w / 2f), ScreenSampler.toScreen(pos[1] + t.h / 2f)
+    )
+
+    /** Town'a bas ve oyun ekrani yeniden gorunene kadar bekle */
+    private fun townaGit(o: Preset.Olcek): Boolean {
+        val t = Preset.altOrta(o, 1663, 1176)
+        anlikDokun(t[0].toFloat(), t[1].toFloat())
+        uyu(3000)
+        val son = SystemClock.uptimeMillis() + 15_000
+        while (SystemClock.uptimeMillis() < son) {
+            if (Preset.olcekBul(this) != null) {
+                uyu(800)
+                return true
+            }
+            uyu(700)
+        }
+        return false
+    }
+
+    /** Joystick yolunu yurur; Open (Inn hostess) gorunce durur */
+    private fun npcyeYuru(): IntArray? {
+        for (a in cfg.rota) {
+            if (!running && !bankaCalisiyor) return null
+            val sure = (a.sure * 1000).toLong()
+            joystick(a.yon, sure)
+            val son = SystemClock.uptimeMillis() + sure
+            while (SystemClock.uptimeMillis() < son) {
+                uyu(250)
+                val pos = bul(cfg.openT)
+                if (pos != null) {
+                    // Dur: joystick'e kisa dokunus mevcut hareketi keser
+                    val m = joyMerkez()
+                    anlikDokun(m[0], m[1])
+                    uyu(400)
+                    return bul(cfg.openT) ?: pos
+                }
+            }
+            uyu(150)
+        }
+        return bekleBul(cfg.openT, 1500)
+    }
+
+    /** tam=false: sadece Town + yuruyus testi */
+    private fun bankaRutini(tam: Boolean): String? {
+        val o = olcek ?: return "Ekran tanınmadı"
+        if (cfg.rota.isEmpty()) return "Banka yolu ayarlanmamış (⋯ → 🏦 Banka)"
+        if (!townaGit(o)) return "Town sonrası oyun ekranı gelmedi"
+
+        val openPos = npcyeYuru() ?: return "Inn hostess'e ulaşılamadı (Open çıkmadı). Yolu kontrol et"
+        val op = cfg.openT!!
+        val oc = sablonMerkez(op, openPos)
+        if (!tam) return null   // yuruyus testi basarili
+
+        anlikDokun(oc[0], oc[1])
+        val innPos = bekleBul(innT, 4000) ?: return "NPC menüsü açılmadı"
+        val ic = sablonMerkez(innT!!, innPos)
+        anlikDokun(ic[0], ic[1])
+        val bPos = bekleBul(bankaT, 5000) ?: return "Banka penceresi açılmadı"
+        val bc = sablonMerkez(bankaT!!, bPos)
+        val s = o.s
+
+        // Envanterin ust 3 sirasi (en alt sira dokunulmaz): cift dokunus = bankaya
+        for (r in 0 until 3) {
+            for (c in 0 until 7) {
+                ciftDokun(bc[0] + (-322.5f + c * 105.2f) * s, bc[1] + (716.5f + r * 102f) * s)
+                uyu(rand(260, 340))
+            }
+        }
+        uyu(500)
+        anlikDokun(bc[0] + 319.5f * s, bc[1] - 4.5f * s)   // X ile kapat
+        uyu(900)
+
+        if (!townaGit(o)) return "Dönüşte Town sonrası ekran gelmedi"
+        return null
+    }
+
+    /** Banka turunu calistirir (worker thread'de, bloklayarak) */
+    private fun bankaTuru(tam: Boolean) {
+        bankaCalisiyor = true
+        bekleNeden = "🏦"
+        toast(if (tam) "🏦 Envanter dolu: bankaya gidiliyor" else "🏦 Yürüyüş testi")
+        val hata = try {
+            bankaRutini(tam)
+        } catch (e: Exception) {
+            hataKaydet("banka", e)
+            "Beklenmedik hata"
+        }
+        bankaCalisiyor = false
+        bekleNeden = ""
+        // Kasma durumlarini sifirla
+        lootPhase = Loot.BOS
+        collectStreak = 0
+        doluKutuAt = 0L
+        nextTarget = 0L
+        kilitBekleUntil = 0L
+        oncekiCanli = false
+        if (hata == null) {
+            toast(if (tam) "🏦 Banka tamam, kasmaya devam" else "✓ Yürüyüş başarılı: Inn hostess bulundu")
+        } else {
+            vibrate()
+            if (tam && running) stopMacro("🏦 Banka turu başarısız: $hata")
+            else toast("🏦 $hata")
+        }
+    }
+
+    /** Makro dururken test: once ekrani tani, sonra turu calistir */
+    private fun bankaTesti(tam: Boolean) {
+        if (running) {
+            toast("Önce makroyu durdur"); return
+        }
+        if (!ScreenSampler.running) {
+            toast("Ekran okuma kapalı. Önce ▶ ile bir kere başlat"); return
+        }
+        h.post {
+            cfg = Config.load(this)
+            otoMod = true
+            val o = olcek ?: try { Preset.olcekBul(this) } catch (e: Exception) { null }
+            if (o == null) {
+                toast("Oyun ekranı tanınamadı"); return@post
+            }
+            if (olcek == null) olcekUygula(o)
+            bankaTuru(tam)
+        }
+    }
+
+    private fun bankaKarti() {
+        removeOverlay()
+        val c = Config.load(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF01E2A3A.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+        }
+        fun yaz(t: String, renk: Int = Color.WHITE, boy: Float = 14f) = TextView(this).apply {
+            text = t; setTextColor(renk); textSize = boy
+        }
+        fun kaydet(d: (Config) -> Unit) {
+            val cc = Config.load(this); d(cc); cc.save(this)
+            bankaKarti()
+        }
+        box.addView(yaz("🏦 Banka turu", 0xFFE0B04A.toInt(), 16f))
+        box.addView(yaz("Town'dan Inn hostess'e giden yolu joystick adımlarıyla tarif et. " +
+            "Makro yürürken Open çıkınca kendiliğinden durur.", 0xFFB0B8C4.toInt(), 12f).apply {
+            setPadding(0, dp(2), 0, dp(8))
+        })
+
+        val oto = menuBtn(if (c.bankaOto) "Envanter dolunca git: AÇIK" else "Envanter dolunca git: KAPALI") {
+            kaydet { it.bankaOto = !it.bankaOto }
+        }
+        box.addView(oto, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+
+        if (c.rota.isEmpty()) box.addView(yaz("Henüz yol yok. + Adım ekle", 0xFFB0B8C4.toInt(), 13f))
+        c.rota.forEachIndexed { i, a ->
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            r.addView(yaz("${i + 1}.", boy = 14f), LinearLayout.LayoutParams(dp(26), LinearLayout.LayoutParams.WRAP_CONTENT))
+            r.addView(menuBtn(RotaAdim.OKLAR[a.yon]) { kaydet { it.rota[i].yon = (it.rota[i].yon + 1) % 8 } }
+                .apply { textSize = 18f })
+            r.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            r.addView(menuBtn("−") { kaydet { it.rota[i].sure = (it.rota[i].sure - 0.5f).coerceAtLeast(0.5f) } })
+            r.addView(yaz("%.1f sn".format(a.sure)).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT))
+            r.addView(menuBtn("+") { kaydet { it.rota[i].sure = (it.rota[i].sure + 0.5f).coerceAtMost(59f) } })
+            r.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            r.addView(btn("🗑") { kaydet { it.rota.removeAt(i) } }.apply { background = rounded(0xCC8B0000.toInt()) })
+            box.addView(r)
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+        }
+        box.addView(menuBtn("+ Adım ekle") { kaydet { it.rota.add(RotaAdim(0, 3f)) } },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+        box.addView(yaz("Yön okuna dokununca döner: ↑ ileri, → sağ, ↓ geri, ← sol.", 0xFFB0B8C4.toInt(), 12f))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+
+        val tr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tr.addView(btn("▶ Yürüyüş testi") { removeOverlay(); bankaTesti(false) }
+            .apply { background = rounded(0xFF2D5A8A.toInt()) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        tr.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+        tr.addView(btn("🏦 Tam test") { removeOverlay(); bankaTesti(true) }
+            .apply { background = rounded(0xFF8A6D1F.toInt()) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(tr)
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+        box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        ortadaGoster(box, dp(460))
     }
 
     // ================= Oyun icinde tus duzenleme =================
@@ -840,8 +1142,12 @@ class MacroService : AccessibilityService() {
         if (token.isEmpty()) return
         val pr = getSharedPreferences("mesaj", MODE_PRIVATE)
         val son = pr.getInt("son", 0)
+        val hp = getSharedPreferences("hata", MODE_PRIVATE)
+        val hataMetni = if (!hp.getBoolean("gonderildi", true)) hp.getString("son", "") ?: "" else ""
         val tam = url + "?token=" + URLEncoder.encode(token, "UTF-8") +
-            "&son=" + son + "&surum=" + Lisans.surumKodu(this)
+            "&son=" + son + "&surum=" + Lisans.surumKodu(this) +
+            (if (hataMetni.isNotEmpty()) "&hata=" + URLEncoder.encode(hataMetni, "UTF-8") +
+                "&hz=" + hp.getLong("zaman", 0L) else "")
         val bag = URL(tam).openConnection() as HttpURLConnection
         bag.connectTimeout = 8000
         bag.readTimeout = 8000
@@ -849,6 +1155,7 @@ class MacroService : AccessibilityService() {
         bag.disconnect()
         val j = JSONObject(cevap)
         if (j.optInt("ok") != 1) return
+        if (hataMetni.isNotEmpty()) hp.edit().putBoolean("gonderildi", true).apply()
 
         // Eski surum: makroyu durdur, guncelleme iste
         val g = j.optJSONObject("guncelle")
@@ -987,6 +1294,27 @@ class MacroService : AccessibilityService() {
         } catch (e: Exception) {
             kart = null
         }
+    }
+
+    /** Hatayi kisa haliyle kaydeder; dakikalik kontrolde sunucuya gonderilir */
+    private fun hataKaydet(yer: String, e: Throwable) {
+        try {
+            val iz = e.stackTrace.take(3).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }
+            val metin = "$yer: ${e.javaClass.simpleName}: ${e.message ?: ""} @ $iz".take(480)
+            getSharedPreferences("hata", MODE_PRIVATE).edit()
+                .putString("son", metin).putLong("zaman", System.currentTimeMillis() / 1000)
+                .putBoolean("gonderildi", false).commit()
+        } catch (x: Exception) {
+        }
+    }
+
+    /** Dokunmak guvenli mi? Degilse sebebini dondurur */
+    private fun dokunmaEngeli(now: Long): String? {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        if (!pm.isInteractive) return "🌙"
+        if (oyunPaketi.isNotEmpty() && sonPaket.isNotEmpty() && sonPaket != oyunPaketi) return "⏸"
+        if (ScreenSampler.running && now - ScreenSampler.lastFrameAt > 3000) return "📷"
+        return null
     }
 
     private fun showBarChooser() {
@@ -1245,6 +1573,7 @@ class MacroService : AccessibilityService() {
                 }
             }
             val ne = when {
+                bekleNeden.isNotEmpty() -> bekleNeden
                 otoMod && olcek == null -> "🔍"
                 simdi < kilitBekleUntil -> "💤"
                 lootPhase != Loot.BOS -> "📦"
@@ -1352,6 +1681,15 @@ class MacroService : AccessibilityService() {
             doluKutuAt = 0L
         }
         running = true
+        oyunPaketi = sonPaket   // su an ondeki uygulama = oyun
+        bekleNeden = ""
+        // Envanter doldu: banka turu (bu sirada kasma durur)
+        if (bankaIstendi && !bankaCalisiyor) {
+            bankaIstendi = false
+            bankaTuru(true)
+            if (running) h.postDelayed(stepR, 300)
+            return
+        }
         sonLisansKontrol = SystemClock.uptimeMillis()
         playBtn?.text = "⏸"
         h.postDelayed(stepR, 700)
@@ -1377,6 +1715,26 @@ class MacroService : AccessibilityService() {
     /** worker thread'inde calisir; her adimda tek dokunus, bitince sonraki planlanir */
     private fun step() {
         if (!running) return
+        try {
+            stepIc()
+        } catch (e: Exception) {
+            // Makro olmesin: hatayi kaydet, 1 sn sonra devam et
+            hataKaydet("adım", e)
+            tapping = false
+            if (running) h.postDelayed(stepR, 1000)
+        }
+    }
+
+    private fun stepIc() {
+        if (!running) return
+        // Oyun arkadaysa / ekran kapaliysa / goruntu yoksa DOKUNMA
+        val engel = dokunmaEngeli(SystemClock.uptimeMillis())
+        if (engel != null) {
+            bekleNeden = engel
+            h.postDelayed(stepR, 500)
+            return
+        }
+        bekleNeden = ""
         val now = SystemClock.uptimeMillis()
         if (now >= endAt) {
             stopMacro("Süre bitti, makro durdu"); return
@@ -1434,7 +1792,18 @@ class MacroService : AccessibilityService() {
     private val kutuGozcu = object : Runnable {
         override fun run() {
             if (!running) return
-            if (!tapping && (!otoMod || olcek != null)) {
+            try {
+                gozcuIc()
+            } catch (e: Exception) {
+                hataKaydet("kutu", e)
+            }
+            h.postDelayed(this, 120)
+        }
+
+        private fun gozcuIc() {
+            if (!tapping && (!otoMod || olcek != null) &&
+                dokunmaEngeli(SystemClock.uptimeMillis()) == null
+            ) {
                 val now = SystemClock.uptimeMillis()
                 val t = lootAction(now)
                 if (t != null) {
@@ -1446,7 +1815,6 @@ class MacroService : AccessibilityService() {
                     }
                 }
             }
-            h.postDelayed(this, 120)
         }
     }
 
@@ -1559,6 +1927,8 @@ class MacroService : AccessibilityService() {
         Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
+        innT = Preset.loadTemplateF(this, "inn_open.png", o.s, 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "banka_baslik.png", o.s, 17, 0.5f, 0.5f)
         hpSol = Preset.solUst(o, 72, 26)
         val h1 = Preset.solUst(o, 62, 26)
         val h2 = Preset.solUst(o, 405, 26)
@@ -1975,6 +2345,8 @@ class MacroService : AccessibilityService() {
             doluKutuX = lastOpenX
             doluKutuY = lastOpenY
             doluKutuAt = now
+            // Envanter dolu: ayarliysa bankaya git
+            if (cfg.bankaOto && cfg.rota.isNotEmpty()) bankaIstendi = true
             return closeHedef(co, pos)
         }
         collectedSinceOpen = true

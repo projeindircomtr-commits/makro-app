@@ -53,6 +53,17 @@ class Sablon(
     }
 }
 
+/** Banka yolu adimi: joystick yonu (0=↑ 1=↗ 2=→ 3=↘ 4=↓ 5=↙ 6=← 7=↖) ve suresi (sn) */
+class RotaAdim(var yon: Int, var sure: Float) {
+    fun toJson(): JSONObject = JSONObject().put("yon", yon).put("sure", sure.toDouble())
+
+    companion object {
+        val OKLAR = arrayOf("↑", "↗", "→", "↘", "↓", "↙", "←", "↖")
+        fun from(o: JSONObject?): RotaAdim? =
+            if (o == null) null else RotaAdim(o.optInt("yon", 0).mod(8), o.optDouble("sure", 1.0).toFloat())
+    }
+}
+
 /** Kilitli mob ismi: harflerin sekli (renk maskesi), yari cozunurlukte */
 class Kilit(val w: Int, val h: Int, val renk: Int, val bits: String) {
     fun toJson(): JSONObject = JSONObject().put("w", w).put("h", h).put("renk", renk).put("bits", bits)
@@ -117,6 +128,10 @@ class Config {
     var hpYuzde = 74
     var mpYuzde = 25
 
+    // Banka: envanter dolunca Town -> Inn hostess -> ust 3 sira bankaya -> Town
+    var bankaOto = false
+    val rota = mutableListOf<RotaAdim>()
+
     // Sadece bu moblara vur (bos = hepsi)
     val kilitler = mutableListOf<Kilit>()
 
@@ -150,6 +165,8 @@ class Config {
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde)
+            .put("bankaOto", bankaOto)
+            .put("rota", JSONArray().apply { rota.forEach { put(it.toJson()) } })
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
@@ -212,6 +229,10 @@ class Config {
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
+                c.bankaOto = o.optBoolean("bankaOto", false)
+                o.optJSONArray("rota")?.let { a ->
+                    for (i in 0 until a.length()) RotaAdim.from(a.optJSONObject(i))?.let { c.rota.add(it) }
+                }
                 c.hpYuzde = o.optInt("hpYuzde", 74)
                 c.mpYuzde = o.optInt("mpYuzde", 25)
                 o.optJSONArray("kilitler")?.let { a ->
