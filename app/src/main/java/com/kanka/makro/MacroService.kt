@@ -676,7 +676,6 @@ class MacroService : AccessibilityService() {
         "✨ Skill" to { onPick("skill") },
         "❤ HP pot" to { onPick("hp_pot") },
         "💧 MP pot" to { onPick("mp_pot") },
-        "⚔ Saldırı" to { onPick("saldiri") },
         "🎯 Mob seç" to { onPick("hedef") }
     )
 
@@ -1020,7 +1019,7 @@ class MacroService : AccessibilityService() {
     private fun showTypeChooser(x: Int, y: Int) {
         showMenu(
             "Bu tuş ne? ($x, $y)",
-            listOf("saldiri", "hedef", "skill", "hp_pot", "mp_pot").map { t ->
+            listOf("hedef", "skill", "hp_pot", "mp_pot").map { t ->
                 Config.label(t) to { savePoint(t, x, y) }
             }
         )
@@ -1829,7 +1828,8 @@ class MacroService : AccessibilityService() {
             return p
         }
 
-        return pts.firstOrNull { it.type == "saldiri" }
+        // Capraz kilic (saldiri) tusu kullanilmaz: mob secimi + skiller yeterli
+        return null
     }
 
     // ---------- Kutu ----------
@@ -1970,14 +1970,6 @@ class MacroService : AccessibilityService() {
         lootPhase = Loot.SONRAKI_KUTU
         phaseUntil = now + 700
         nextLootScan = now + rand(200, 260)
-        if (collectStreak >= 6) {
-            // Close da ise yaramadi: takilmamak icin kisa mola
-            collectStreak = 0
-            lootPhase = Loot.BOS
-            lootPauseUntil = now + 15_000
-            toast("Kutu penceresi kapanmıyor, 15 sn kutular atlanıyor")
-            return null
-        }
         if (collectStreak >= 3) {
             // 2 kez Collect All'a rağmen acik: envanter dolu, Close ile kapat ve devam et
             doluKutuX = lastOpenX

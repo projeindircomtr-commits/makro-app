@@ -198,7 +198,6 @@ object Preset {
     private class Ref(val ad: String, val type: String, val x: Int, val y: Int, val cd: Float = 0f, val on: Boolean = true)
 
     private val REF = listOf(
-        Ref("Saldırı", "saldiri", 2418, 930),
         Ref("Mob seç", "hedef", 2570, 1008),
         Ref("HP pot", "hp_pot", 2370, 757),
         Ref("MP pot", "mp_pot", 2255, 877),
