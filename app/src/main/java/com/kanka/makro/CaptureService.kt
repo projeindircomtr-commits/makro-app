@@ -122,7 +122,7 @@ class CaptureService : Service() {
         val vw = (w * ScreenSampler.SCALE).toInt().coerceAtLeast(1)
         val vh = (h * ScreenSampler.SCALE).toInt().coerceAtLeast(1)
 
-        val r = ImageReader.newInstance(vw, vh, PixelFormat.RGBA_8888, 3)
+        val r = ImageReader.newInstance(vw, vh, PixelFormat.RGBA_8888, 5)
         r.setOnImageAvailableListener({ rd ->
             val img = try {
                 rd.acquireLatestImage()
@@ -154,11 +154,19 @@ class CaptureService : Service() {
         }
     }
 
+    private var sonYenileme = 0L
+
+    /** Saniyede bir: yon degistiyse ya da goruntu kesildiyse yakalamayi yeniden kur */
     private val yonKontrol = object : Runnable {
         override fun run() {
             if (projection == null) return
             val (w, h) = realSize()
-            if (w != curW || h != curH) rebuild()
+            val simdi = SystemClock.uptimeMillis()
+            val kesik = simdi - ScreenSampler.lastFrameAt > 2500 && simdi - sonYenileme > 2500
+            if (w != curW || h != curH || kesik) {
+                sonYenileme = simdi
+                rebuild()
+            }
             handler.postDelayed(this, 1000)
         }
     }

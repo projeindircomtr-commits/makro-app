@@ -2,6 +2,7 @@ package com.kanka.makro
 
 import android.graphics.Bitmap
 import android.media.Image
+import android.os.SystemClock
 import kotlin.math.abs
 
 /**
@@ -18,11 +19,32 @@ object ScreenSampler {
     @Volatile
     var running = false
 
+    /** Son goruntunun geldigi an (uptime ms) */
+    @Volatile
+    var lastFrameAt = 0L
+
     fun offer(img: Image) {
         synchronized(lock) {
             latest?.close()
             latest = img
         }
+        lastFrameAt = SystemClock.uptimeMillis()
+    }
+
+    fun hasFrame(): Boolean = synchronized(lock) { latest != null }
+
+    /** Goruntu yoksa en fazla ms kadar bekle (ana thread'de cagirma) */
+    fun bekle(ms: Long): Boolean {
+        val son = SystemClock.uptimeMillis() + ms
+        while (!hasFrame()) {
+            if (SystemClock.uptimeMillis() > son) return false
+            try {
+                Thread.sleep(40)
+            } catch (e: InterruptedException) {
+                return false
+            }
+        }
+        return true
     }
 
     fun clear() {

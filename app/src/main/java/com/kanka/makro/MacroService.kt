@@ -580,13 +580,15 @@ class MacroService : AccessibilityService() {
             } catch (e: Exception) {
                 null
             }
+            ScreenSampler.bekle(600)
+            val yas = SystemClock.uptimeMillis() - ScreenSampler.lastFrameAt
             val bmp = ScreenSampler.tamKare()
             val kayit = if (bmp != null) pngKaydet(bmp, "pedal_test_${System.currentTimeMillis() / 1000}.png") else false
             val (w, hh) = Preset.landscapeSize(this)
             val kare = if (bmp != null) "${bmp.width}x${bmp.height}" else "yok"
             val sonuc = if (o != null) "BULUNDU ölçek %.2f".format(o.s)
             else "bulunamadı (fark ${Preset.sonFark}, en yakın %.2f)".format(Preset.sonOlcekDegeri)
-            toast("Ekran ${w}x$hh • kare $kare • aslan $sonuc" +
+            toast("Ekran ${w}x$hh • kare $kare (${yas} ms önce) • aslan $sonuc" +
                 if (kayit) " • İndirilenler'e kaydedildi" else " • resim kaydedilemedi")
         }
     }

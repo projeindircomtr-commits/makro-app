@@ -124,6 +124,7 @@ object Preset {
      */
     fun olcekBul(ctx: Context): Olcek? {
         if (!aslan(ctx)) return null
+        ScreenSampler.bekle(600)
         val f = ScreenSampler.grab() ?: return null
         val (w, h) = landscapeSize(ctx)
         val src = Bitmap.createBitmap(aslanPx!!, aslanW, aslanH, Bitmap.Config.ARGB_8888)
