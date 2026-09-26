@@ -28,7 +28,9 @@ android {
     buildTypes {
         debug { signingConfig signingConfigs.sabit }
         release {
-            minifyEnabled false
+            // Kodu karistir/kucult: APK'yi sokup lisansi atlatmayi zorlastirir
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
             signingConfig signingConfigs.sabit
         }
     }

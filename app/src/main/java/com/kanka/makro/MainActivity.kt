@@ -93,6 +93,11 @@ class MainActivity : Activity() {
     private val onChecks = HashMap<Int, CheckBox>()
 
     // ---------- Gorunumler ----------
+    private lateinit var lisansDurum: TextView
+    private lateinit var girisBox: LinearLayout
+    private lateinit var cikisBtn: Button
+    private lateinit var kEdit: EditText
+    private lateinit var sEdit: EditText
     private lateinit var step1: TextView
     private lateinit var step2: TextView
     private lateinit var step3: TextView
@@ -142,6 +147,46 @@ class MainActivity : Activity() {
             setTextColor(ACCENT)
             setPadding(0, 0, 0, dp(14))
         })
+
+        // --- Uyelik karti ---
+        val lk = card(root)
+        lk.addView(cardTitle("Üyelik"))
+        lisansDurum = TextView(this).apply {
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setPadding(dp(4), 0, 0, dp(6))
+        }
+        lk.addView(lisansDurum)
+        girisBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        kEdit = EditText(this).apply {
+            hint = "Kullanıcı adı"
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+        }
+        sEdit = EditText(this).apply {
+            hint = "Şifre"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+        }
+        girisBox.addView(kEdit)
+        girisBox.addView(sEdit)
+        girisBox.addView(smallButton("Giriş yap") { girisYap() })
+        girisBox.addView(TextView(this).apply {
+            text = "Cihaz kodu: " + Lisans.cihazKodu(this@MainActivity)
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(8), 0, 0)
+        })
+        lk.addView(girisBox)
+        cikisBtn = smallButton("Çıkış yap") {
+            Lisans.cikis(this)
+            lisansYenile()
+        }
+        lk.addView(cikisBtn)
 
         // --- Kurulum karti ---
         val setup = card(root)
@@ -253,6 +298,45 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        lisansYenile()
+        // Kayitli giris varsa sessizce dogrula
+        if (!Lisans.gecerliSimdi() && Lisans.kayitliKullanici(this).isNotEmpty()) {
+            lisansDurum.text = "Kontrol ediliyor..."
+            Lisans.arkaPlanKontrol(this) { r ->
+                if (!r.ok) toast(r.mesaj)
+                lisansYenile()
+            }
+        }
+    }
+
+    private fun lisansYenile() {
+        val ok = Lisans.gecerliSimdi()
+        if (ok) {
+            val k = Lisans.kalanSn()
+            val g = k / 86400
+            val sa = (k % 86400) / 3600
+            val kalan = if (g > 0) "$g gün $sa saat" else "$sa saat ${(k % 3600) / 60} dk"
+            lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı"
+        } else {
+            lisansDurum.text = "❌ Giriş yapılmadı"
+        }
+        girisBox.visibility = if (ok) View.GONE else View.VISIBLE
+        cikisBtn.visibility = if (ok) View.VISIBLE else View.GONE
+        if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
+    }
+
+    private fun girisYap() {
+        val k = kEdit.text.toString().trim()
+        val s = sEdit.text.toString()
+        if (k.isEmpty() || s.isEmpty()) {
+            toast("Kullanıcı adı ve şifre yaz"); return
+        }
+        lisansDurum.text = "Giriş yapılıyor..."
+        Lisans.giris(this, k, s) { r ->
+            toast(r.mesaj)
+            if (r.ok) sEdit.setText("")
+            lisansYenile()
+        }
     }
 
     override fun onPause() {
@@ -464,6 +548,10 @@ class MainActivity : Activity() {
 
     private fun startAll() {
         saveAll()
+        if (!Lisans.gecerliSimdi()) {
+            toast("Önce üyelik girişi yap")
+            return
+        }
         if (!accEnabled() || MacroService.instance == null) {
             AlertDialog.Builder(this)
                 .setTitle("Önce izin gerekli")

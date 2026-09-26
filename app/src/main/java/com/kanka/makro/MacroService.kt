@@ -61,6 +61,8 @@ class MacroService : AccessibilityService() {
     @Volatile
     private var running = false
     private var pendingStart = false
+    private var lisansKontrolde = false
+    private var sonLisansKontrol = 0L
     private var cfg = Config()
 
     // Motor durumu (sadece worker thread'inde degisir)
@@ -788,15 +790,54 @@ class MacroService : AccessibilityService() {
         override fun run() {
             if (!running) return
             val left = ((endAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0)
+            // Uyelik: 10 dakikada bir sunucudan tekrar kontrol
+            val simdi = SystemClock.uptimeMillis()
+            if (!Lisans.gecerliSimdi()) {
+                stopMacro("Üyelik doğrulanamadı ya da süresi doldu. Makro durdu")
+                return
+            }
+            if (!lisansKontrolde && simdi - sonLisansKontrol > 10 * 60 * 1000L) {
+                sonLisansKontrol = simdi
+                lisansKontrolde = true
+                Lisans.arkaPlanKontrol(this@MacroService) { r ->
+                    lisansKontrolde = false
+                    // Internet gecici koptuysa hemen durdurma; sadece sunucu "hayir" derse dur
+                    if (!r.ok && !r.ag && running) stopMacro("Üyelik: ${r.mesaj}. Makro durdu")
+                }
+            }
             val ne = if (lootPhase != Loot.BOS) "📦" else "⚔"
             statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60)
             ui.postDelayed(this, 1000)
         }
     }
 
+    private fun openApp() {
+        try {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+        }
+    }
+
     private fun startMacro() {
         removeOverlay()
         closeEditor()
+        // Uyelik kontrolu
+        if (!Lisans.gecerliSimdi()) {
+            if (lisansKontrolde) return
+            lisansKontrolde = true
+            statusTv?.text = "Lisans..."
+            Lisans.arkaPlanKontrol(this) { r ->
+                lisansKontrolde = false
+                if (r.ok) {
+                    startMacro()
+                } else {
+                    statusTv?.text = "Giriş yok"
+                    toast(r.mesaj)
+                    openApp()
+                }
+            }
+            return
+        }
         cfg = Config.load(this)
         // Hic ayar yoksa MykoMobile hazir ayarini otomatik yukle
         if (cfg.points.isEmpty()) {
@@ -839,6 +880,7 @@ class MacroService : AccessibilityService() {
             collectedSinceOpen = true
         }
         running = true
+        sonLisansKontrol = SystemClock.uptimeMillis()
         playBtn?.text = "⏸"
         h.postDelayed({ step() }, 700)
         ui.removeCallbacks(statusTick)
