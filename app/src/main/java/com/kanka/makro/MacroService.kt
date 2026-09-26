@@ -321,6 +321,11 @@ class MacroService : AccessibilityService() {
         if (running) {
             toast("Menü için önce makroyu durdur (⏸)"); return
         }
+        if (!Lisans.gecerliSimdi()) {
+            toast("Önce uygulamadan üye girişi yap")
+            openApp()
+            return
+        }
         showMenu(
             "Menü",
             listOf(

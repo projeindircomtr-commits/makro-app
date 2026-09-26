@@ -123,6 +123,10 @@ class MainActivity : Activity() {
     private var cfg = Config()
     private var web: WebView? = null
 
+    /** Giris yapilmadan gizli kalan bolumler */
+    private val uyeBolumleri = ArrayList<View>()
+    private var gelismisAcik = false
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     // ================= Kurulum =================
@@ -196,6 +200,7 @@ class MainActivity : Activity() {
 
         // --- Kurulum karti ---
         val setup = card(root)
+        uyeBolumleri.add(setup)
         setup.addView(cardTitle("Kurulum (bir kere)"))
         val r1 = stepRow(setup, "1. Erişilebilirlik izni", "İzin ver") { openAccessibility() }
         step1 = r1.first; btn1 = r1.second
@@ -227,7 +232,9 @@ class MainActivity : Activity() {
         root.addView(startBtn, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(16); bottomMargin = dp(6) })
+        uyeBolumleri.add(startBtn)
         root.addView(TextView(this).apply {
+            uyeBolumleri.add(this)
             text = "Oyunda sol üstteki panelden ⏸ ile durdurabilirsin."
             textSize = 13f
             setTextColor(MUTED)
@@ -237,6 +244,7 @@ class MainActivity : Activity() {
 
         // --- Basit ayarlar ---
         val quick = card(root)
+        uyeBolumleri.add(quick)
         quick.addView(cardTitle("Ayarlar"))
 
         val mRow = row()
@@ -335,6 +343,7 @@ class MainActivity : Activity() {
             setOnClickListener { toggleAdvanced() }
         }
         root.addView(advToggle)
+        uyeBolumleri.add(advToggle)
         advBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -390,6 +399,10 @@ class MainActivity : Activity() {
         }
         girisBox.visibility = if (ok) View.GONE else View.VISIBLE
         cikisBtn.visibility = if (ok) View.VISIBLE else View.GONE
+        // Uye degilse hicbir ayar/secenek gorunmesin
+        val g = if (ok) View.VISIBLE else View.GONE
+        for (v in uyeBolumleri) v.visibility = g
+        advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
     }
 
@@ -582,6 +595,7 @@ class MainActivity : Activity() {
 
     private fun toggleAdvanced() {
         val show = advBox.visibility != View.VISIBLE
+        gelismisAcik = show
         advBox.visibility = if (show) View.VISIBLE else View.GONE
         advToggle.text = if (show) "Gelişmiş ayarlar  ▴" else "Gelişmiş ayarlar  ▾"
     }
