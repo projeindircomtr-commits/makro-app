@@ -767,13 +767,121 @@ class MacroService : AccessibilityService() {
         )
     }
 
+    // ---------- Kapi silueti ve kamera ----------
+
+    /** Dogma noktasindan kapiya bakinca ust bantta sutun parlaklik profili (kaynak: gercek ekran) */
+    private val KAPI_REF = floatArrayOf(1.041f,0.314f,0.187f,0.093f,-0.422f,-0.610f,0.226f,0.059f,0.061f,0.035f,0.035f,0.187f,0.150f,0.029f,0.188f,0.234f,0.294f,0.278f,0.222f,0.101f,0.077f,0.075f,-0.166f,-0.388f,-0.422f,-0.395f,-0.380f,-0.072f,-0.069f,-0.279f,-0.428f,-0.116f,-0.344f,0.034f,0.231f,0.188f,0.188f,0.613f,0.392f,0.257f,0.377f,0.486f,0.674f,0.893f,1.043f,0.679f,0.320f,0.473f,0.625f,0.765f,0.770f,0.795f,0.939f,1.266f,1.040f,0.955f,0.688f,0.619f,1.189f,1.240f,1.237f,0.860f,1.497f,1.587f,1.125f,1.145f,1.319f,1.422f,1.479f,1.366f,1.577f,1.627f,1.629f,1.418f,1.337f,1.152f,1.024f,0.942f,1.301f,1.402f,0.964f,0.516f,0.551f,0.690f,1.024f,0.772f,0.943f,1.146f,0.410f,0.534f,0.421f,0.368f,0.339f,0.308f,0.001f,-0.625f,-0.312f,0.076f,-0.510f,-0.358f,-0.497f,-0.636f,-0.407f,0.170f,0.297f,0.059f,0.342f,0.263f,0.295f,0.136f,0.358f,0.354f,0.345f,0.201f,-0.001f,0.081f,0.040f,0.091f,-0.033f,0.098f,0.135f,0.120f,0.088f,0.026f,0.128f,0.202f,0.281f,0.139f,0.038f,0.126f,-0.010f,-0.146f,-0.145f,-0.010f,-0.015f,-0.234f,-0.253f,-0.365f,-0.338f,-0.327f,-0.410f,-0.477f,-0.537f,-0.689f,-1.003f,-1.215f,-1.587f,-1.600f,-1.479f,-1.780f,-2.081f,-2.070f,-2.143f,-2.175f,-2.273f,-2.001f,-1.983f,-1.918f,-2.260f,-2.209f,-2.310f,-2.103f,-2.178f,-2.464f,-2.356f,-2.328f,-1.975f,-2.184f,-2.448f)
+
+    private fun kapiBant(): IntArray = intArrayOf(
+        (screenW * 0.2065f).toInt(), (screenH * 0.016f).toInt(),
+        (screenW * 0.8297f).toInt(), (screenH * 0.40f).toInt()
+    )
+
+    /** Su anki ekranin ayni bantta sutun profili (169 kolon, normalize) */
+    private fun siluet(): FloatArray? {
+        val b = kapiBant()
+        val r = ScreenSampler.bolge(b[0], b[1], b[2], b[3]) ?: return null
+        val (w, h, px) = r
+        val n = KAPI_REF.size
+        val bin = FloatArray(n)
+        val say = IntArray(n)
+        var y = 0
+        while (y < h) {
+            for (x in 0 until w) {
+                val c = px[y * w + x]
+                val g = (((c shr 16) and 0xff) * 299 + ((c shr 8) and 0xff) * 587 + (c and 0xff) * 114) / 1000
+                val k = (x * n / w).coerceIn(0, n - 1)
+                bin[k] += g.toFloat()
+                say[k]++
+            }
+            y += 2
+        }
+        var ort = 0f
+        for (k in 0 until n) { bin[k] = if (say[k] > 0) bin[k] / say[k] else 0f; ort += bin[k] }
+        ort /= n
+        var sd = 0f
+        for (k in 0 until n) sd += (bin[k] - ort) * (bin[k] - ort)
+        sd = kotlin.math.sqrt(sd / n) + 1e-3f
+        for (k in 0 until n) bin[k] = (bin[k] - ort) / sd
+        return bin
+    }
+
+    /** (benzerlik, kapinin merkeze gore yatay kaymasi px; eksi = solda) */
+    private fun kapiEslesme(): FloatArray? {
+        val c = siluet() ?: return null
+        val ref = KAPI_REF
+        val n = ref.size
+        var best = -2f
+        var bestS = 0
+        for (sft in -40..40) {
+            var sxy = 0f; var sx = 0f; var sy = 0f; var sxx = 0f; var syy = 0f; var m = 0
+            for (i in 0 until n) {
+                val j = i + sft
+                if (j < 0 || j >= n) continue
+                val a = ref[j]; val bb = c[i]
+                sx += a; sy += bb; sxy += a * bb; sxx += a * a; syy += bb * bb; m++
+            }
+            if (m < n / 2) continue
+            val cov = sxy / m - (sx / m) * (sy / m)
+            val va = sxx / m - (sx / m) * (sx / m)
+            val vb = syy / m - (sy / m) * (sy / m)
+            val r = cov / (kotlin.math.sqrt(va * vb) + 1e-6f)
+            if (r > best) { best = r; bestS = sft }
+        }
+        val bant = kapiBant()
+        val binPx = (bant[2] - bant[0]).toFloat() / n
+        return floatArrayOf(best, -bestS * binPx)
+    }
+
+    /** Sagda bos bir yere basip yatay surukleyerek kamerayi cevirir */
+    private fun kameraCevir(dx: Float) {
+        val x = screenW * 0.66f
+        val y = screenH * 0.30f
+        val ex = (x + dx).coerceIn(screenW * 0.35f, screenW * 0.97f)
+        val p = Path().apply { moveTo(x, y); lineTo(ex, y + 2) }
+        try {
+            dispatchGesture(GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p, 0, 320)).build(), null, null)
+        } catch (e: Exception) {
+        }
+        uyu(450)
+    }
+
+    /**
+     * Kamerayi adim adim cevirerek kapi siluetini arar; bulunca kapiyi ekranin ortasina alir.
+     * Surukleme yonu ile kamera yonu cihaza gore degisebildigi icin yon kendiliginden ogrenilir.
+     */
+    private fun kapiyiBul(): Boolean {
+        val adim = screenW * 0.12f
+        for (i in 0 until 26) {
+            val k = kapiEslesme()
+            if (k != null && k[0] >= 0.72f) {
+                bekleNeden = "🏦🚪"
+                var yon = 1f
+                for (j in 0 until 8) {
+                    val a = kapiEslesme() ?: return true
+                    if (kotlin.math.abs(a[1]) < screenW * 0.05f) return true
+                    kameraCevir(yon * a[1] * 0.8f)
+                    val b = kapiEslesme() ?: return true
+                    if (b[0] < 0.6f || kotlin.math.abs(b[1]) > kotlin.math.abs(a[1])) yon = -yon
+                }
+                return true
+            }
+            bekleNeden = "🏦🔄"
+            kameraCevir(-adim)
+        }
+        return false
+    }
+
     /**
      * Insan gibi yurur: yazi gorunmuyorsa tarif edilen yonde kisa adimlarla ilerler ve bakinir;
      * "Inn hostess" yazisini gorunce ona dogru yonelir, her adimda yonunu duzeltir.
      * Open cikinca durur.
      */
     private fun npcyeYuru(): IntArray? {
-        val rota = if (cfg.rota.isEmpty()) listOf(RotaAdim(0, 25f)) else cfg.rota
+        // Once etrafa bakin: yazi gorunmuyorsa kamerayi cevirip kapiyi bul ve ortala
+        if (etiketBul() == null) kapiyiBul()
+        val rota = listOf(RotaAdim(0, 30f))
         val rotaMs = rota.sumOf { (it.sure * 1000).toLong() }
         val son = SystemClock.uptimeMillis() + rotaMs + 20_000
         var rotaIdx = 0
@@ -797,8 +905,15 @@ class MacroService : AccessibilityService() {
                 joystickAci(aci, BURST)
             } else {
                 bekleNeden = "🏦"
-                val a = if (rotaIdx < rota.size) rota[rotaIdx] else RotaAdim(0, 1f)
-                joystick(a.yon, BURST)
+                // Kapi gorunuyorsa ona dogru, gorunmuyorsa duz ileri
+                val k = kapiEslesme()
+                if (k != null && k[0] >= 0.65f) {
+                    bekleNeden = "🏦🚪"
+                    joystickAci(Math.atan2(k[1].toDouble(), (screenH * 0.6).toDouble()), BURST)
+                } else {
+                    val a = if (rotaIdx < rota.size) rota[rotaIdx] else RotaAdim(0, 1f)
+                    joystick(a.yon, BURST)
+                }
                 if (rotaIdx < rota.size) {
                     adimKalan -= BURST
                     if (adimKalan <= 0) {
@@ -828,10 +943,19 @@ class MacroService : AccessibilityService() {
         val oc = sablonMerkez(op, openPos)
         if (!tam) return null   // yuruyus testi basarili
 
-        anlikDokun(oc[0], oc[1])
-        val innPos = bekleBul(innT, 4000) ?: return "NPC menüsü açılmadı"
-        val ic = sablonMerkez(innT!!, innPos)
-        anlikDokun(ic[0], ic[1])
+        // Open'a bas, sagdaki menu gelmezse tekrar bas (en fazla 3 kez)
+        var innPos: IntArray? = null
+        var ocx = oc[0]
+        var ocy = oc[1]
+        for (deneme in 0 until 3) {
+            anlikDokun(ocx, ocy)
+            innPos = bekleBul(innT, 2500)
+            if (innPos != null) break
+            bul(cfg.openT)?.let { p -> val m = sablonMerkez(op, p); ocx = m[0]; ocy = m[1] }
+        }
+        if (innPos == null) return "NPC menüsü açılmadı"
+        val ih = sablonHedef(innT!!, innPos)   // "Inn Hostes Open" satiri
+        anlikDokun(ih.x, ih.y)
         val bPos = bekleBul(bankaT, 5000) ?: return "Banka penceresi açılmadı"
         val bc = sablonMerkez(bankaT!!, bPos)
         val s = o.s
@@ -2013,7 +2137,7 @@ class MacroService : AccessibilityService() {
         Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
-        innT = Preset.loadTemplateF(this, "inn_open.png", o.s, 20, 0.5f, 0.5f)
+        innT = Preset.loadTemplateF(this, "inn_menu.png", o.s, 26, 0.495f, 0.175f)
         bankaT = Preset.loadTemplateF(this, "banka_baslik.png", o.s, 17, 0.5f, 0.5f)
         hpSol = Preset.solUst(o, 72, 26)
         val h1 = Preset.solUst(o, 62, 26)
