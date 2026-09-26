@@ -139,6 +139,11 @@ class MacroService : AccessibilityService() {
     private var innT: Sablon? = null
     private var bankaT: Sablon? = null
     @Volatile private var bankaIstendi = false
+    private var bankaSonraki = 0L   // basarisiz denemeden sonra tekrar deneme zamani
+    // "Inn hostess" yazisinin sekli (izgara cozunurlugunde, renk maskesi)
+    private var etiketMaske: BooleanArray? = null
+    private var etiketW = 0
+    private var etiketH = 0
     @Volatile private var bankaCalisiyor = false
 
     // Istatistik
@@ -618,9 +623,11 @@ class MacroService : AccessibilityService() {
      * Joystick'i yon kadar itip sure boyunca basili tutar. Parmak hedefe ~0.1 sn'de varir,
      * kalan surede orada kucuk titremelerle bekler (yonu degismez).
      */
-    private fun joystick(yon: Int, sureMs: Long) {
+    private fun joystick(yon: Int, sureMs: Long) = joystickAci(Math.toRadians(yon * 45.0), sureMs)
+
+    /** Joystick'i verilen aciyla (0 = ileri/yukari, saat yonunde) iter */
+    private fun joystickAci(a: Double, sureMs: Long) {
         val m = joyMerkez()
-        val a = Math.toRadians(yon * 45.0)
         val r = 110f * (olcek?.s ?: 1f)
         val ex = (m[0] + r * Math.sin(a)).toFloat()
         val ey = (m[1] - r * Math.cos(a)).toFloat()
@@ -681,33 +688,139 @@ class MacroService : AccessibilityService() {
         return false
     }
 
-    /** Joystick yolunu yurur; Open (Inn hostess) gorunce durur */
+    // ---------- "Inn hostess" yazisini gorerek yurume ----------
+
+    private val ETIKET_RENK = (150 shl 16) or (207 shl 8) or 227   // acik mavi isim
+
+    private fun etiketHazirla(s: Float) {
+        try {
+            val b = assets.open("inn_etiket.png").use { android.graphics.BitmapFactory.decodeStream(it) } ?: return
+            // Yari cozunurluge olcekle, renk maskesi cikar, 2x2 -> izgara (herhangi biri)
+            val hw = (b.width * s * ScreenSampler.SCALE).toInt().coerceAtLeast(4)
+            val hh = (b.height * s * ScreenSampler.SCALE).toInt().coerceAtLeast(4)
+            val sc = Bitmap.createScaledBitmap(b, hw, hh, true)
+            val px = IntArray(hw * hh)
+            sc.getPixels(px, 0, hw, 0, 0, hw, hh)
+            val gw = hw / 2
+            val gh = hh / 2
+            val m = BooleanArray(gw * gh)
+            for (y in 0 until gh) for (x in 0 until gw) {
+                var v = false
+                for (dy in 0..1) for (dx in 0..1) {
+                    if (ScreenSampler.diff(px[(y * 2 + dy) * hw + x * 2 + dx] and 0xFFFFFF, ETIKET_RENK) < 110) v = true
+                }
+                m[y * gw + x] = v
+            }
+            etiketMaske = m
+            etiketW = gw
+            etiketH = gh
+        } catch (e: Exception) {
+        }
+    }
+
+    /**
+     * Ekranin ust %70'inde "Inn hostess" yazisini arar (harf sekli + renk).
+     * Oyuncu isimleri de acik mavi oldugu icin sekle bakilir. Bulursa ekran merkezi.
+     */
+    private fun etiketBul(): FloatArray? {
+        val t = etiketMaske ?: return null
+        val r = ScreenSampler.bolge(0, 0, screenW - 1, (screenH * 0.7f).toInt()) ?: return null
+        val (hw, hh, px) = r
+        val gw = hw / 2
+        val gh = hh / 2
+        // Izgara maskesi + integral (pencere toplami icin)
+        val g = BooleanArray(gw * gh)
+        val ig = IntArray((gw + 1) * (gh + 1))
+        for (y in 0 until gh) {
+            var satir = 0
+            for (x in 0 until gw) {
+                var v = false
+                for (dy in 0..1) for (dx in 0..1) {
+                    if (ScreenSampler.diff(px[(y * 2 + dy) * hw + x * 2 + dx] and 0xFFFFFF, ETIKET_RENK) < 110) v = true
+                }
+                g[y * gw + x] = v
+                if (v) satir++
+                ig[(y + 1) * (gw + 1) + x + 1] = ig[y * (gw + 1) + x + 1] + satir
+            }
+        }
+        val ty = ArrayList<Int>(); val tx = ArrayList<Int>()
+        for (y in 0 until etiketH) for (x in 0 until etiketW) if (t[y * etiketW + x]) { ty.add(y); tx.add(x) }
+        val n = ty.size
+        if (n < 20) return null
+        var best = 0f
+        var bx = -1
+        var by = -1
+        for (y in 0..(gh - etiketH)) {
+            for (x in (gw * 5 / 100)..(gw * 95 / 100 - etiketW)) {
+                val top = ig[(y + etiketH) * (gw + 1) + x + etiketW] - ig[y * (gw + 1) + x + etiketW] -
+                    ig[(y + etiketH) * (gw + 1) + x] + ig[y * (gw + 1) + x]
+                if (top < n / 2) continue   // hizli eleme: yeterince mavi piksel yok
+                var hit = 0
+                for (k in 0 until n) if (g[(y + ty[k]) * gw + x + tx[k]]) hit++
+                val skor = (hit - 0.5f * (top - hit)) / n
+                if (skor > best) { best = skor; bx = x; by = y }
+            }
+        }
+        if (best < 0.68f || bx < 0) return null
+        return floatArrayOf(
+            ScreenSampler.toScreen(bx + etiketW / 2f), ScreenSampler.toScreen(by + etiketH / 2f)
+        )
+    }
+
+    /**
+     * Insan gibi yurur: yazi gorunmuyorsa tarif edilen yonde kisa adimlarla ilerler ve bakinir;
+     * "Inn hostess" yazisini gorunce ona dogru yonelir, her adimda yonunu duzeltir.
+     * Open cikinca durur.
+     */
     private fun npcyeYuru(): IntArray? {
-        for (a in cfg.rota) {
+        val rota = if (cfg.rota.isEmpty()) listOf(RotaAdim(0, 25f)) else cfg.rota
+        val rotaMs = rota.sumOf { (it.sure * 1000).toLong() }
+        val son = SystemClock.uptimeMillis() + rotaMs + 20_000
+        var rotaIdx = 0
+        var adimKalan = (rota[0].sure * 1000).toLong()
+        val karX = screenW / 2f
+        val karY = screenH * 0.5f
+        val BURST = 650L
+        while (SystemClock.uptimeMillis() < son) {
             if (!running && !bankaCalisiyor) return null
-            val sure = (a.sure * 1000).toLong()
-            joystick(a.yon, sure)
-            val son = SystemClock.uptimeMillis() + sure
-            while (SystemClock.uptimeMillis() < son) {
-                uyu(250)
-                val pos = bul(cfg.openT)
-                if (pos != null) {
-                    // Dur: joystick'e kisa dokunus mevcut hareketi keser
-                    val m = joyMerkez()
-                    anlikDokun(m[0], m[1])
-                    uyu(400)
-                    return bul(cfg.openT) ?: pos
+            bul(cfg.openT)?.let { pos ->
+                val m = joyMerkez()
+                anlikDokun(m[0], m[1])   // dur
+                uyu(400)
+                return bul(cfg.openT) ?: pos
+            }
+            val e = etiketBul()
+            if (e != null) {
+                // Yaziya dogru: ekranda karakterden yaziya olan yon
+                bekleNeden = "🏦👀"
+                val aci = Math.atan2((e[0] - karX).toDouble(), (karY - e[1]).toDouble())
+                joystickAci(aci, BURST)
+            } else {
+                bekleNeden = "🏦"
+                val a = if (rotaIdx < rota.size) rota[rotaIdx] else RotaAdim(0, 1f)
+                joystick(a.yon, BURST)
+                if (rotaIdx < rota.size) {
+                    adimKalan -= BURST
+                    if (adimKalan <= 0) {
+                        rotaIdx++
+                        if (rotaIdx < rota.size) adimKalan = (rota[rotaIdx].sure * 1000).toLong()
+                    }
                 }
             }
-            uyu(150)
+            // Adim suresince Open'a da bak
+            val adimSon = SystemClock.uptimeMillis() + BURST - 50
+            while (SystemClock.uptimeMillis() < adimSon) {
+                uyu(200)
+                if (bul(cfg.openT) != null) break
+            }
         }
-        return bekleBul(cfg.openT, 1500)
+        return null
     }
 
     /** tam=false: sadece Town + yuruyus testi */
     private fun bankaRutini(tam: Boolean): String? {
         val o = olcek ?: return "Ekran tanınmadı"
-        if (cfg.rota.isEmpty()) return "Banka yolu ayarlanmamış (⋯ → 🏦 Banka)"
+        if (etiketMaske == null) etiketHazirla(o.s)
         if (!townaGit(o)) return "Town sonrası oyun ekranı gelmedi"
 
         val openPos = npcyeYuru() ?: return "Inn hostess'e ulaşılamadı (Open çıkmadı). Yolu kontrol et"
@@ -759,11 +872,22 @@ class MacroService : AccessibilityService() {
         kilitBekleUntil = 0L
         oncekiCanli = false
         if (hata == null) {
-            toast(if (tam) "🏦 Banka tamam, kasmaya devam" else "✓ Yürüyüş başarılı: Inn hostess bulundu")
+            bankaSonraki = 0L
+            toast(if (tam) "🏦 Banka tamam, kasmaya devam" else "✓ Test başarılı")
         } else {
-            vibrate()
-            if (tam && running) stopMacro("🏦 Banka turu başarısız: $hata")
-            else toast("🏦 $hata")
+            // Takilip kalma: pencereleri kapat, Town ile mob alanina don, kasmaya devam et
+            toast("🏦 Banka olmadı: $hata. Kasmaya devam, 15 dk sonra tekrar denenecek")
+            bankaSonraki = SystemClock.uptimeMillis() + 15 * 60_000L
+            try {
+                bul(bankaT)?.let { bp ->
+                    val bc = sablonMerkez(bankaT!!, bp)
+                    val s0 = olcek?.s ?: 1f
+                    anlikDokun(bc[0] + 319.5f * s0, bc[1] - 4.5f * s0)
+                    uyu(600)
+                }
+                olcek?.let { if (tam && running) townaGit(it) }
+            } catch (e: Exception) {
+            }
         }
     }
 
@@ -789,66 +913,28 @@ class MacroService : AccessibilityService() {
 
     private fun bankaKarti() {
         removeOverlay()
-        val c = Config.load(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(0xF01E2A3A.toInt())
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
-        fun yaz(t: String, renk: Int = Color.WHITE, boy: Float = 14f) = TextView(this).apply {
-            text = t; setTextColor(renk); textSize = boy
-        }
-        fun kaydet(d: (Config) -> Unit) {
-            val cc = Config.load(this); d(cc); cc.save(this)
-            bankaKarti()
-        }
-        box.addView(yaz("🏦 Banka turu", 0xFFE0B04A.toInt(), 16f))
-        box.addView(yaz("Town'dan Inn hostess'e giden yolu joystick adımlarıyla tarif et. " +
-            "Makro yürürken Open çıkınca kendiliğinden durur.", 0xFFB0B8C4.toInt(), 12f).apply {
-            setPadding(0, dp(2), 0, dp(8))
+        box.addView(TextView(this).apply {
+            text = "🏦 Banka"
+            setTextColor(0xFFE0B04A.toInt()); textSize = 16f
         })
-
-        val oto = menuBtn(if (c.bankaOto) "Envanter dolunca git: AÇIK" else "Envanter dolunca git: KAPALI") {
-            kaydet { it.bankaOto = !it.bankaOto }
-        }
-        box.addView(oto, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
-
-        if (c.rota.isEmpty()) box.addView(yaz("Henüz yol yok. + Adım ekle", 0xFFB0B8C4.toInt(), 13f))
-        c.rota.forEachIndexed { i, a ->
-            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            r.addView(yaz("${i + 1}.", boy = 14f), LinearLayout.LayoutParams(dp(26), LinearLayout.LayoutParams.WRAP_CONTENT))
-            r.addView(menuBtn(RotaAdim.OKLAR[a.yon]) { kaydet { it.rota[i].yon = (it.rota[i].yon + 1) % 8 } }
-                .apply { textSize = 18f })
-            r.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
-            r.addView(menuBtn("−") { kaydet { it.rota[i].sure = (it.rota[i].sure - 0.5f).coerceAtLeast(0.5f) } })
-            r.addView(yaz("%.1f sn".format(a.sure)).apply { gravity = Gravity.CENTER },
-                LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT))
-            r.addView(menuBtn("+") { kaydet { it.rota[i].sure = (it.rota[i].sure + 0.5f).coerceAtMost(59f) } })
-            r.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
-            r.addView(btn("🗑") { kaydet { it.rota.removeAt(i) } }.apply { background = rounded(0xCC8B0000.toInt()) })
-            box.addView(r)
-            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
-        }
-        box.addView(menuBtn("+ Adım ekle") { kaydet { it.rota.add(RotaAdim(0, 3f)) } },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
-        box.addView(yaz("Yön okuna dokununca döner: ↑ ileri, → sağ, ↓ geri, ← sol.", 0xFFB0B8C4.toInt(), 12f))
-        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
-
-        val tr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        tr.addView(btn("▶ Yürüyüş testi") { removeOverlay(); bankaTesti(false) }
-            .apply { background = rounded(0xFF2D5A8A.toInt()) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        tr.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
-        tr.addView(btn("🏦 Tam test") { removeOverlay(); bankaTesti(true) }
+        box.addView(TextView(this).apply {
+            text = "Envanter dolunca makro kendiliğinden bankaya gider: Town → Inn hostess → " +
+                "üst 3 sıra bankaya → Town → kasmaya devam. Ayar gerekmez."
+            setTextColor(Color.WHITE); textSize = 13f
+            setPadding(0, dp(4), 0, dp(10))
+        })
+        box.addView(btn("🏦 Şimdi test et") { removeOverlay(); bankaTesti(true) }
             .apply { background = rounded(0xFF8A6D1F.toInt()) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        box.addView(tr)
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
         box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        ortadaGoster(box, dp(460))
+        ortadaGoster(box, dp(420))
     }
 
     // ================= Oyun icinde tus duzenleme =================
@@ -2345,8 +2431,8 @@ class MacroService : AccessibilityService() {
             doluKutuX = lastOpenX
             doluKutuY = lastOpenY
             doluKutuAt = now
-            // Envanter dolu: ayarliysa bankaya git
-            if (cfg.bankaOto && cfg.rota.isNotEmpty()) bankaIstendi = true
+            // Envanter dolu: bankaya git (ayar yok, her zaman). Basarisiz olduysa bir sure bekle
+            if (now >= bankaSonraki) bankaIstendi = true
             return closeHedef(co, pos)
         }
         collectedSinceOpen = true
