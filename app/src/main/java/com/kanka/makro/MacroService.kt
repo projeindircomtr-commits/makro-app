@@ -127,6 +127,7 @@ class MacroService : AccessibilityService() {
     private var isimRect = IntArray(4)
     private var kilitKotu = 0
     private var kilitUyarildi = false
+    @Volatile private var kilitBekleUntil = 0L   // kilitli mob yok: bu ana kadar hicbir sey yapma
 
     // Istatistik
     @Volatile private var kesilen = 0
@@ -1240,7 +1241,12 @@ class MacroService : AccessibilityService() {
                     if (!r.ok && !r.ag && running) stopMacro("Üyelik: ${r.mesaj}. Makro durdu")
                 }
             }
-            val ne = if (otoMod && olcek == null) "🔍" else if (lootPhase != Loot.BOS) "📦" else "⚔"
+            val ne = when {
+                otoMod && olcek == null -> "🔍"
+                simdi < kilitBekleUntil -> "💤"
+                lootPhase != Loot.BOS -> "📦"
+                else -> "⚔"
+            }
             statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60) +
                 "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
             ui.postDelayed(this, 1000)
@@ -1316,6 +1322,7 @@ class MacroService : AccessibilityService() {
         basilanPot = 0
         kilitKotu = 0
         kilitUyarildi = false
+        kilitBekleUntil = 0L
         hpBar = IntArray(3)
         mpBar = IntArray(3)
         dcT = if (cfg.otoArayuz) null
@@ -1746,10 +1753,10 @@ class MacroService : AccessibilityService() {
                 } else if (now - ilerlemeAt > 12_000) {
                     ilerlemeAt = now
                     sonYuzde = 1f
-                    val o = olcek
-                    if (o != null) {
+                    val ol = olcek
+                    if (ol != null) {
                         // Once hedefi iptal et (X), sonraki adimda yeni mob sec
-                        val x = Preset.sagAlt(o, 2632, 926)
+                        val x = Preset.sagAlt(ol, 2632, 926)
                         iptalBekliyor = true
                         nextTarget = 0L
                         return Nokta("İptal", "iptal", x[0], x[1])
@@ -1758,18 +1765,26 @@ class MacroService : AccessibilityService() {
                     return target
                 }
             }
-            // Mob kilidi: isim tutmuyorsa vurma, siradaki mobu sec
-            if (alive && cfg.kilitler.isNotEmpty() && olcek != null) {
-                if (isimUygun()) {
-                    kilitKotu = 0
-                } else {
-                    if (now >= nextTarget) {
+            // Mob kilidi
+            val o = olcek
+            if (cfg.kilitler.isNotEmpty() && o != null) {
+                // Bekleme modu: etrafta kilitli mob yok, skill/saldiri/secim tamamen durur
+                if (now < kilitBekleUntil) return null
+                if (alive) {
+                    if (isimUygun()) {
+                        kilitKotu = 0
+                    } else {
+                        // Yanlis mob: karakter ona yurumesin diye hemen hedefi iptal et (X)
                         kilitKotu++
-                        // Cevrede kilitli mob yoksa cok hizli donmesin
-                        nextTarget = now + if (kilitKotu > 8) rand(1200, 1800) else rand(350, 500)
-                        return target
+                        if (kilitKotu >= 6) {
+                            // Ust uste 6 yanlis mob: kilitli mob kalmadi, 8 sn bekle
+                            kilitBekleUntil = now + 8000
+                            kilitKotu = 5   // bekleme sonrasi tek deneme; tutmazsa yine bekle
+                        }
+                        nextTarget = now + rand(350, 500)
+                        val x = Preset.sagAlt(o, 2632, 926)
+                        return Nokta("İptal", "iptal", x[0], x[1])
                     }
-                    return null
                 }
             }
             if (!alive) {
