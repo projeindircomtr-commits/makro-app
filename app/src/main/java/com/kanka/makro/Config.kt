@@ -88,7 +88,7 @@ class Config {
     var skMax = 1500
 
     // Kutu
-    var lootEvery = 350      // ekran tarama araligi (ms)
+    var lootEvery = 150      // ekran tarama araligi (ms)
     var collectWait = 3000   // Open'dan sonra Collect All bekleme (ms)
 
     // Kutu toplama acik mi

@@ -64,6 +64,10 @@ class MacroService : AccessibilityService() {
 
     @Volatile
     private var running = false
+
+    // Adim dongusu ve dokunus durumu (kutu gozcusu araya girebilsin diye)
+    private val stepR = Runnable { step() }
+    private var tapping = false
     private var pendingStart = false
     private var lisansKontrolde = false
     private var sonLisansKontrol = 0L
@@ -945,7 +949,8 @@ class MacroService : AccessibilityService() {
         running = true
         sonLisansKontrol = SystemClock.uptimeMillis()
         playBtn?.text = "⏸"
-        h.postDelayed({ step() }, 700)
+        h.postDelayed(stepR, 700)
+        h.postDelayed(kutuGozcu, 900)
         ui.removeCallbacks(statusTick)
         ui.post(statusTick)
     }
@@ -987,11 +992,11 @@ class MacroService : AccessibilityService() {
                     olcekUygula(Preset.varsayilanOlcek(this), yedek = true)
                 } else if (cfg.tuslarOto) {
                     // Hazir tuslar bu ekranda yanlis olabilir: oyun gorunene kadar dokunma
-                    h.postDelayed({ step() }, 1500)
+                    h.postDelayed(stepR, 1500)
                     return
                 }
             } else if (cfg.tuslarOto) {
-                h.postDelayed({ step() }, 300)
+                h.postDelayed(stepR, 300)
                 return
             }
         }
@@ -1005,11 +1010,37 @@ class MacroService : AccessibilityService() {
         val list = pots + listOfNotNull(p)
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
-            h.postDelayed({ step() }, if (lootPhase != Loot.BOS) 60L else 200L)
+            h.postDelayed(stepR, if (lootPhase != Loot.BOS) 60L else 200L)
             return
         }
+        tapping = true
         tapSeq(list, 0) {
-            if (running) h.postDelayed({ step() }, if (p?.fast == true) rand(60, 140) else nextDelay())
+            tapping = false
+            val hizli = p?.fast == true || lootPhase != Loot.BOS
+            if (running) h.postDelayed(stepR, if (hizli) rand(40, 90) else nextDelay())
+        }
+    }
+
+    /**
+     * Kutu gozcusu: saldiridan bagimsiz, 0.12 sn'de bir ekrana bakar. Open/Collect All
+     * gorunce bekleyen saldiri adimini iptal edip hemen basar.
+     */
+    private val kutuGozcu = object : Runnable {
+        override fun run() {
+            if (!running) return
+            if (!tapping && (!otoMod || olcek != null)) {
+                val now = SystemClock.uptimeMillis()
+                val t = lootAction(now)
+                if (t != null) {
+                    h.removeCallbacks(stepR)
+                    tapping = true
+                    tap(t.x, t.y, t.r) {
+                        tapping = false
+                        if (running) h.postDelayed(stepR, rand(40, 90))
+                    }
+                }
+            }
+            h.postDelayed(this, 120)
         }
     }
 
@@ -1043,8 +1074,7 @@ class MacroService : AccessibilityService() {
         val r = cfg.radius.toFloat()
         // 1) Kutu (Open / Collect All) - potlar ayrica ayni anda basilir
         lootAction(now)?.let { return it }
-        // Kutu toplama suruyorsa saldiri/skill yapma
-        if (lootPhase != Loot.BOS) return null
+        // Kutu toplarken de saldiri/skill devam eder; kutu butonu gorununce araya girer
         // 3) Hedef / skill / saldiri
         val p = pick(now) ?: return null
         return Hedef(p.x.toFloat(), p.y.toFloat(), r)
@@ -1195,7 +1225,8 @@ class MacroService : AccessibilityService() {
     }
 
     private fun scanGap(): Long {
-        val b = cfg.lootEvery.coerceAtLeast(200)
+        // Kutu taramasi her zaman seri: en fazla 150 ms
+        val b = minOf(cfg.lootEvery, 150).coerceAtLeast(100)
         return rand((b * 0.8).toInt(), (b * 1.2).toInt())
     }
 
@@ -1248,7 +1279,7 @@ class MacroService : AccessibilityService() {
                         toast("Collect All penceresi tanınmadı. Uygulamada Gelişmiş → ⚡ ayarları yeniden yükle")
                     }
                 } else {
-                    nextLootScan = now + rand(90, 160)
+                    nextLootScan = now + rand(60, 100)
                 }
                 return null
             }
@@ -1262,7 +1293,7 @@ class MacroService : AccessibilityService() {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + rand(100, 170)
+                    nextLootScan = now + rand(60, 110)
                 }
                 return null
             }
@@ -1283,7 +1314,7 @@ class MacroService : AccessibilityService() {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
         phaseUntil = now + cfg.collectWait
-        nextLootScan = now + rand(140, 220)
+        nextLootScan = now + rand(100, 150)
         val t = sablonHedef(op, pos)
         lastOpenX = t.x
         lastOpenY = t.y
@@ -1305,13 +1336,16 @@ class MacroService : AccessibilityService() {
         collectedSinceOpen = true
         lootPhase = Loot.SONRAKI_KUTU
         // Pencerenin kapanmasina firsat ver, sonra siradaki kutuya bak
-        phaseUntil = now + 900
-        nextLootScan = now + rand(330, 420)
+        phaseUntil = now + 700
+        nextLootScan = now + rand(200, 260)
         val t = sablonHedef(co, pos)
         return Hedef(t.x, t.y, t.r, fast = true)
     }
 
     // ---------- Zamanlama ve dokunus ----------
+
+    /** Parmagin ekranda kalma suresi: Seri modda kisa */
+    private fun basmaSuresi(): Long = if (cfg.maxDelay <= 150) rand(35, 70) else rand(55, 140)
 
     private fun nextDelay(): Long {
         val lo = cfg.minDelay.coerceAtLeast(50)
@@ -1336,7 +1370,7 @@ class MacroService : AccessibilityService() {
             moveTo(sx, sy)
             lineTo(ex, ey)
         }
-        return GestureDescription.StrokeDescription(path, start, rand(55, 140))
+        return GestureDescription.StrokeDescription(path, start, basmaSuresi())
     }
 
     /** Birden fazla noktaya ayni anda (farkli parmaklarla) dokun */
@@ -1398,7 +1432,7 @@ class MacroService : AccessibilityService() {
         }
         val g = try {
             GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, rand(55, 140)))
+                .addStroke(GestureDescription.StrokeDescription(path, 0, basmaSuresi()))
                 .build()
         } catch (e: Exception) {
             h.postDelayed({ done() }, 300); return

@@ -83,7 +83,7 @@ class MainActivity : Activity() {
             Alan("Skill'e eklenen gecikme: en çok (ms)", { it.skMax }, { c, v -> c.skMax = v }, 0, 20000)
         ),
         "Kutu toplama" to listOf(
-            Alan("Ekran tarama aralığı (ms)", { it.lootEvery }, { c, v -> c.lootEvery = v }, 200, 10000),
+            Alan("Ekran tarama aralığı (ms)", { it.lootEvery }, { c, v -> c.lootEvery = v }, 100, 10000),
             Alan("Open'dan sonra Collect All bekleme (ms)", { it.collectWait }, { c, v -> c.collectWait = v }, 500, 15000)
         ),
         "Güvenlik" to listOf(
@@ -112,6 +112,7 @@ class MainActivity : Activity() {
     private lateinit var minutesTv: TextView
     private lateinit var speedNormal: Button
     private lateinit var speedFast: Button
+    private lateinit var speedSeri: Button
     private lateinit var lootSwitch: Switch
     private lateinit var otoSwitch: Switch
     private lateinit var advBox: LinearLayout
@@ -252,10 +253,12 @@ class MainActivity : Activity() {
 
         val sRow = row()
         sRow.addView(label("Hız"), weight1())
-        speedNormal = smallButton("Normal") { setSpeed(false) }
-        speedFast = smallButton("Hızlı") { setSpeed(true) }
+        speedNormal = smallButton("Normal") { setSpeed(0) }
+        speedFast = smallButton("Hızlı") { setSpeed(1) }
+        speedSeri = smallButton("Seri") { setSpeed(2) }
         sRow.addView(speedNormal)
         sRow.addView(speedFast)
+        sRow.addView(speedSeri)
         quick.addView(sRow)
 
         val lRow = row()
@@ -530,9 +533,15 @@ class MainActivity : Activity() {
         cfg = Config.load(this)
         refreshSteps()
         minutesTv.text = "${cfg.minutes} dk"
-        val fast = cfg.maxDelay <= 320
-        speedNormal.background = rounded(if (!fast) ACCENT else 0xFF2D3846.toInt(), 10)
-        speedFast.background = rounded(if (fast) ACCENT else 0xFF2D3846.toInt(), 10)
+        val mod = when {
+            cfg.maxDelay <= 150 -> 2
+            cfg.maxDelay <= 320 -> 1
+            else -> 0
+        }
+        val kapali = 0xFF2D3846.toInt()
+        speedNormal.background = rounded(if (mod == 0) ACCENT else kapali, 10)
+        speedFast.background = rounded(if (mod == 1) ACCENT else kapali, 10)
+        speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
         otoSwitch.isChecked = cfg.otoArayuz
         for ((a, e) in alanEdits) e.setText(a.get(cfg).toString())
@@ -550,13 +559,22 @@ class MainActivity : Activity() {
         refresh()
     }
 
-    private fun setSpeed(fast: Boolean) {
+    private fun setSpeed(mod: Int) {
         saveAll()
         val c = Config.load(this)
-        if (fast) {
-            c.minDelay = 120; c.maxDelay = 300; c.pauseChance = 2
-        } else {
-            c.minDelay = 180; c.maxDelay = 550; c.pauseChance = 3
+        when (mod) {
+            2 -> { // Seri: beklemesiz, molasiz
+                c.minDelay = 50; c.maxDelay = 110; c.pauseChance = 0
+                c.skMin = 0; c.skMax = 150
+            }
+            1 -> {
+                c.minDelay = 120; c.maxDelay = 300; c.pauseChance = 2
+                c.skMin = 150; c.skMax = 700
+            }
+            else -> {
+                c.minDelay = 180; c.maxDelay = 550; c.pauseChance = 3
+                c.skMin = 250; c.skMax = 1500
+            }
         }
         c.save(this)
         refresh()

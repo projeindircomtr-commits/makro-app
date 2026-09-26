@@ -63,7 +63,7 @@ object Preset {
         // Collect All + Close penceresi birlikte; dokunus ust butonun ortasina (Close'a asla degil)
         loadTemplate(ctx, "collect.png", w, 25, 0.5f, 0.22f)?.let { c.collectT = it }
         loadTemplate(ctx, "collect_btn.png", w, 19, 0.5f, 0.5f)?.let { c.collectT2 = it }
-        c.lootEvery = 350
+        c.lootEvery = 150
         c.collectWait = 2500
         c.otoArayuz = true
         c.tuslarOto = true
@@ -99,36 +99,37 @@ object Preset {
     @Volatile var sonFark = -1L
     @Volatile var sonOlcekDegeri = 0f
 
-    private var aslanPx: IntArray? = null
-    private var aslanW = 0
-    private var aslanH = 0
+    private class Isaret(val dosya: String, val refX: Int, val refY: Int, val xPay: Float, val esik: Long) {
+        var px: IntArray? = null
+        var w = 0
+        var h = 0
+    }
 
-    private fun aslan(ctx: Context): Boolean {
-        if (aslanPx != null) return true
+    // Sabit isaretler: once barin yanindaki M karesi, bulunamazsa aslan
+    private val ISARETLER = listOf(
+        Isaret("m.png", 444, 6, 0.40f, 100),
+        Isaret("aslan.png", 0, 0, 0.06f, 90)
+    )
+
+    private fun yukle(ctx: Context, i: Isaret): Boolean {
+        if (i.px != null) return true
         return try {
-            val b = ctx.assets.open("aslan.png").use { BitmapFactory.decodeStream(it) } ?: return false
-            aslanW = b.width
-            aslanH = b.height
-            val p = IntArray(aslanW * aslanH)
-            b.getPixels(p, 0, aslanW, 0, 0, aslanW, aslanH)
-            aslanPx = p
+            val b = ctx.assets.open(i.dosya).use { BitmapFactory.decodeStream(it) } ?: return false
+            i.w = b.width
+            i.h = b.height
+            val p = IntArray(i.w * i.h)
+            b.getPixels(p, 0, i.w, 0, 0, i.w, i.h)
+            i.px = p
             true
         } catch (e: Exception) {
             false
         }
     }
 
-    /**
-     * Sol ustteki aslanli cerceveyi farkli boyutlarda arayip ekranin arayuz olcegini bulur.
-     * Oyun ekranda degilse null doner.
-     */
-    fun olcekBul(ctx: Context): Olcek? {
-        if (!aslan(ctx)) return null
-        ScreenSampler.bekle(600)
-        val f = ScreenSampler.grab() ?: return null
-        val (w, h) = landscapeSize(ctx)
-        val src = Bitmap.createBitmap(aslanPx!!, aslanW, aslanH, Bitmap.Config.ARGB_8888)
-        val maxX = (f.w * 0.06f).toInt().coerceAtLeast(1)
+    /** Isareti farkli boyutlarda arar: [fark, olcek*1000, x, y] (izgara) */
+    private fun ara(f: ScreenSampler.Frame, i: Isaret): LongArray {
+        val src = Bitmap.createBitmap(i.px!!, i.w, i.h, Bitmap.Config.ARGB_8888)
+        val maxX = (f.w * i.xPay).toInt().coerceAtLeast(1)
         val maxY = (f.h * 0.06f).toInt().coerceAtLeast(1)
         var bestD = Long.MAX_VALUE
         var bestS = 0f
@@ -136,8 +137,8 @@ object Preset {
         var by = 0
         for (k in 0 until 58) {
             val s = 0.5f + k * 0.03f
-            val tw = (aslanW * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
-            val th = (aslanH * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
+            val tw = (i.w * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
+            val th = (i.h * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
             if (tw > f.w || th > f.h) break
             val t = IntArray(tw * th)
             Bitmap.createScaledBitmap(src, tw, th, true).getPixels(t, 0, tw, 0, 0, tw, th)
@@ -145,18 +146,18 @@ object Preset {
             for (y in 0..minOf(maxY, f.h - th)) {
                 for (x in 0..minOf(maxX, f.w - tw)) {
                     var sum = 0L
-                    var i = 0
-                    val limit = bestD * n
-                    while (i < t.size) {
-                        val a = f.px[(y + i / tw) * f.w + x + i % tw]
-                        val b = t[i]
+                    var j = 0
+                    val sinir = if (bestD == Long.MAX_VALUE) Long.MAX_VALUE else bestD * n
+                    while (j < t.size) {
+                        val a = f.px[(y + j / tw) * f.w + x + j % tw]
+                        val b = t[j]
                         sum += kotlin.math.abs(((a shr 16) and 0xff) - ((b shr 16) and 0xff)) +
                             kotlin.math.abs(((a shr 8) and 0xff) - ((b shr 8) and 0xff)) +
                             kotlin.math.abs((a and 0xff) - (b and 0xff))
-                        if (bestD != Long.MAX_VALUE && sum * 1L > limit) break
-                        i++
+                        if (sum > sinir) break
+                        j++
                     }
-                    if (i == t.size) {
+                    if (j == t.size) {
                         val d = sum / n
                         if (d < bestD) {
                             bestD = d; bestS = s; bx = x; by = y
@@ -165,41 +166,33 @@ object Preset {
                 }
             }
         }
-        sonFark = if (bestD == Long.MAX_VALUE) -1L else bestD
-        sonOlcekDegeri = bestS
-        // 3 kanal toplami: kanal basina ~30'dan kucukse bulundu
-        if (bestD > 90) return null
-        val ox = (bx * ScreenSampler.GRID / ScreenSampler.SCALE).roundToInt()
-        val oy = (by * ScreenSampler.GRID / ScreenSampler.SCALE).roundToInt()
-        return Olcek(bestS, ox, oy, w, h)
+        return longArrayOf(bestD, (bestS * 1000).toLong(), bx.toLong(), by.toLong())
     }
 
-    // Referans (2712x1220) tus olculeri. Sira = skill onceligi.
-    private class Ref(val ad: String, val type: String, val x: Int, val y: Int, val cd: Float = 0f, val on: Boolean = true)
-
-    private val REF = listOf(
-        Ref("Saldırı", "saldiri", 2418, 930),
-        Ref("Mob seç", "hedef", 2570, 1008),
-        Ref("HP pot", "hp_pot", 2370, 757),
-        Ref("MP pot", "mp_pot", 2255, 877),
-        Ref("Skill 1", "skill", 2522, 760, 4f),   // kirmizi isin
-        Ref("Skill 2", "skill", 2338, 615, 4f),   // mavi isin (ust)
-        Ref("Skill 3", "skill", 2108, 862, 4f),   // mavi isin (alt)
-        Ref("Skill 4", "skill", 2212, 727, 5f),   // mavi kilic
-        Ref("Skill 5", "skill", 2107, 1013, 60f, false), // buff olabilir
-        Ref("Skill 6", "skill", 2255, 1013, 60f, false)
-    )
-
     /**
-     * Hazir tuslarin bu ekrandaki yerleri (sag alta gore olceklenir).
-     * Kullanicinin ayarladigi bekleme/acik-kapali secimleri korunur.
+     * Sabit isaretleri (aslan, sonra M karesi) farkli boyutlarda arayip ekranin
+     * arayuz olcegini ve sol ust ofsetini bulur. Oyun ekranda degilse null.
      */
-    fun otoTuslar(o: Olcek, eski: List<Nokta>): List<Nokta> =
-        REF.map { r ->
-            val p = sagAlt(o, r.x, r.y)
-            val e = eski.firstOrNull { it.name == r.ad && it.type == r.type }
-            Nokta(r.ad, r.type, p[0], p[1], e?.cd ?: r.cd, e?.on ?: r.on)
+    fun olcekBul(ctx: Context): Olcek? {
+        ScreenSampler.bekle(600)
+        val f = ScreenSampler.grab() ?: return null
+        val (w, h) = landscapeSize(ctx)
+        for (i in ISARETLER) {
+            if (!yukle(ctx, i)) continue
+            val r = ara(f, i)
+            sonFark = if (r[0] == Long.MAX_VALUE) -1L else r[0]
+            sonOlcekDegeri = r[1] / 1000f
+            if (r[0] <= i.esik) {
+                val s = r[1] / 1000f
+                val gx = r[2] * ScreenSampler.GRID / ScreenSampler.SCALE
+                val gy = r[3] * ScreenSampler.GRID / ScreenSampler.SCALE
+                val ox = (gx - i.refX * s).roundToInt().coerceAtLeast(0)
+                val oy = (gy - i.refY * s).roundToInt().coerceAtLeast(0)
+                return Olcek(s, ox, oy, w, h)
+            }
         }
+        return null
+    }
 
     /** Tanima olmazsa: eski usul (genislige gore) olcek */
     fun varsayilanOlcek(ctx: Context): Olcek {
