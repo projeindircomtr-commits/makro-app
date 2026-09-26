@@ -53,18 +53,7 @@ object Preset {
 
         val c = Config.load(ctx)
         c.points.clear()
-        c.points.add(Nokta("Saldırı", "saldiri", x(2418), y(930)))
-        c.points.add(Nokta("Mob seç", "hedef", x(2570), y(1008)))
-        c.points.add(Nokta("HP pot", "hp_pot", x(2370), y(757)))
-        c.points.add(Nokta("MP pot", "mp_pot", x(2255), y(877)))
-        // Saldiri skilleri (acik) - sira = oncelik
-        c.points.add(Nokta("Skill 1", "skill", x(2522), y(760), 4f, true))   // kirmizi isin
-        c.points.add(Nokta("Skill 2", "skill", x(2338), y(615), 4f, true))   // mavi isin (ust)
-        c.points.add(Nokta("Skill 3", "skill", x(2108), y(862), 4f, true))   // mavi isin (alt)
-        c.points.add(Nokta("Skill 4", "skill", x(2212), y(727), 5f, true))   // mavi kilic
-        // Buff olabilecekler (kapali, istersen uygulamadan ac)
-        c.points.add(Nokta("Skill 5", "skill", x(2107), y(1013), 60f, false)) // ates silueti
-        c.points.add(Nokta("Skill 6", "skill", x(2255), y(1013), 60f, false)) // mavi figur
+        for (r in REF) c.points.add(Nokta(r.ad, r.type, x(r.x), y(r.y), r.cd, r.on))
 
         c.hp = RenkNokta(x(315), y(26), 0xC72720)      // HP ~%74 altina inince pot
         c.mp = RenkNokta(x(150), y(68), 0x3A4CCB)      // MP ~%25 altina inince pot
@@ -76,13 +65,19 @@ object Preset {
         loadTemplate(ctx, "collect_btn.png", w, 19, 0.5f, 0.5f)?.let { c.collectT2 = it }
         c.lootEvery = 350
         c.collectWait = 2500
+        c.otoArayuz = true
+        c.tuslarOto = true
         c.save(ctx)
     }
 
-    private fun loadTemplate(ctx: Context, name: String, w: Int, tol: Int, tx: Float, ty: Float): Sablon? {
+    private fun loadTemplate(ctx: Context, name: String, w: Int, tol: Int, tx: Float, ty: Float): Sablon? =
+        loadTemplateF(ctx, name, w / BW, tol, tx, ty)
+
+    /** s: referans ekrana gore arayuz olcegi */
+    fun loadTemplateF(ctx: Context, name: String, s: Float, tol: Int, tx: Float, ty: Float): Sablon? {
         return try {
             val bmp = ctx.assets.open(name).use { BitmapFactory.decodeStream(it) } ?: return null
-            val f = w / BW * ScreenSampler.SCALE / ScreenSampler.GRID
+            val f = s * ScreenSampler.SCALE / ScreenSampler.GRID
             val tw = (bmp.width * f).roundToInt().coerceAtLeast(4)
             val th = (bmp.height * f).roundToInt().coerceAtLeast(3)
             val sc = Bitmap.createScaledBitmap(bmp, tw, th, true)
@@ -94,4 +89,120 @@ object Preset {
             null
         }
     }
+
+    // ================= Otomatik ekran tanima =================
+
+    /** Bulunan arayuz olcegi ve sol ust ofseti (ekran pikseli) */
+    class Olcek(val s: Float, val ox: Int, val oy: Int, val w: Int, val h: Int)
+
+    private var aslanPx: IntArray? = null
+    private var aslanW = 0
+    private var aslanH = 0
+
+    private fun aslan(ctx: Context): Boolean {
+        if (aslanPx != null) return true
+        return try {
+            val b = ctx.assets.open("aslan.png").use { BitmapFactory.decodeStream(it) } ?: return false
+            aslanW = b.width
+            aslanH = b.height
+            val p = IntArray(aslanW * aslanH)
+            b.getPixels(p, 0, aslanW, 0, 0, aslanW, aslanH)
+            aslanPx = p
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Sol ustteki aslanli cerceveyi farkli boyutlarda arayip ekranin arayuz olcegini bulur.
+     * Oyun ekranda degilse null doner.
+     */
+    fun olcekBul(ctx: Context): Olcek? {
+        if (!aslan(ctx)) return null
+        val f = ScreenSampler.grab() ?: return null
+        val (w, h) = landscapeSize(ctx)
+        val src = Bitmap.createBitmap(aslanPx!!, aslanW, aslanH, Bitmap.Config.ARGB_8888)
+        val maxX = (f.w * 0.06f).toInt().coerceAtLeast(1)
+        val maxY = (f.h * 0.06f).toInt().coerceAtLeast(1)
+        var bestD = Long.MAX_VALUE
+        var bestS = 0f
+        var bx = 0
+        var by = 0
+        for (k in 0 until 58) {
+            val s = 0.5f + k * 0.03f
+            val tw = (aslanW * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
+            val th = (aslanH * s * ScreenSampler.SCALE / ScreenSampler.GRID).roundToInt().coerceAtLeast(4)
+            if (tw > f.w || th > f.h) break
+            val t = IntArray(tw * th)
+            Bitmap.createScaledBitmap(src, tw, th, true).getPixels(t, 0, tw, 0, 0, tw, th)
+            val n = (tw * th).toLong()
+            for (y in 0..minOf(maxY, f.h - th)) {
+                for (x in 0..minOf(maxX, f.w - tw)) {
+                    var sum = 0L
+                    var i = 0
+                    val limit = bestD * n
+                    while (i < t.size) {
+                        val a = f.px[(y + i / tw) * f.w + x + i % tw]
+                        val b = t[i]
+                        sum += kotlin.math.abs(((a shr 16) and 0xff) - ((b shr 16) and 0xff)) +
+                            kotlin.math.abs(((a shr 8) and 0xff) - ((b shr 8) and 0xff)) +
+                            kotlin.math.abs((a and 0xff) - (b and 0xff))
+                        if (bestD != Long.MAX_VALUE && sum * 1L > limit) break
+                        i++
+                    }
+                    if (i == t.size) {
+                        val d = sum / n
+                        if (d < bestD) {
+                            bestD = d; bestS = s; bx = x; by = y
+                        }
+                    }
+                }
+            }
+        }
+        // 3 kanal toplami: kanal basina ~30'dan kucukse bulundu
+        if (bestD > 90) return null
+        val ox = (bx * ScreenSampler.GRID / ScreenSampler.SCALE).roundToInt()
+        val oy = (by * ScreenSampler.GRID / ScreenSampler.SCALE).roundToInt()
+        return Olcek(bestS, ox, oy, w, h)
+    }
+
+    // Referans (2712x1220) tus olculeri. Sira = skill onceligi.
+    private class Ref(val ad: String, val type: String, val x: Int, val y: Int, val cd: Float = 0f, val on: Boolean = true)
+
+    private val REF = listOf(
+        Ref("Saldırı", "saldiri", 2418, 930),
+        Ref("Mob seç", "hedef", 2570, 1008),
+        Ref("HP pot", "hp_pot", 2370, 757),
+        Ref("MP pot", "mp_pot", 2255, 877),
+        Ref("Skill 1", "skill", 2522, 760, 4f),   // kirmizi isin
+        Ref("Skill 2", "skill", 2338, 615, 4f),   // mavi isin (ust)
+        Ref("Skill 3", "skill", 2108, 862, 4f),   // mavi isin (alt)
+        Ref("Skill 4", "skill", 2212, 727, 5f),   // mavi kilic
+        Ref("Skill 5", "skill", 2107, 1013, 60f, false), // buff olabilir
+        Ref("Skill 6", "skill", 2255, 1013, 60f, false)
+    )
+
+    /**
+     * Hazir tuslarin bu ekrandaki yerleri (sag alta gore olceklenir).
+     * Kullanicinin ayarladigi bekleme/acik-kapali secimleri korunur.
+     */
+    fun otoTuslar(o: Olcek, eski: List<Nokta>): List<Nokta> =
+        REF.map { r ->
+            val p = sagAlt(o, r.x, r.y)
+            val e = eski.firstOrNull { it.name == r.ad && it.type == r.type }
+            Nokta(r.ad, r.type, p[0], p[1], e?.cd ?: r.cd, e?.on ?: r.on)
+        }
+
+    /** Sol uste gore */
+    fun solUst(o: Olcek, xr: Int, yr: Int) =
+        intArrayOf((o.ox + xr * o.s).roundToInt(), (o.oy + yr * o.s).roundToInt())
+
+    /** Ust ortaya gore (hedef bari) */
+    fun ustOrta(o: Olcek, xr: Int, yr: Int) =
+        intArrayOf((o.w / 2f + (xr - BW / 2f) * o.s).roundToInt(), (o.oy + yr * o.s).roundToInt())
+
+    /** Sag alta gore (tuslar) */
+    fun sagAlt(o: Olcek, xr: Int, yr: Int) =
+        intArrayOf((o.w - (BW - xr) * o.s).roundToInt(), (o.h - (BH - yr) * o.s).roundToInt())
 }

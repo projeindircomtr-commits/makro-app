@@ -228,15 +228,20 @@ footer{margin-top:40px;text-align:center;color:var(--gri);font-size:.9rem}
 <!-- Tablet ve farkli ekranlar -->
 <section class="tablet" id="tablet">
   <h2>Tablet ya da farklı telefon kullanıyorsan</h2>
-  <p>Hazır ayarlar Muhammed'in telefonunun ekranına göre ölçüldü. <b>Tablette ve ekran oranı farklı telefonlarda</b> tuşların yeri kayar. ▶'a bastığında yanlış yerlere dokunuyorsa bu bölümü bir kere yap. Oyunda karakterin içerideyken ve makro <b>dururken</b>:</p>
-
-  <h3>A. Tuşlar</h3>
+  <p><b>Bir şey yapmana gerek yok.</b> ▶'a bastığında uygulama önce oyun ekranını tanır: sol üstteki aslanlı çerçeveden ekranının boyutunu bulur, HP/MP barını, mobun can barını, Open ve Collect All butonlarını ve tuşların yerini kendisi ayarlar.</p>
   <ol class="alt">
-    <li>Panelde <b>⋯ → 🛠 Tuşları düzenle</b>. Ekran hafif kararır, eski tuşların üstünde renkli yuvarlaklar görünür.</li>
+    <li>Karakterinle oyuna gir, ekranda sol üstteki aslanlı çerçeve görünsün.</li>
+    <li>▶'a bas. Panelde kısa bir süre <b>🔍</b> görünür, sonra <span class="ekran">Ekran tanındı ✓</span> yazar ve makro başlar.</li>
+  </ol>
+  <p>Ana ekrandaki <b>Ekranı otomatik tanı</b> anahtarı açık olmalı (varsayılan olarak açık).</p>
+
+  <h3>Sadece skill yerlerin farklıysa</h3>
+  <p>Kendi karakterinde skilleri farklı slotlara koyduysan, bir kere <b>⋯ → 🛠 Tuşları düzenle</b>'den ayarla:</p>
+  <ol class="alt">
     <li>Soldaki çubuktan <span class="ekran">Hepsini sil</span> → <span class="ekran">Evet</span>.</li>
-    <li>Sırayla her tuşa bir kere dokun ve ne olduğunu seç:
+    <li>Sırayla her tuşa dokun ve ne olduğunu seç:
       <ul>
-        <li>Skill ikonları → <b>✨ Skill</b> → ne sıklıkla basılacağı (<b>∞ Sürekli</b> ya da 1–60 sn)</li>
+        <li>Skill ikonları → <b>✨ Skill</b> → ne sıklıkla (<b>∞ Sürekli</b> ya da 1–60 sn)</li>
         <li>Kırmızı iksir → <b>❤ HP pot</b></li>
         <li>Mor/mavi iksir → <b>💧 MP pot</b></li>
         <li>Çapraz kılıç → <b>⚔ Saldırı</b></li>
@@ -245,22 +250,7 @@ footer{margin-top:40px;text-align:center;color:var(--gri);font-size:.9rem}
     </li>
     <li>Yanlış olursa yuvarlağa dokun: değiştir ya da sil. Bitince <span class="ekran">Bitti ✓</span>.</li>
   </ol>
-
-  <h3>B. Barlar</h3>
-  <p>Önce uygulamada ekran paylaşımı açık olmalı (6. adım). Sonra <b>⋯ → 🎨 Bar kaydet</b>:</p>
-  <ol class="alt">
-    <li><b>HP barı</b>: canın <b>tam doluyken</b> seç, sol üstteki kırmızı barda potun basılmasını istediğin seviyeye dokun. Örneğin barın dörtte üçüne dokunursan can %75'in altına inince pot basar. Barın üstündeki sayılara değil, kırmızı kısma dokun.</li>
-    <li><b>MP barı</b>: aynısını mavi barda yap.</li>
-    <li><b>Hedef mobun can barı</b>: bir mob seçiliyken, ekranın üstündeki kırmızı can barının <b>sol ucuna yakın</b> kırmızı kısma dokun. "Lv." yazısının üstüne değil, hemen sağına.</li>
-  </ol>
-
-  <h3>C. Kutular</h3>
-  <ol class="alt">
-    <li>Bir mob kes. <b>Open</b> butonu çıkınca <b>⋯ → 📦 Kutu butonu kaydet → 'Open' butonu</b>.</li>
-    <li>Önce butonun <b>sol üst</b>, sonra <b>sağ alt</b> köşesine dokun. Kenardaki çerçeveye değil, birkaç milim içeriye.</li>
-    <li>Open'a kendin bas. Pencere açılınca aynı şekilde <b>'Collect All' butonu</b>nu kaydet.</li>
-  </ol>
-  <p style="margin:0">Bitti. ▶'a bas ve bir dakika izle. İstersen uygulamadaki <b>Gelişmiş ayarlar → Profiller</b>'den bu ayarları bir isimle kaydet.</p>
+  <p style="margin:0">HP/MP barı, hedef barı ve kutular bundan etkilenmez, onlar yine otomatik.</p>
 </section>
 
 <section>
@@ -272,10 +262,10 @@ footer{margin-top:40px;text-align:center;color:var(--gri);font-size:.9rem}
     <tr><td>"Sunucuya ulaşılamadı"</td><td>İnternetini kontrol et. Mobil veri ya da Wi-Fi'ı kapatıp açmayı dene.</td></tr>
     <tr><td>Panel ekranda yok</td><td>Telefon erişilebilirlik iznini kapatmış olabilir. 4. adımı tekrar yap, 5. adımdaki pil ayarlarını kontrol et.</td></tr>
     <tr><td>Makro kendiliğinden durdu</td><td>Durduğunda ekranda sebebi yazar: <b>Süre bitti</b> (ayarlardan artır), <b>HP uzun süre düşük kaldı</b> (pot bitmiş olabilir), <b>Üyelik</b> (süre ya da internet).</td></tr>
-    <tr><td>Yanlış yerlere basıyor</td><td>Tablet bölümündeki <b>A. Tuşlar</b> kısmını yap.</td></tr>
-    <tr><td>Pot basmıyor ya da çok erken basıyor</td><td><b>B. Barlar</b> kısmında HP/MP barını can <b>tam doluyken</b> yeniden kaydet.</td></tr>
-    <tr><td>Kutuları toplamıyor</td><td>Ana ekranda <b>Kutuları topla</b> açık mı bak. Açıksa <b>C. Kutular</b> kısmını yap.</td></tr>
-    <tr><td>Hedef ölmeden başka moba geçiyor</td><td><b>B. Barlar</b>'daki hedef barını, barın sol ucuna daha yakın bir yere dokunarak yeniden kaydet.</td></tr>
+    <tr><td>Yanlış yerlere basıyor</td><td>Skill yerlerin farklıdır. Tablet bölümündeki <b>Tuşları düzenle</b> kısmını yap.</td></tr>
+    <tr><td>Panelde sürekli 🔍 duruyor</td><td>Oyun ekranı tanınamıyor. Karakterinle oyunda olduğundan ve sol üstteki aslanlı çerçevenin görünür olduğundan emin ol. Ekran paylaşımında <b>Tüm ekran</b> seçili olmalı.</td></tr>
+    <tr><td>Kutuları toplamıyor</td><td>Ana ekranda <b>Kutuları topla</b> ve <b>Ekranı otomatik tanı</b> açık mı bak. İkisi de açıksa envanterin dolu olabilir.</td></tr>
+    <tr><td>Pot basmıyor</td><td><b>⋯ → 🛠 Tuşları düzenle</b>'de HP pot ve MP pot etiketlerinin gerçekten iksirlerin üstünde olduğunu kontrol et.</td></tr>
     <tr><td>Ekran izni penceresi hiç çıkmıyor</td><td>Uygulamaya bildirim izni ver, telefonu yeniden başlat ve tekrar dene.</td></tr>
   </table>
 </section>

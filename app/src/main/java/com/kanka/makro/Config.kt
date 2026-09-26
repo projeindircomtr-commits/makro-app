@@ -94,6 +94,12 @@ class Config {
     // Kutu toplama acik mi
     var lootOn = true
 
+    // Otomatik ekran tanima: HP/MP, hedef bari ve kutular her cihazda kendiliginden bulunur
+    var otoArayuz = true
+
+    // Tuslar hazir ayardan mi (kullanici duzenlemediyse ekrana gore olceklenir)
+    var tuslarOto = true
+
     // Guvenlik
     var hpStop = 25          // HP bu kadar sn dusuk kalirsa dur (0 = kapali)
 
@@ -119,7 +125,7 @@ class Config {
             .put("tgtMin", tgtMin).put("tgtMax", tgtMax).put("tgtFast", tgtFast)
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
-            .put("hpStop", hpStop).put("lootOn", lootOn)
+            .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
         return o
     }
 
@@ -179,6 +185,8 @@ class Config {
                 c.collectWait = o.optInt("collectWait", c.collectWait)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
                 c.lootOn = o.optBoolean("lootOn", true)
+                c.otoArayuz = o.optBoolean("otoArayuz", true)
+                c.tuslarOto = o.optBoolean("tuslarOto", true)
             } catch (e: Exception) {
                 return null
             }

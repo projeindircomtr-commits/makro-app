@@ -74,6 +74,11 @@ class MacroService : AccessibilityService() {
     private val skillReady = HashMap<Int, Long>()
     private val skillLast = HashMap<Int, Long>()
     private var tgtStrip = IntArray(3)
+
+    // Otomatik ekran tanima
+    private var otoMod = false
+    private var olcek: Preset.Olcek? = null
+    private var sonTarama = 0L
     private var nextLootScan = 0L
     private var lootPhase = Loot.BOS
     private var phaseUntil = 0L
@@ -431,7 +436,8 @@ class MacroService : AccessibilityService() {
             showMenu("Tüm tuşlar silinsin mi?", listOf("Evet, hepsini sil" to {
                 val cf2 = Config.load(this)
                 cf2.points.clear()
-                cf2.save(this)
+                cf2.tuslarOto = false
+                    cf2.save(this)
                 editorRefresh()
             }))
         }.apply { background = rounded(0xCC8B0000.toInt()) })
@@ -479,6 +485,7 @@ class MacroService : AccessibilityService() {
                     val cf = Config.load(this)
                     cf.points.add(Nokta("Skill", "skill", x, y, cd, true))
                     renumber(cf)
+                    cf.tuslarOto = false
                     cf.save(this)
                     editorRefresh()
                 }
@@ -486,7 +493,8 @@ class MacroService : AccessibilityService() {
                 val cf = Config.load(this)
                 cf.points.removeAll { it.type == type }
                 cf.points.add(Nokta(Config.label(type), type, x, y))
-                cf.save(this)
+                cf.tuslarOto = false
+                    cf.save(this)
                 editorRefresh()
             }
         })
@@ -504,7 +512,7 @@ class MacroService : AccessibilityService() {
                     val c = Config.load(this)
                     if (i < c.points.size) {
                         c.points[i].cd = cd
-                        c.save(this)
+                    c.save(this)
                     }
                     editorRefresh()
                 }
@@ -528,7 +536,8 @@ class MacroService : AccessibilityService() {
                         if (type != "skill") c.points.removeAll { it.type == type }
                         c.points.add(Nokta(Config.label(type), type, old.x, old.y, cd, true))
                         renumber(c)
-                        c.save(this)
+                        c.tuslarOto = false
+                    c.save(this)
                     }
                     editorRefresh()
                 }
@@ -540,7 +549,8 @@ class MacroService : AccessibilityService() {
             if (i < c.points.size) {
                 c.points.removeAt(i)
                 renumber(c)
-                c.save(this)
+                c.tuslarOto = false
+                    c.save(this)
             }
             editorRefresh()
         })
@@ -677,6 +687,7 @@ class MacroService : AccessibilityService() {
                 toast("Renk okunamadı, tekrar dene")
             } else {
                 val cf = Config.load(this)
+                cf.otoArayuz = false   // elle kayit: otomatik tanima kapanir
                 val rn = RenkNokta(x, y, c)
                 val ad = when (mode) {
                     Mod.HP -> { cf.hp = rn; "HP" }
@@ -697,6 +708,7 @@ class MacroService : AccessibilityService() {
                 toast("Kaydedilemedi. Butonun köşelerine daha geniş dokun")
             } else {
                 val cf = Config.load(this)
+                cf.otoArayuz = false   // elle kayit: otomatik tanima kapanir
                 if (mode == Mod.OPEN) {
                     cf.openT = t
                 } else {
@@ -805,7 +817,7 @@ class MacroService : AccessibilityService() {
                     if (!r.ok && !r.ag && running) stopMacro("Üyelik: ${r.mesaj}. Makro durdu")
                 }
             }
-            val ne = if (lootPhase != Loot.BOS) "📦" else "⚔"
+            val ne = if (otoMod && olcek == null) "🔍" else if (lootPhase != Loot.BOS) "📦" else "⚔"
             statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60)
             ui.postDelayed(this, 1000)
         }
@@ -861,6 +873,9 @@ class MacroService : AccessibilityService() {
         }
         updateScreenSize()
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
+        otoMod = cfg.otoArayuz
+        olcek = null
+        sonTarama = 0L
         h.removeCallbacksAndMessages(null)
         h.post {
             val now = SystemClock.uptimeMillis()
@@ -908,19 +923,37 @@ class MacroService : AccessibilityService() {
         if (now >= endAt) {
             stopMacro("Süre bitti, makro durdu"); return
         }
+        // Otomatik ekran tanima: once olcegi bul, sonra her seyi ona gore yerlestir
+        if (otoMod && olcek == null) {
+            if (now - sonTarama >= 1500) {
+                sonTarama = now
+                val o = Preset.olcekBul(this)
+                if (o != null) {
+                    olcekUygula(o)
+                } else if (cfg.tuslarOto) {
+                    // Hazir tuslar bu ekranda yanlis olabilir: oyun gorunene kadar dokunma
+                    h.postDelayed({ step() }, 1500)
+                    return
+                }
+            } else if (cfg.tuslarOto) {
+                h.postDelayed({ step() }, 300)
+                return
+            }
+        }
         if (safetyStop(now)) return
 
-        // HP ve MP potu ayri parmaklarla, skill/saldiri ile AYNI ANDA basilir
+        // Potlar beklemeden, hemen ardindan skill/saldiri/kutu. Oyun ayni anda gelen
+        // coklu dokunuslari yok saydigi icin arka arkaya (cok kisa aralikla) basilir.
         val r = cfg.radius.toFloat()
         val pots = potActions(now).map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
         val p = pickTarget(now)
-        val list = listOfNotNull(p) + pots
+        val list = pots + listOfNotNull(p)
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
             h.postDelayed({ step() }, if (lootPhase != Loot.BOS) 60L else 200L)
             return
         }
-        tapMulti(list) {
+        tapSeq(list, 0) {
             if (running) h.postDelayed({ step() }, if (p?.fast == true) rand(60, 140) else nextDelay())
         }
     }
@@ -928,6 +961,10 @@ class MacroService : AccessibilityService() {
     private fun isLow(cp: RenkNokta): Boolean {
         val c = ScreenSampler.readPixel(cp.x, cp.y)
         if (c < 0) return false
+        if (otoMod && olcek != null) {
+            // Renk turune bak: HP kirmizi, MP mavi (cihazin renk ayarindan etkilenmez)
+            return if (cp === cfg.mp) !isBlue(c) else !isRed(c)
+        }
         return ScreenSampler.diff(c, cp.color) > cfg.tol
     }
 
@@ -976,6 +1013,38 @@ class MacroService : AccessibilityService() {
             }
         }
         return out
+    }
+
+    /** Bulunan olcege gore barlari, hedef barini, kutulari ve tuslari yerlestir (sadece bellekte) */
+    private fun olcekUygula(o: Preset.Olcek) {
+        olcek = o
+        val hp = Preset.solUst(o, 315, 26)
+        val mp = Preset.solUst(o, 150, 68)
+        val tb = Preset.ustOrta(o, 1262, 60)
+        cfg.hp = RenkNokta(hp[0], hp[1], 0)
+        cfg.mp = RenkNokta(mp[0], mp[1], 0)
+        cfg.tgtBar = RenkNokta(tb[0], tb[1], 0)
+        val a = Preset.ustOrta(o, 1195, 66)
+        val b = Preset.ustOrta(o, 1560, 66)
+        tgtStrip = intArrayOf(a[0], b[0], a[1])
+        Preset.loadTemplateF(this, "open.png", o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
+        Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
+        Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
+        if (cfg.tuslarOto) {
+            val yeni = Preset.otoTuslar(o, cfg.points)
+            cfg.points.clear()
+            cfg.points.addAll(yeni)
+            skillReady.clear()
+            skillLast.clear()
+        }
+        toast("Ekran tanındı ✓ (ölçek %.2f)".format(o.s))
+    }
+
+    private fun isBlue(c: Int): Boolean {
+        val r = (c shr 16) and 0xff
+        val g = (c shr 8) and 0xff
+        val b = c and 0xff
+        return b >= 110 && b > r * 1.6f && b > g * 1.2f
     }
 
     private fun isRed(c: Int): Boolean {
@@ -1247,7 +1316,10 @@ class MacroService : AccessibilityService() {
         if (i >= list.size) {
             done(); return
         }
-        tap(list[i].x, list[i].y, list[i].r) { tapSeq(list, i + 1, done) }
+        tap(list[i].x, list[i].y, list[i].r) {
+            if (i + 1 >= list.size) done()
+            else h.postDelayed({ tapSeq(list, i + 1, done) }, rand(35, 80))
+        }
     }
 
     private fun tap(x: Float, y: Float, radius: Float, done: () -> Unit) {

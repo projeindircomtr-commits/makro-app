@@ -113,6 +113,7 @@ class MainActivity : Activity() {
     private lateinit var speedNormal: Button
     private lateinit var speedFast: Button
     private lateinit var lootSwitch: Switch
+    private lateinit var otoSwitch: Switch
     private lateinit var advBox: LinearLayout
     private lateinit var advToggle: TextView
     private lateinit var listBox: LinearLayout
@@ -270,6 +271,26 @@ class MainActivity : Activity() {
         }
         lRow.addView(lootSwitch)
         quick.addView(lRow)
+
+        val oRow = row()
+        oRow.addView(label("Ekranı otomatik tanı"), weight1())
+        otoSwitch = Switch(this).apply {
+            setOnCheckedChangeListener { _, on ->
+                val c = Config.load(this@MainActivity)
+                if (c.otoArayuz != on) {
+                    c.otoArayuz = on
+                    c.save(this@MainActivity)
+                }
+            }
+        }
+        oRow.addView(otoSwitch)
+        quick.addView(oRow)
+        quick.addView(TextView(this).apply {
+            text = "Açıkken HP/MP barı, mobun can barı ve kutular her telefon ve tablette kendiliğinden bulunur."
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(dp(4), 0, 0, 0)
+        })
 
         // --- Site onizlemesi ---
         val site = card(root)
@@ -513,6 +534,7 @@ class MainActivity : Activity() {
         speedNormal.background = rounded(if (!fast) ACCENT else 0xFF2D3846.toInt(), 10)
         speedFast.background = rounded(if (fast) ACCENT else 0xFF2D3846.toInt(), 10)
         lootSwitch.isChecked = cfg.lootOn
+        otoSwitch.isChecked = cfg.otoArayuz
         for ((a, e) in alanEdits) e.setText(a.get(cfg).toString())
         buildList()
         buildProfiles()
