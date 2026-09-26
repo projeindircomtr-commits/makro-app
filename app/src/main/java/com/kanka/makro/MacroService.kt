@@ -3,7 +3,11 @@ package com.kanka.makro
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
+import android.os.Environment
+import android.provider.MediaStore
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
@@ -79,6 +83,7 @@ class MacroService : AccessibilityService() {
     private var otoMod = false
     private var olcek: Preset.Olcek? = null
     private var sonTarama = 0L
+    private var taramaHata = 0
     private var nextLootScan = 0L
     private var lootPhase = Loot.BOS
     private var phaseUntil = 0L
@@ -318,6 +323,7 @@ class MacroService : AccessibilityService() {
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
+                "🧪 Ekran testi" to { ekranTesti() },
                 "⚙ Uygulamayı aç" to {
                     try {
                         startActivity(
@@ -560,6 +566,45 @@ class MacroService : AccessibilityService() {
     private fun renumber(c: Config) {
         var n = 1
         c.points.forEach { if (it.type == "skill") it.name = "Skill ${n++}" }
+    }
+
+    /** Uygulamanin ekrandan gordugu goruntuyu Indirilenler'e kaydeder + sonucu yazar */
+    private fun ekranTesti() {
+        if (!ScreenSampler.running) {
+            toast("Ekran okuma kapalı. Önce ▶'a bas ya da uygulamadan izin ver"); return
+        }
+        toast("Test ediliyor…")
+        h.post {
+            val o = try {
+                Preset.olcekBul(this)
+            } catch (e: Exception) {
+                null
+            }
+            val bmp = ScreenSampler.tamKare()
+            val kayit = if (bmp != null) pngKaydet(bmp, "pedal_test_${System.currentTimeMillis() / 1000}.png") else false
+            val (w, hh) = Preset.landscapeSize(this)
+            val kare = if (bmp != null) "${bmp.width}x${bmp.height}" else "yok"
+            val sonuc = if (o != null) "BULUNDU ölçek %.2f".format(o.s)
+            else "bulunamadı (fark ${Preset.sonFark}, en yakın %.2f)".format(Preset.sonOlcekDegeri)
+            toast("Ekran ${w}x$hh • kare $kare • aslan $sonuc" +
+                if (kayit) " • İndirilenler'e kaydedildi" else " • resim kaydedilemedi")
+        }
+    }
+
+    private fun pngKaydet(bmp: Bitmap, ad: String): Boolean {
+        if (Build.VERSION.SDK_INT < 29) return false
+        return try {
+            val v = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, ad)
+                put(MediaStore.Downloads.MIME_TYPE, "image/png")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: return false
+            contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun showBarChooser() {
@@ -876,6 +921,7 @@ class MacroService : AccessibilityService() {
         otoMod = cfg.otoArayuz
         olcek = null
         sonTarama = 0L
+        taramaHata = 0
         h.removeCallbacksAndMessages(null)
         h.post {
             val now = SystemClock.uptimeMillis()
@@ -927,9 +973,16 @@ class MacroService : AccessibilityService() {
         if (otoMod && olcek == null) {
             if (now - sonTarama >= 1500) {
                 sonTarama = now
-                val o = Preset.olcekBul(this)
+                val o = try {
+                    Preset.olcekBul(this)
+                } catch (e: Exception) {
+                    null
+                }
                 if (o != null) {
                     olcekUygula(o)
+                } else if (++taramaHata >= 3) {
+                    // Takilip kalma: eski (genislige gore) ayarla devam et
+                    olcekUygula(Preset.varsayilanOlcek(this), yedek = true)
                 } else if (cfg.tuslarOto) {
                     // Hazir tuslar bu ekranda yanlis olabilir: oyun gorunene kadar dokunma
                     h.postDelayed({ step() }, 1500)
@@ -1016,7 +1069,7 @@ class MacroService : AccessibilityService() {
     }
 
     /** Bulunan olcege gore barlari, hedef barini, kutulari ve tuslari yerlestir (sadece bellekte) */
-    private fun olcekUygula(o: Preset.Olcek) {
+    private fun olcekUygula(o: Preset.Olcek, yedek: Boolean = false) {
         olcek = o
         val hp = Preset.solUst(o, 315, 26)
         val mp = Preset.solUst(o, 150, 68)
@@ -1037,7 +1090,11 @@ class MacroService : AccessibilityService() {
             skillReady.clear()
             skillLast.clear()
         }
-        toast("Ekran tanındı ✓ (ölçek %.2f)".format(o.s))
+        if (yedek) {
+            toast("Ekran tanınamadı, varsayılan ayarla devam. ⋯ → 🧪 Ekran testi ile kontrol edebilirsin")
+        } else {
+            toast("Ekran tanındı ✓ (ölçek %.2f)".format(o.s))
+        }
     }
 
     private fun isBlue(c: Int): Boolean {

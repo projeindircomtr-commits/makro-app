@@ -61,12 +61,24 @@ class CaptureService : Service() {
                 release()
                 stopSelf()
             }
+
+            // Android 14+: yakalanan icerigin boyutu degisti
+            override fun onCapturedContentResize(width: Int, height: Int) {
+                handler.post {
+                    if (projection != null) {
+                        val (w, h) = realSize()
+                        if (w != curW || h != curH) rebuild()
+                    }
+                }
+            }
         }, handler)
 
         handler.post {
             createDisplay()
             ScreenSampler.running = true
         }
+        // Yon degisimini kacirmamak icin saniyede bir kontrol (dik -> yatay oyun)
+        handler.postDelayed(yonKontrol, 1000)
         return START_NOT_STICKY
     }
 
@@ -142,6 +154,15 @@ class CaptureService : Service() {
         }
     }
 
+    private val yonKontrol = object : Runnable {
+        override fun run() {
+            if (projection == null) return
+            val (w, h) = realSize()
+            if (w != curW || h != curH) rebuild()
+            handler.postDelayed(this, 1000)
+        }
+    }
+
     /** Ekran donunce (dikey/yatay) yakalama boyutunu yenile */
     private fun rebuild() {
         val old = reader
@@ -161,6 +182,7 @@ class CaptureService : Service() {
     }
 
     private fun release() {
+        handler.removeCallbacks(yonKontrol)
         ScreenSampler.running = false
         ScreenSampler.clear()
         vDisplay?.release()

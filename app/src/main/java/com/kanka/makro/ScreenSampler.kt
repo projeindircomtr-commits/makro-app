@@ -1,5 +1,6 @@
 package com.kanka.makro
 
+import android.graphics.Bitmap
 import android.media.Image
 import kotlin.math.abs
 
@@ -172,6 +173,53 @@ object ScreenSampler {
     }
 
     /** Ekranin bir bolgesini bitmap olarak keser ve buyutur (OCR icin) */
+    private class Crop(val w: Int, val h: Int, val px: IntArray)
+
+    private fun copyRegion(x1: Int, y1: Int, x2: Int, y2: Int): Crop? {
+        synchronized(lock) {
+            val img = latest ?: return null
+            return try {
+                val plane = img.planes[0]
+                val buf = plane.buffer
+                val rs = plane.rowStride
+                val ps = plane.pixelStride
+                val lim = buf.limit()
+                val sx1 = (x1 * SCALE).toInt().coerceIn(0, img.width - 1)
+                val sy1 = (y1 * SCALE).toInt().coerceIn(0, img.height - 1)
+                val sx2 = (x2 * SCALE).toInt().coerceIn(sx1, img.width - 1)
+                val sy2 = (y2 * SCALE).toInt().coerceIn(sy1, img.height - 1)
+                val w = sx2 - sx1 + 1
+                val h = sy2 - sy1 + 1
+                val px = IntArray(w * h)
+                for (y in 0 until h) {
+                    val row = (sy1 + y) * rs
+                    for (x in 0 until w) {
+                        val i = row + (sx1 + x) * ps
+                        if (i + 2 < lim) {
+                            px[y * w + x] = (0xFF shl 24) or
+                                ((buf.get(i).toInt() and 0xff) shl 16) or
+                                ((buf.get(i + 1).toInt() and 0xff) shl 8) or
+                                (buf.get(i + 2).toInt() and 0xff)
+                        }
+                    }
+                }
+                Crop(w, h, px)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    /** Yakalanan son kareyi (yari cozunurluk) bitmap olarak verir - teshis icin */
+    fun tamKare(): Bitmap? {
+        val c = copyRegion(0, 0, 1_000_000, 1_000_000) ?: return null
+        return try {
+            Bitmap.createBitmap(c.px, c.w, c.h, Bitmap.Config.ARGB_8888)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun diff(a: Int, b: Int): Int =
         abs(((a shr 16) and 0xff) - ((b shr 16) and 0xff)) +
             abs(((a shr 8) and 0xff) - ((b shr 8) and 0xff)) +

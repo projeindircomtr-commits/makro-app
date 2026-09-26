@@ -95,6 +95,10 @@ object Preset {
     /** Bulunan arayuz olcegi ve sol ust ofseti (ekran pikseli) */
     class Olcek(val s: Float, val ox: Int, val oy: Int, val w: Int, val h: Int)
 
+    /** Son aramanin sonucu (teshis icin) */
+    @Volatile var sonFark = -1L
+    @Volatile var sonOlcekDegeri = 0f
+
     private var aslanPx: IntArray? = null
     private var aslanW = 0
     private var aslanH = 0
@@ -160,6 +164,8 @@ object Preset {
                 }
             }
         }
+        sonFark = if (bestD == Long.MAX_VALUE) -1L else bestD
+        sonOlcekDegeri = bestS
         // 3 kanal toplami: kanal basina ~30'dan kucukse bulundu
         if (bestD > 90) return null
         val ox = (bx * ScreenSampler.GRID / ScreenSampler.SCALE).roundToInt()
@@ -193,6 +199,12 @@ object Preset {
             val e = eski.firstOrNull { it.name == r.ad && it.type == r.type }
             Nokta(r.ad, r.type, p[0], p[1], e?.cd ?: r.cd, e?.on ?: r.on)
         }
+
+    /** Tanima olmazsa: eski usul (genislige gore) olcek */
+    fun varsayilanOlcek(ctx: Context): Olcek {
+        val (w, h) = landscapeSize(ctx)
+        return Olcek(w / BW, 0, 0, w, h)
+    }
 
     /** Sol uste gore */
     fun solUst(o: Olcek, xr: Int, yr: Int) =
