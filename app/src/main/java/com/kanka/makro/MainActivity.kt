@@ -25,6 +25,9 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 
 class MainActivity : Activity() {
 
@@ -116,6 +119,7 @@ class MainActivity : Activity() {
     private lateinit var profBox: LinearLayout
     private lateinit var profName: EditText
     private var cfg = Config()
+    private var web: WebView? = null
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -136,13 +140,13 @@ class MainActivity : Activity() {
 
         // Baslik
         root.addView(TextView(this).apply {
-            text = "Makro"
+            text = "Projeindirpedal"
             textSize = 30f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         })
         root.addView(TextView(this).apply {
-            text = "MykoMobile için hazır"
+            text = "MykoMobile için hazır  •  Yapımcı: Muhammed Salman"
             textSize = 14f
             setTextColor(ACCENT)
             setPadding(0, 0, 0, dp(14))
@@ -197,7 +201,7 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(MUTED)
             setPadding(dp(4), 0, dp(4), dp(8))
-            text = "Makro gri görünüyorsa: aşağıdaki butona bas → sağ üstte ⋮ → " +
+            text = "Projeindirpedal gri görünüyorsa: aşağıdaki butona bas → sağ üstte ⋮ → " +
                 "\"Kısıtlı ayarlara izin ver\". Sonra tekrar \"İzin ver\"."
         }
         setup.addView(restrictHint)
@@ -267,6 +271,37 @@ class MainActivity : Activity() {
         lRow.addView(lootSwitch)
         quick.addView(lRow)
 
+        // --- Site onizlemesi ---
+        val site = card(root)
+        site.addView(cardTitle("projeindir.com.tr"))
+        try {
+            val w = WebView(this).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                setBackgroundColor(CARD)
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
+                        // Yonlendirmeler (http->https vb.) icinde kalsin
+                        if (req.isRedirect) return false
+                        // Dokunulan linkler tarayicida acilsin
+                        siteAc(req.url)
+                        return true
+                    }
+                }
+                loadUrl("https://projeindir.com.tr")
+            }
+            web = w
+            site.addView(w, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(240)
+            ))
+        } catch (e: Exception) {
+            // Cihazda WebView yoksa sadece buton kalsin
+        }
+        site.addView(smallButton("🌐 Siteye git") { siteAc(Uri.parse("https://projeindir.com.tr")) },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) })
+
         // --- Gelismis ---
         advToggle = TextView(this).apply {
             text = "Gelişmiş ayarlar  ▾"
@@ -283,6 +318,14 @@ class MainActivity : Activity() {
         root.addView(advBox)
         buildAdvanced(advBox)
 
+        root.addView(TextView(this).apply {
+            text = "Projeindirpedal  •  Yapımcı: Muhammed Salman"
+            textSize = 12f
+            setTextColor(MUTED)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(24), 0, 0)
+        })
+
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BG)
             addView(root)
@@ -297,6 +340,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        web?.onResume()
         refresh()
         lisansYenile()
         // Kayitli giris varsa sessizce dogrula
@@ -341,7 +385,22 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        web?.onPause()
         saveAll()
+    }
+
+    override fun onDestroy() {
+        web?.destroy()
+        web = null
+        super.onDestroy()
+    }
+
+    private fun siteAc(u: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, u))
+        } catch (e: Exception) {
+            toast("Tarayıcı açılamadı")
+        }
     }
 
     private fun handleAuto(i: Intent?) {
@@ -490,7 +549,7 @@ class MainActivity : Activity() {
     // ================= Kurulum adimlari =================
 
     private fun openAccessibility() {
-        toast("Listeden 'Makro'yu bul ve aç")
+        toast("Listeden 'Projeindirpedal'ı bul ve aç")
         try {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         } catch (e: Exception) {
@@ -523,7 +582,7 @@ class MainActivity : Activity() {
             startActivity(Intent().setComponent(
                 ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
             ))
-            toast("Listede 'Makro'yu aç")
+            toast("Listede 'Projeindirpedal'ı aç")
         } catch (e: Exception) {
             openAppDetails()
         }
@@ -555,7 +614,7 @@ class MainActivity : Activity() {
         if (!accEnabled() || MacroService.instance == null) {
             AlertDialog.Builder(this)
                 .setTitle("Önce izin gerekli")
-                .setMessage("Kurulum kartındaki 1. adımı yap: \"İzin ver\" → listeden Makro → aç.")
+                .setMessage("Kurulum kartındaki 1. adımı yap: \"İzin ver\" → listeden Projeindirpedal → aç.")
                 .setPositiveButton("İzin ver") { _, _ -> openAccessibility() }
                 .setNegativeButton("Kapat", null)
                 .show()
