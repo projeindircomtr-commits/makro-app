@@ -31,10 +31,12 @@ import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Random
@@ -323,6 +325,30 @@ class MacroService : AccessibilityService() {
         overlay = null
     }
 
+    /**
+     * Kutuyu sabit genislikte, olculmus yukseklikte (ekrana sigmazsa kaydirilabilir)
+     * ekranin ortasinda gosterir. WRAP_CONTENT bazi cihazlarda pencereyi ezdigi icin.
+     */
+    private fun ortadaGoster(box: View, genislikPx: Int) {
+        updateScreenSize()
+        val sc = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = true
+            addView(box, ViewGroup.LayoutParams(genislikPx, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        box.measure(
+            View.MeasureSpec.makeMeasureSpec(genislikPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val ekranH = minOf(screenW, screenH)
+        val yukseklik = minOf(box.measuredHeight, ekranH - dp(24))
+        overlay = sc
+        try {
+            wm.addView(sc, lp(genislikPx, yukseklik).apply { gravity = Gravity.CENTER })
+        } catch (e: Exception) {
+            overlay = null
+        }
+    }
+
     private fun showMenu(title: String, items: List<Pair<String, () -> Unit>>) {
         removeOverlay()
         val box = LinearLayout(this).apply {
@@ -353,16 +379,7 @@ class MacroService : AccessibilityService() {
         }
         box.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) },
             LinearLayout.LayoutParams(bw, LinearLayout.LayoutParams.WRAP_CONTENT))
-        overlay = box
-        try {
-            wm.addView(
-                box,
-                lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
-                    .apply { gravity = Gravity.CENTER }
-            )
-        } catch (e: Exception) {
-            overlay = null
-        }
+        ortadaGoster(box, cols * bw + (cols - 1) * dp(6) + dp(16))
     }
 
     private fun showMainMenu() {
@@ -524,13 +541,7 @@ class MacroService : AccessibilityService() {
         box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
-        overlay = box
-        try {
-            wm.addView(box, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
-                .apply { gravity = Gravity.CENTER })
-        } catch (e: Exception) {
-            overlay = null
-        }
+        ortadaGoster(box, dp(440))
     }
 
     // ================= Oyun icinde tus duzenleme =================
@@ -959,9 +970,15 @@ class MacroService : AccessibilityService() {
         }
         box.addView(satir, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        // Sabit genislik + olculmus yukseklik (WRAP_CONTENT bazi cihazlarda eziliyor)
+        val gen = dp(376)
+        box.measure(
+            View.MeasureSpec.makeMeasureSpec(gen, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
         kart = box
         try {
-            wm.addView(box, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+            wm.addView(box, lp(gen, minOf(box.measuredHeight, minOf(screenW, screenH) - dp(24)))
                 .apply { gravity = Gravity.CENTER })
         } catch (e: Exception) {
             kart = null
