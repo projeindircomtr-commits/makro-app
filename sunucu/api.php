@@ -5,8 +5,10 @@ require __DIR__ . '/ortak.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-function hata(string $m): void {
-    echo json_encode(['ok' => 0, 'mesaj' => $m], JSON_UNESCAPED_UNICODE);
+function hata(string $m, bool $sunucu = false): void {
+    // sunucu=1: gecici arıza; uygulama makroyu durdurmaz
+    if ($sunucu) http_response_code(503);
+    echo json_encode(['ok' => 0, 'mesaj' => $m, 'sunucu' => $sunucu ? 1 : 0], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -39,23 +41,31 @@ try {
     if (!(int)$u['aktif']) hata('Üyelik kapatılmış');
     if ((int)$u['bitis'] <= $simdi) hata('Üyelik süresi doldu');
 
+    // Surum kontrolu (eski surumler calismaz)
+    sema_guncelle();
+    $surum = (int)($_POST['surum'] ?? 0);
+    $pdo->prepare('UPDATE makro_uyeler SET surum = ? WHERE id = ?')->execute([$surum, $u['id']]);
+    $engel = surum_engeli($surum);
+    if ($engel) { echo json_encode($engel, JSON_UNESCAPED_UNICODE); exit; }
+
     if (empty($u['cihaz'])) {
         $pdo->prepare('UPDATE makro_uyeler SET cihaz = ? WHERE id = ?')->execute([$c, $u['id']]);
     } elseif ($u['cihaz'] !== $c) {
         hata('Bu üyelik başka bir cihaza bağlı');
     }
-    $pdo->prepare('UPDATE makro_uyeler SET son_giris = ? WHERE id = ?')->execute([$simdi, $u['id']]);
+    $token = bin2hex(random_bytes(24));
+    $pdo->prepare('UPDATE makro_uyeler SET son_giris = ?, token = ? WHERE id = ?')->execute([$simdi, $token, $u['id']]);
 
     $isim = str_replace('|', '', $u['isim'] ?: $u['kullanici']);
     $bitis = (int)$u['bitis'];
     $metin = "v1|1|$k|$c|$bitis|$isim|$n|$simdi";
     $ozel = openssl_pkey_get_private(file_get_contents(GIZLI . '/ozel.pem'));
-    if (!$ozel || !openssl_sign($metin, $imza, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası');
+    if (!$ozel || !openssl_sign($metin, $imza, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası', true);
 
     echo json_encode([
-        'ok' => 1, 'isim' => $isim, 'bitis' => $bitis, 'zaman' => $simdi,
+        'ok' => 1, 'isim' => $isim, 'bitis' => $bitis, 'zaman' => $simdi, 'token' => $token,
         'imza' => base64_encode($imza)
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $ex) {
-    hata('Sunucu hatası');
+    hata('Sunucu hatası', true);
 }

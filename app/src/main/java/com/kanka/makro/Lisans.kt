@@ -28,8 +28,29 @@ object Lisans {
         val mesaj: String,
         val isim: String = "",
         val bitis: Long = 0L,
-        val ag: Boolean = false   // internet/sunucuya ulasilamadi
+        val ag: Boolean = false,  // internet/sunucuya ulasilamadi
+        val guncelleUrl: String? = null  // eski surum: bu linkten guncellenmeli
     )
+
+    /** Sunucu "yeni surum gerekli" dediyse makro calismaz */
+    @Volatile var guncelleGerekli = false
+    @Volatile var guncelleUrl = ""
+    @Volatile var guncelleMesaj = ""
+
+    @Suppress("DEPRECATION")
+    fun surumKodu(ctx: Context): Int = try {
+        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt() else pi.versionCode
+    } catch (e: Exception) {
+        0
+    }
+
+    fun guncelleIsaretle(url: String, mesaj: String) {
+        guncelleGerekli = true
+        guncelleUrl = url
+        guncelleMesaj = mesaj
+        okAt = 0L   // lisans da gecersiz sayilir
+    }
 
     // Son basarili kontrol (bellekte)
     @Volatile private var okAt = 0L        // elapsedRealtime (ms)
@@ -38,8 +59,11 @@ object Lisans {
     @Volatile var isim = ""
         private set
 
-    /** Basarili kontrolden sonra en fazla bu kadar sure internetsiz idare eder */
-    private const val TOLERANS_MS = 30 * 60 * 1000L
+    /**
+     * Basarili kontrolden sonra sunucuya ulasilamazsa en fazla bu kadar idare eder
+     * (sunucu cokerse herkesin makrosu hemen durmasin). Uyelik bitisi yine gecerli.
+     */
+    private const val TOLERANS_MS = 6 * 60 * 60 * 1000L
 
     private fun prefs(ctx: Context) =
         ctx.applicationContext.getSharedPreferences("lisans", Context.MODE_PRIVATE)
@@ -53,11 +77,46 @@ object Lisans {
 
     fun kayitliKullanici(ctx: Context): String = prefs(ctx).getString("k", "") ?: ""
 
+    /** Mesaj/surum kontrolu icin sunucunun verdigi oturum anahtari */
+    fun token(ctx: Context): String = prefs(ctx).getString("t", "") ?: ""
+
+    /** Lisans adresinin yanindaki baska bir sayfa (ör. mesaj.php) */
+    fun yanUrl(ctx: Context, dosya: String): String? {
+        val u = ayar(ctx)?.optString("url") ?: return null
+        if (!u.endsWith("api.php")) return null
+        return u.removeSuffix("api.php") + dosya
+    }
+
     fun cikis(ctx: Context) {
         prefs(ctx).edit().clear().apply()
         okAt = 0L
         bitis = 0L
         isim = ""
+    }
+
+    /** Son basarili kontrolu diske yazar (uygulama kapanip acilsa da tolerans surer) */
+    private fun kaydetSonDurum(ctx: Context) {
+        prefs(ctx).edit()
+            .putLong("okDuvar", System.currentTimeMillis())
+            .putLong("sz", sunucuZaman)
+            .putLong("bt", bitis)
+            .putString("is", isim)
+            .apply()
+    }
+
+    /** Uygulama acilisinda: son basarili kontrolu diskten geri yukle */
+    fun yukle(ctx: Context) {
+        if (okAt != 0L) return
+        val p = prefs(ctx)
+        val okDuvar = p.getLong("okDuvar", 0L)
+        if (okDuvar == 0L || (p.getString("k", "") ?: "").isEmpty()) return
+        val gecen = System.currentTimeMillis() - okDuvar
+        // Saat geri alinmissa ya da tolerans gectiyse gecersiz
+        if (gecen < 0 || gecen > TOLERANS_MS) return
+        okAt = SystemClock.elapsedRealtime() - gecen
+        sunucuZaman = p.getLong("sz", 0L)
+        bitis = p.getLong("bt", 0L)
+        isim = p.getString("is", "") ?: ""
     }
 
     fun gecerliSimdi(): Boolean {
@@ -96,7 +155,10 @@ object Lisans {
 
         val cevap: String
         try {
-            val body = listOf("kullanici" to kullanici, "sifre" to sifre, "cihaz" to cihaz, "nonce" to nonce)
+            val body = listOf(
+                "kullanici" to kullanici, "sifre" to sifre, "cihaz" to cihaz, "nonce" to nonce,
+                "surum" to surumKodu(ctx).toString()
+            )
                 .joinToString("&") { (k, v) -> k + "=" + URLEncoder.encode(v, "UTF-8") }
             val c = URL(url).openConnection() as HttpURLConnection
             c.requestMethod = "POST"
@@ -105,15 +167,30 @@ object Lisans {
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             c.outputStream.use { it.write(body.toByteArray()) }
+            // 503 vb. hata kodlari istisna firlatir -> asagida "ag" sayilir
             cevap = c.inputStream.bufferedReader().use { it.readText() }
             c.disconnect()
         } catch (e: Exception) {
             return Sonuc(false, "Sunucuya ulaşılamadı, interneti kontrol et", ag = true)
         }
 
+        val j = try {
+            JSONObject(cevap)
+        } catch (e: Exception) {
+            // Hosting hata sayfasi vb.: uyeligi gecersiz sayma, gecici ariza
+            return Sonuc(false, "Sunucu şu an yanıt vermiyor", ag = true)
+        }
         return try {
-            val j = JSONObject(cevap)
-            if (j.optInt("ok") != 1) return Sonuc(false, j.optString("mesaj", "Giriş başarısız"))
+            if (j.optInt("ok") != 1) {
+                if (j.optInt("sunucu") == 1) return Sonuc(false, j.optString("mesaj", "Sunucu hatası"), ag = true)
+                val g = j.optString("guncelle", "")
+                if (j.has("guncelle")) {
+                    guncelleIsaretle(g, j.optString("mesaj"))
+                    return Sonuc(false, j.optString("mesaj", "Yeni sürüm gerekli"), guncelleUrl = g)
+                }
+                return Sonuc(false, j.optString("mesaj", "Giriş başarısız"))
+            }
+            guncelleGerekli = false
             val isimS = j.getString("isim")
             val bitisS = j.getLong("bitis")
             val zaman = j.getLong("zaman")
@@ -129,14 +206,16 @@ object Lisans {
             }
             if (zaman >= bitisS) return Sonuc(false, "Üyelik süresi doldu")
 
-            prefs(ctx).edit().putString("k", kullanici).putString("s", sifre).apply()
+            prefs(ctx).edit().putString("k", kullanici).putString("s", sifre)
+                .putString("t", j.optString("token", "")).apply()
             okAt = SystemClock.elapsedRealtime()
             sunucuZaman = zaman
             bitis = bitisS
             isim = isimS
+            kaydetSonDurum(ctx)
             Sonuc(true, "Giriş başarılı", isimS, bitisS)
         } catch (e: Exception) {
-            Sonuc(false, "Sunucu cevabı okunamadı")
+            Sonuc(false, "Sunucu cevabı okunamadı", ag = true)
         }
     }
 

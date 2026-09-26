@@ -99,6 +99,7 @@ class MainActivity : Activity() {
     private lateinit var lisansDurum: TextView
     private lateinit var girisBox: LinearLayout
     private lateinit var cikisBtn: Button
+    private lateinit var guncelleBtn: Button
     private lateinit var kEdit: EditText
     private lateinit var sEdit: EditText
     private lateinit var step1: TextView
@@ -134,6 +135,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = BG
+        Lisans.yukle(this)
 
         // Ilk acilista MykoMobile ayarlari hazir gelsin
         if (Config.load(this).points.isEmpty()) Preset.apply(this)
@@ -197,6 +199,8 @@ class MainActivity : Activity() {
             lisansYenile()
         }
         lk.addView(cikisBtn)
+        guncelleBtn = smallButton("⬇ Yeni sürümü indir") { siteAc(Uri.parse(Lisans.guncelleUrl)) }
+        lk.addView(guncelleBtn)
 
         // --- Kurulum karti ---
         val setup = card(root)
@@ -352,7 +356,7 @@ class MainActivity : Activity() {
         buildAdvanced(advBox)
 
         root.addView(TextView(this).apply {
-            text = "Projeindirpedal  •  Yapımcı: Muhammed Salman"
+            text = "Projeindirpedal  •  Sürüm ${Lisans.surumKodu(this@MainActivity)}  •  Yapımcı: Muhammed Salman"
             textSize = 12f
             setTextColor(MUTED)
             gravity = Gravity.CENTER
@@ -364,6 +368,13 @@ class MainActivity : Activity() {
             addView(root)
         })
         handleAuto(intent)
+
+        // Panel mesajlari bildirim olarak gelebilsin (Android 13+ izin ister)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 6)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -388,15 +399,19 @@ class MainActivity : Activity() {
 
     private fun lisansYenile() {
         val ok = Lisans.gecerliSimdi()
+        val gnc = Lisans.guncelleGerekli
         if (ok) {
             val k = Lisans.kalanSn()
             val g = k / 86400
             val sa = (k % 86400) / 3600
             val kalan = if (g > 0) "$g gün $sa saat" else "$sa saat ${(k % 3600) / 60} dk"
             lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı"
+        } else if (gnc) {
+            lisansDurum.text = "⬆ " + Lisans.guncelleMesaj.ifEmpty { "Yeni sürüm çıktı. Devam etmek için güncelle." }
         } else {
             lisansDurum.text = "❌ Giriş yapılmadı"
         }
+        guncelleBtn.visibility = if (gnc && Lisans.guncelleUrl.isNotEmpty()) View.VISIBLE else View.GONE
         girisBox.visibility = if (ok) View.GONE else View.VISIBLE
         cikisBtn.visibility = if (ok) View.VISIBLE else View.GONE
         // Uye degilse hicbir ayar/secenek gorunmesin

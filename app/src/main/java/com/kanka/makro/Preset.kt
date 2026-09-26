@@ -202,10 +202,10 @@ object Preset {
         Ref("Mob seç", "hedef", 2570, 1008),
         Ref("HP pot", "hp_pot", 2370, 757),
         Ref("MP pot", "mp_pot", 2255, 877),
-        Ref("Skill 1", "skill", 2522, 760, 4f),   // kirmizi isin
-        Ref("Skill 2", "skill", 2338, 615, 4f),   // mavi isin (ust)
-        Ref("Skill 3", "skill", 2108, 862, 4f),   // mavi isin (alt)
-        Ref("Skill 4", "skill", 2212, 727, 5f),   // mavi kilic
+        Ref("Skill 1", "skill", 2522, 760, 1f),   // kirmizi isin
+        Ref("Skill 2", "skill", 2338, 615, 1f),   // mavi isin (ust)
+        Ref("Skill 3", "skill", 2108, 862, 1f),   // mavi isin (alt)
+        Ref("Skill 4", "skill", 2212, 727, 1f),   // mavi kilic
         Ref("Skill 5", "skill", 2107, 1013, 60f, false), // buff olabilir
         Ref("Skill 6", "skill", 2255, 1013, 60f, false)
     )

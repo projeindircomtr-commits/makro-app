@@ -4,7 +4,12 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.content.ContentValues
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.os.Environment
 import android.provider.MediaStore
@@ -33,6 +38,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Random
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import org.json.JSONObject
 
 class MacroService : AccessibilityService() {
 
@@ -55,6 +65,14 @@ class MacroService : AccessibilityService() {
     private val ui = Handler(Looper.getMainLooper())
     private val worker = HandlerThread("macro").apply { start() }
     private val h = Handler(worker.looper)
+
+    // Ag islemleri (mesaj / surum kontrolu) icin ayri thread
+    private val agThread = HandlerThread("ag").apply { start() }
+    private val ah = Handler(agThread.looper)
+
+    // Mesaj karti (oyunun ustunde)
+    private var kart: View? = null
+    private val mesajKuyrugu = ArrayDeque<Pair<String, String>>()
     private val rnd = Random()
 
     private var panel: View? = null
@@ -87,6 +105,24 @@ class MacroService : AccessibilityService() {
     private var otoMod = false
     private var olcek: Preset.Olcek? = null
     private var sonTarama = 0L
+
+    // Koruma
+    private var dcT: Sablon? = null
+    private var dcSay = 0
+    private var sonDcKontrol = 0L
+    private var hpSol = IntArray(2)
+    private var hpBosSince = 0L
+
+    // Takili hedef
+    private var oncekiCanli = false
+    private var sonYuzde = 1f
+    private var ilerlemeAt = 0L
+    private var iptalBekliyor = false
+
+    // Istatistik
+    @Volatile private var kesilen = 0
+    @Volatile private var toplanan = 0
+    @Volatile private var basilanPot = 0
     private var taramaHata = 0
     private var nextLootScan = 0L
     private var lootPhase = Loot.BOS
@@ -111,8 +147,10 @@ class MacroService : AccessibilityService() {
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
+        Lisans.yukle(this)
         updateScreenSize()
         showPanel()
+        ah.postDelayed(mesajDongu, 3000)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -128,12 +166,15 @@ class MacroService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        kartKapat()
         closeEditor()
         stopMacro()
         removeOverlay()
         panel?.let { safeRemove(it) }
         panel = null
         worker.quitSafely()
+        ah.removeCallbacksAndMessages(null)
+        agThread.quitSafely()
         super.onDestroy()
     }
 
@@ -618,6 +659,168 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ================= Panelden mesaj ve surum kontrolu =================
+
+    /** Dakikada bir: yeni mesaj var mi, surum yeterli mi? */
+    private val mesajDongu = object : Runnable {
+        override fun run() {
+            try {
+                mesajKontrol()
+            } catch (e: Exception) {
+            }
+            ah.postDelayed(this, 60_000)
+        }
+    }
+
+    private fun mesajKontrol() {
+        val token = Lisans.token(this)
+        val url = Lisans.yanUrl(this, "mesaj.php") ?: return
+        if (token.isEmpty()) return
+        val pr = getSharedPreferences("mesaj", MODE_PRIVATE)
+        val son = pr.getInt("son", 0)
+        val tam = url + "?token=" + URLEncoder.encode(token, "UTF-8") +
+            "&son=" + son + "&surum=" + Lisans.surumKodu(this)
+        val bag = URL(tam).openConnection() as HttpURLConnection
+        bag.connectTimeout = 8000
+        bag.readTimeout = 8000
+        val cevap = bag.inputStream.bufferedReader().use { it.readText() }
+        bag.disconnect()
+        val j = JSONObject(cevap)
+        if (j.optInt("ok") != 1) return
+
+        // Eski surum: makroyu durdur, guncelleme iste
+        val g = j.optJSONObject("guncelle")
+        if (g != null) {
+            val ilk = !Lisans.guncelleGerekli
+            Lisans.guncelleIsaretle(g.optString("guncelle"), g.optString("mesaj"))
+            if (ilk) bildirim(999_999, "⬆ Güncelleme gerekli", Lisans.guncelleMesaj.ifEmpty { "Yeni sürüm çıktı. Devam etmek için güncelle." })
+            ui.post {
+                if (running) stopMacro()
+                guncelleKarti()
+            }
+            return
+        }
+        // Uyelik kapatildi/bitti
+        if (!j.optBoolean("aktif", true)) {
+            ui.post { if (running) stopMacro("Üyelik aktif değil. Makro durdu") }
+        }
+        // Yeni mesajlar
+        val m = j.optJSONArray("mesajlar") ?: return
+        var enSon = son
+        for (i in 0 until m.length()) {
+            val o = m.getJSONObject(i)
+            enSon = maxOf(enSon, o.optInt("id"))
+            val saat = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr"))
+                .format(java.util.Date(o.optLong("zaman") * 1000))
+            val metin = o.optString("metin")
+            bildirim(o.optInt("id"), "📢 Projeindirpedal • $saat", metin)
+            ui.post { mesajGoster("📢 Mesaj • $saat", metin) }
+        }
+        if (enSon != son) pr.edit().putInt("son", enSon).apply()
+    }
+
+    /** Bildirim cubugu + kilit ekrani + ses */
+    private fun bildirim(id: Int, baslik: String, metin: String) {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel("mesaj", "Mesajlar", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Panelden gelen mesajlar"
+                    enableVibration(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+            )
+            val pi = PendingIntent.getActivity(
+                this, id,
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val n = Notification.Builder(this, "mesaj")
+                .setSmallIcon(R.drawable.ic_bildirim)
+                .setContentTitle(baslik)
+                .setContentText(metin)
+                .setStyle(Notification.BigTextStyle().bigText(metin))
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+            nm.notify(10_000 + id, n)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun mesajGoster(baslik: String, metin: String) {
+        mesajKuyrugu.addLast(baslik to metin)
+        if (kart == null) siradakiMesaj()
+    }
+
+    private fun siradakiMesaj() {
+        val (b, m) = mesajKuyrugu.removeFirstOrNull() ?: return
+        kartGoster(b, m, listOf("Tamam" to { kartKapat(); siradakiMesaj() }))
+        vibrate()
+    }
+
+    private fun guncelleKarti() {
+        val url = Lisans.guncelleUrl
+        val metin = Lisans.guncelleMesaj.ifEmpty { "Yeni sürüm çıktı. Devam etmek için güncelle." }
+        val butonlar = ArrayList<Pair<String, () -> Unit>>()
+        if (url.isNotEmpty()) {
+            butonlar.add("⬇ İndir" to {
+                kartKapat()
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    toast("Link açılamadı")
+                }
+            })
+        }
+        butonlar.add("Kapat" to { kartKapat() })
+        kartGoster("⬆ Güncelleme gerekli", metin, butonlar)
+        statusTv?.text = "Güncelle"
+        vibrate()
+    }
+
+    private fun kartKapat() {
+        kart?.let { safeRemove(it) }
+        kart = null
+    }
+
+    /** Oyunun ustunde buyuk bilgi karti */
+    private fun kartGoster(baslik: String, metin: String, butonlar: List<Pair<String, () -> Unit>>) {
+        kartKapat()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF01E2A3A.toInt())
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+        box.addView(TextView(this).apply {
+            text = baslik
+            setTextColor(0xFFE0B04A.toInt())
+            textSize = 14f
+        })
+        box.addView(TextView(this).apply {
+            text = metin
+            setTextColor(Color.WHITE)
+            textSize = 19f
+            setPadding(0, dp(6), 0, dp(12))
+        }, LinearLayout.LayoutParams(dp(340), LinearLayout.LayoutParams.WRAP_CONTENT))
+        val satir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        for ((ad, is_) in butonlar) {
+            satir.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+            satir.addView(btn(ad) { is_() }.apply { background = rounded(0xFF2E9E5B.toInt()) })
+        }
+        box.addView(satir, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        kart = box
+        try {
+            wm.addView(box, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+                .apply { gravity = Gravity.CENTER })
+        } catch (e: Exception) {
+            kart = null
+        }
+    }
+
     private fun showBarChooser() {
         if (running) {
             toast("Önce makroyu durdur"); return
@@ -874,7 +1077,8 @@ class MacroService : AccessibilityService() {
                 }
             }
             val ne = if (otoMod && olcek == null) "🔍" else if (lootPhase != Loot.BOS) "📦" else "⚔"
-            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60)
+            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60) +
+                "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
             ui.postDelayed(this, 1000)
         }
     }
@@ -889,6 +1093,10 @@ class MacroService : AccessibilityService() {
     private fun startMacro() {
         removeOverlay()
         closeEditor()
+        if (Lisans.guncelleGerekli) {
+            guncelleKarti()
+            return
+        }
         // Uyelik kontrolu
         if (!Lisans.gecerliSimdi()) {
             if (lisansKontrolde) return
@@ -932,6 +1140,19 @@ class MacroService : AccessibilityService() {
         otoMod = cfg.otoArayuz
         olcek = null
         sonTarama = 0L
+        dcSay = 0
+        sonDcKontrol = 0L
+        hpBosSince = 0L
+        oncekiCanli = false
+        sonYuzde = 1f
+        ilerlemeAt = 0L
+        iptalBekliyor = false
+        kesilen = 0
+        toplanan = 0
+        basilanPot = 0
+        dcT = if (cfg.otoArayuz) null
+        else Preset.loadTemplateF(this, "disconnect.png", Preset.landscapeSize(this).first / 2712f, 20, 0.5f, 0.5f)
+        hpSol = intArrayOf(-1, -1)
         taramaHata = 0
         h.removeCallbacksAndMessages(null)
         h.post {
@@ -1005,6 +1226,7 @@ class MacroService : AccessibilityService() {
                 return
             }
         }
+        if (korumaKontrol(now)) return
         if (safetyStop(now)) return
 
         // Potlar beklemeden, hemen ardindan skill/saldiri/kutu. Oyun ayni anda gelen
@@ -1059,6 +1281,40 @@ class MacroService : AccessibilityService() {
         return ScreenSampler.diff(c, cp.color) > cfg.tol
     }
 
+    /** Disconnect penceresi ve olum kontrolu. Durdurduysa true */
+    private fun korumaKontrol(now: Long): Boolean {
+        if (!ScreenSampler.running) return false
+        // Disconnect: ~1.5 sn'de bir, ust uste 2 kez gorulurse dur
+        val d = dcT
+        if (d != null && now - sonDcKontrol > 1500) {
+            sonDcKontrol = now
+            val f = ScreenSampler.grab()
+            if (f != null && findT(f, d) != null) {
+                dcSay++
+                if (dcSay >= 2) {
+                    stopMacro("Bağlantı koptu (Disconnect). Makro durdu")
+                    return true
+                }
+            } else {
+                dcSay = 0
+            }
+        }
+        // Olum: HP barinin en solu bile bossa can sifirdir
+        if (hpSol[0] >= 0) {
+            val c = ScreenSampler.readPixel(hpSol[0], hpSol[1])
+            if (c >= 0 && !isRed(c)) {
+                if (hpBosSince == 0L) hpBosSince = now
+                else if (now - hpBosSince > 3000) {
+                    stopMacro("Karakter ölmüş görünüyor. Makro durdu")
+                    return true
+                }
+            } else {
+                hpBosSince = 0L
+            }
+        }
+        return false
+    }
+
     /** HP uzun sure dusuk kaldiysa (pot bitti / oldun) durdur */
     private fun safetyStop(now: Long): Boolean {
         val hp = cfg.hp ?: return false
@@ -1091,6 +1347,7 @@ class MacroService : AccessibilityService() {
         val hp = cfg.hp
         if (hp != null && now - lastHpPot > cfg.potCd && isLow(hp)) {
             cfg.points.firstOrNull { it.type == "hp_pot" }?.let {
+                basilanPot++
                 lastHpPot = now
                 out.add(it)
             }
@@ -1098,6 +1355,7 @@ class MacroService : AccessibilityService() {
         val mp = cfg.mp
         if (mp != null && now - lastMpPot > cfg.potCd && isLow(mp)) {
             cfg.points.firstOrNull { it.type == "mp_pot" }?.let {
+                basilanPot++
                 lastMpPot = now
                 out.add(it)
             }
@@ -1120,6 +1378,8 @@ class MacroService : AccessibilityService() {
         Preset.loadTemplateF(this, "open.png", o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
         Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
+        dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
+        hpSol = Preset.solUst(o, 72, 26)
         if (cfg.tuslarOto) {
             val yeni = Preset.otoTuslar(o, cfg.points)
             cfg.points.clear()
@@ -1148,6 +1408,21 @@ class MacroService : AccessibilityService() {
         return r >= 90 && r > g * 2 && r > b * 2
     }
 
+    /** Hedefin kalan cani (0..1): barda kirmizinin ne kadar saga uzandigi */
+    private fun hedefYuzde(): Float {
+        val x1 = tgtStrip[0]
+        val x2 = tgtStrip[1]
+        val y = tgtStrip[2]
+        if (x2 <= x1) return 1f
+        val n = 30
+        var son = -1
+        for (k in 0 until n) {
+            val c = ScreenSampler.readPixel(x1 + (x2 - x1) * k / (n - 1), y)
+            if (c >= 0 && isRed(c)) son = k
+        }
+        return (son + 1).toFloat() / n
+    }
+
     /** Hedef barinin herhangi bir yerinde kirmizi var mi? */
     private fun targetAlive(bar: RenkNokta): Boolean {
         val x1 = tgtStrip[0]
@@ -1173,6 +1448,34 @@ class MacroService : AccessibilityService() {
         if (target != null && bar != null && ScreenSampler.running) {
             // Akilli mod: hedef barina bak
             val alive = targetAlive(bar)
+            if (oncekiCanli && !alive) kesilen++
+            if (alive && !oncekiCanli) {
+                // Yeni hedef: ilerleme sayacini baslat
+                sonYuzde = hedefYuzde()
+                ilerlemeAt = now
+            }
+            oncekiCanli = alive
+            if (alive) {
+                // Takili hedef: 12 sn boyunca cani azalmiyorsa birak, yenisini sec
+                val y = hedefYuzde()
+                if (y < sonYuzde - 0.02f) {
+                    sonYuzde = y
+                    ilerlemeAt = now
+                } else if (now - ilerlemeAt > 12_000) {
+                    ilerlemeAt = now
+                    sonYuzde = 1f
+                    val o = olcek
+                    if (o != null) {
+                        // Once hedefi iptal et (X), sonraki adimda yeni mob sec
+                        val x = Preset.sagAlt(o, 2632, 926)
+                        iptalBekliyor = true
+                        nextTarget = 0L
+                        return Nokta("İptal", "iptal", x[0], x[1])
+                    }
+                    nextTarget = 0L
+                    return target
+                }
+            }
             if (!alive) {
                 // Hedef yok / oldu: sadece yeni mob sec, skill harcama
                 if (now >= nextTarget) {
@@ -1339,6 +1642,7 @@ class MacroService : AccessibilityService() {
             return null
         }
         collectedSinceOpen = true
+        toplanan++
         lootPhase = Loot.SONRAKI_KUTU
         // Pencerenin kapanmasina firsat ver, sonra siradaki kutuya bak
         phaseUntil = now + 700
