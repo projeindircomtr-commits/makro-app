@@ -143,6 +143,10 @@ class MacroService : AccessibilityService() {
     private var lastOpenY = -9999f
     private var lastOpenAt = 0L
     private var collectedSinceOpen = true
+    // Envanter doluyken Close ile kapatilan kutu: ayni kutuya bir sure tekrar basma
+    private var doluKutuX = -9999f
+    private var doluKutuY = -9999f
+    private var doluKutuAt = 0L
     private var warnedCollect = false
 
     @Volatile
@@ -1346,6 +1350,7 @@ class MacroService : AccessibilityService() {
             collectStreak = 0
             lastOpenAt = 0L
             collectedSinceOpen = true
+            doluKutuAt = 0L
         }
         running = true
         sonLisansKontrol = SystemClock.uptimeMillis()
@@ -1864,6 +1869,11 @@ class MacroService : AccessibilityService() {
 
     /** Ayni Open'a, kutu toplanmadan tekrar basma */
     private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {
+        // Dolu envanter yuzunden kapatilan kutu: 45 sn ayni yerdeki Open'a basma
+        if (now - doluKutuAt < 45_000) {
+            val d = sablonHedef(op, pos)
+            if (kotlin.math.abs(d.x - doluKutuX) < 80 && kotlin.math.abs(d.y - doluKutuY) < 80) return true
+        }
         if (collectedSinceOpen) return false
         if (now - lastOpenAt > 6000) return false
         val t = sablonHedef(op, pos)
@@ -1942,22 +1952,41 @@ class MacroService : AccessibilityService() {
         return Hedef(t.x, t.y, t.r, fast = true)
     }
 
-    /** Pencere kapanmadan ust uste Collect All cikiyorsa envanter dolu demektir */
+    /** Collect All penceresindeki Close butonunun yeri (eslesen sablona gore) */
+    private fun closeHedef(co: Sablon, pos: IntArray): Hedef {
+        // Tum pencere sablonunda Close alt kisimda (%74), sadece-buton sablonunda butonun altinda
+        val ty = if (co === cfg.collectT2) 2.15f else 0.74f
+        val cx = ScreenSampler.toScreen(pos[0] + co.w * 0.5f)
+        val cy = ScreenSampler.toScreen(pos[1] + co.h * ty)
+        return Hedef(cx, cy, minOf(cfg.radius.toFloat(), ScreenSampler.toScreen(co.w.toFloat()) * 0.15f, dp(5).toFloat()), fast = true)
+    }
+
+    /**
+     * Collect All: envanter doluysa bile ayni esyalar ust uste eklenebildigi icin once
+     * iki kez Collect All denenir; pencere yine kapanmazsa Close ile kapatilip devam edilir.
+     */
     private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
         collectStreak++
-        if (collectStreak >= 4) {
+        lootPhase = Loot.SONRAKI_KUTU
+        phaseUntil = now + 700
+        nextLootScan = now + rand(200, 260)
+        if (collectStreak >= 6) {
+            // Close da ise yaramadi: takilmamak icin kisa mola
             collectStreak = 0
             lootPhase = Loot.BOS
-            lootPauseUntil = now + 30_000
-            toast("Collect All işe yaramıyor, envanter dolu olabilir. 30 sn kutu atlanıyor")
+            lootPauseUntil = now + 15_000
+            toast("Kutu penceresi kapanmıyor, 15 sn kutular atlanıyor")
             return null
+        }
+        if (collectStreak >= 3) {
+            // 2 kez Collect All'a rağmen acik: envanter dolu, Close ile kapat ve devam et
+            doluKutuX = lastOpenX
+            doluKutuY = lastOpenY
+            doluKutuAt = now
+            return closeHedef(co, pos)
         }
         collectedSinceOpen = true
         toplanan++
-        lootPhase = Loot.SONRAKI_KUTU
-        // Pencerenin kapanmasina firsat ver, sonra siradaki kutuya bak
-        phaseUntil = now + 700
-        nextLootScan = now + rand(200, 260)
         val t = sablonHedef(co, pos)
         return Hedef(t.x, t.y, t.r, fast = true)
     }
