@@ -232,6 +232,12 @@ object ScreenSampler {
         }
     }
 
+    /** Ekran bolgesinin yari cozunurluk pikselleri: (w, h, px) */
+    fun bolge(x1: Int, y1: Int, x2: Int, y2: Int): Triple<Int, Int, IntArray>? {
+        val c = copyRegion(x1, y1, x2, y2) ?: return null
+        return Triple(c.w, c.h, c.px)
+    }
+
     /** Yakalanan son kareyi (yari cozunurluk) bitmap olarak verir - teshis icin */
     fun tamKare(): Bitmap? {
         val c = copyRegion(0, 0, 1_000_000, 1_000_000) ?: return null

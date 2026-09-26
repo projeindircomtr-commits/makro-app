@@ -119,6 +119,13 @@ class MacroService : AccessibilityService() {
     private var ilerlemeAt = 0L
     private var iptalBekliyor = false
 
+    // Bar dolulugu ve mob kilidi (otomatik tanimadan gelir)
+    private var hpBar = IntArray(3)
+    private var mpBar = IntArray(3)
+    private var isimRect = IntArray(4)
+    private var kilitKotu = 0
+    private var kilitUyarildi = false
+
     // Istatistik
     @Volatile private var kesilen = 0
     @Volatile private var toplanan = 0
@@ -370,10 +377,18 @@ class MacroService : AccessibilityService() {
         showMenu(
             "Menü",
             listOf(
+                "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
                 "🧪 Ekran testi" to { ekranTesti() },
+                "🎯 Seçili mobu kilitle" to { mobuKilitle() },
+                "🔓 Mob kilitlerini kaldır" to {
+                    val c = Config.load(this)
+                    c.kilitler.clear()
+                    c.save(this)
+                    toast("Kilitler kaldırıldı, her moba vurulacak")
+                },
                 "⚙ Uygulamayı aç" to {
                     try {
                         startActivity(
@@ -384,6 +399,138 @@ class MacroService : AccessibilityService() {
                 }
             )
         )
+    }
+
+    // ================= Oyun icinde ayarlar (uygulamaya gecmeden) =================
+
+    private fun ayarKarti() {
+        removeOverlay()
+        val c = Config.load(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF01E2A3A.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+        }
+        box.addView(TextView(this).apply {
+            text = "⚙ Ayarlar"
+            setTextColor(0xFFE0B04A.toInt())
+            textSize = 16f
+            setPadding(0, 0, 0, dp(6))
+        })
+
+        fun kaydet(degis: (Config) -> Unit) {
+            val cc = Config.load(this)
+            degis(cc)
+            cc.save(this)
+        }
+
+        // - deger + satiri
+        fun satir(ad: String, deger: () -> String, eksi: () -> Unit, arti: () -> Unit) {
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            r.addView(TextView(this).apply {
+                text = ad
+                setTextColor(Color.WHITE)
+                textSize = 14f
+            }, LinearLayout.LayoutParams(dp(150), LinearLayout.LayoutParams.WRAP_CONTENT))
+            val v = TextView(this).apply {
+                text = deger()
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+            }
+            r.addView(menuBtn("−") { eksi(); v.text = deger() })
+            r.addView(v, LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT))
+            r.addView(menuBtn("+") { arti(); v.text = deger() })
+            box.addView(r)
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+        }
+
+        satir("❤ HP potu", { "%" + Config.load(this).hpYuzde },
+            { kaydet { it.hpYuzde = (it.hpYuzde - 5).coerceIn(10, 95) } },
+            { kaydet { it.hpYuzde = (it.hpYuzde + 5).coerceIn(10, 95) } })
+        satir("💧 MP potu", { "%" + Config.load(this).mpYuzde },
+            { kaydet { it.mpYuzde = (it.mpYuzde - 5).coerceIn(5, 95) } },
+            { kaydet { it.mpYuzde = (it.mpYuzde + 5).coerceIn(5, 95) } })
+        satir("⏱ Süre", { "${Config.load(this).minutes} dk" },
+            { kaydet { it.minutes = (it.minutes - 10).coerceIn(10, 600) } },
+            { kaydet { it.minutes = (it.minutes + 10).coerceIn(10, 600) } })
+
+        // Hiz secimi
+        val hizSatir = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        hizSatir.addView(TextView(this).apply {
+            text = "⚡ Hız"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+        }, LinearLayout.LayoutParams(dp(150), LinearLayout.LayoutParams.WRAP_CONTENT))
+        val hizlar = ArrayList<TextView>()
+        fun hizMod(cc: Config) = when {
+            cc.maxDelay <= 150 -> 2
+            cc.maxDelay <= 320 -> 1
+            else -> 0
+        }
+        fun hizBoya() {
+            val m = hizMod(Config.load(this))
+            hizlar.forEachIndexed { i, b ->
+                b.background = rounded(if (i == m) 0xFFE0B04A.toInt() else 0xFF3A3A3A.toInt())
+            }
+        }
+        listOf("Normal", "Hızlı", "Seri").forEachIndexed { i, ad ->
+            val b = btn(ad) {
+                kaydet {
+                    when (i) {
+                        2 -> { it.minDelay = 50; it.maxDelay = 110; it.pauseChance = 0; it.skMin = 0; it.skMax = 150 }
+                        1 -> { it.minDelay = 120; it.maxDelay = 300; it.pauseChance = 2; it.skMin = 150; it.skMax = 700 }
+                        else -> { it.minDelay = 180; it.maxDelay = 550; it.pauseChance = 3; it.skMin = 250; it.skMax = 1500 }
+                    }
+                }
+                hizBoya()
+            }
+            hizlar.add(b)
+            hizSatir.addView(b)
+            hizSatir.addView(View(this), LinearLayout.LayoutParams(dp(4), 1))
+        }
+        hizBoya()
+        box.addView(hizSatir)
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+
+        // Kutu toplama ac/kapa
+        val kutuBtn = menuBtn("") {}
+        fun kutuYaz() {
+            kutuBtn.text = if (Config.load(this).lootOn) "📦 Kutu toplama: AÇIK" else "📦 Kutu toplama: KAPALI"
+        }
+        kutuBtn.setOnClickListener {
+            kaydet { it.lootOn = !it.lootOn }
+            kutuYaz()
+        }
+        kutuYaz()
+        box.addView(kutuBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+
+        box.addView(TextView(this).apply {
+            text = if (c.kilitler.isEmpty()) "🎯 Mob kilidi yok (her moba vurur)"
+            else "🎯 ${c.kilitler.size} mob kilitli"
+            setTextColor(0xFFB0B8C4.toInt())
+            textSize = 13f
+            setPadding(0, dp(2), 0, dp(8))
+        })
+
+        box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        overlay = box
+        try {
+            wm.addView(box, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+                .apply { gravity = Gravity.CENTER })
+        } catch (e: Exception) {
+            overlay = null
+        }
     }
 
     // ================= Oyun icinde tus duzenleme =================
@@ -1150,6 +1297,10 @@ class MacroService : AccessibilityService() {
         kesilen = 0
         toplanan = 0
         basilanPot = 0
+        kilitKotu = 0
+        kilitUyarildi = false
+        hpBar = IntArray(3)
+        mpBar = IntArray(3)
         dcT = if (cfg.otoArayuz) null
         else Preset.loadTemplateF(this, "disconnect.png", Preset.landscapeSize(this).first / 2712f, 20, 0.5f, 0.5f)
         hpSol = intArrayOf(-1, -1)
@@ -1275,8 +1426,9 @@ class MacroService : AccessibilityService() {
         val c = ScreenSampler.readPixel(cp.x, cp.y)
         if (c < 0) return false
         if (otoMod && olcek != null) {
-            // Renk turune bak: HP kirmizi, MP mavi (cihazin renk ayarindan etkilenmez)
-            return if (cp === cfg.mp) !isBlue(c) else !isRed(c)
+            // Barin ne kadari dolu? (ortadaki "565/692" yazisindan etkilenmez)
+            return if (cp === cfg.mp) barDoluluk(mpBar, false) < cfg.mpYuzde / 100f
+            else barDoluluk(hpBar, true) < cfg.hpYuzde / 100f
         }
         return ScreenSampler.diff(c, cp.color) > cfg.tol
     }
@@ -1380,6 +1532,13 @@ class MacroService : AccessibilityService() {
         Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
         hpSol = Preset.solUst(o, 72, 26)
+        val h1 = Preset.solUst(o, 62, 26)
+        val h2 = Preset.solUst(o, 405, 26)
+        hpBar = intArrayOf(h1[0], h2[0], h1[1])
+        val m1 = Preset.solUst(o, 62, 70)
+        val m2 = Preset.solUst(o, 407, 70)
+        mpBar = intArrayOf(m1[0], m2[0], m1[1])
+        isimRect = isimAlani(o)
         if (cfg.tuslarOto) {
             val yeni = Preset.otoTuslar(o, cfg.points)
             cfg.points.clear()
@@ -1406,6 +1565,112 @@ class MacroService : AccessibilityService() {
         val g = (c shr 8) and 0xff
         val b = c and 0xff
         return r >= 90 && r > g * 2 && r > b * 2
+    }
+
+    /** Barin doluluk orani (0..1): rengin barda ne kadar saga uzandigi */
+    private fun barDoluluk(bar: IntArray, kirmizi: Boolean): Float {
+        val x1 = bar[0]
+        val x2 = bar[1]
+        if (x2 <= x1) return 1f
+        val n = 40
+        var son = -1
+        for (k in 0 until n) {
+            val c = ScreenSampler.readPixel(x1 + (x2 - x1) * k / (n - 1), bar[2])
+            if (c >= 0 && (if (kirmizi) isRed(c) else isBlue(c))) son = k
+        }
+        return (son + 1).toFloat() / n
+    }
+
+    // ---------- Mob kilidi (isim sekli) ----------
+
+    private fun isimAlani(o: Preset.Olcek): IntArray {
+        val a = Preset.ustOrta(o, 1100, 0)
+        val b = Preset.ustOrta(o, 1640, 44)
+        return intArrayOf(a[0], a[1], b[0], b[1])
+    }
+
+    private fun renkFark(a: Int, b: Int) = ScreenSampler.diff(a, b)
+
+    /** Bolgedeki isim renginde olan pikseller */
+    private fun isimMaske(px: IntArray, renk: Int): BooleanArray =
+        BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 90 }
+
+    /** Hedefin ismi kilitli moblardan biri mi? */
+    private fun isimUygun(): Boolean {
+        val r = ScreenSampler.bolge(isimRect[0], isimRect[1], isimRect[2], isimRect[3]) ?: return true
+        val (w, h, px) = r
+        var olcuUyan = false
+        for (k in cfg.kilitler) {
+            if (k.w != w || k.h != h) continue
+            olcuUyan = true
+            val m = isimMaske(px, k.renk)
+            var best = 0f
+            for (dx in -3..3) {
+                var kesisim = 0
+                var birlesim = 0
+                for (y in 0 until h) {
+                    for (x in 0 until w) {
+                        val a = k.bits[y * w + x] == '1'
+                        val xx = x - dx
+                        val b = xx in 0 until w && m[y * w + xx]
+                        if (a && b) kesisim++
+                        if (a || b) birlesim++
+                    }
+                }
+                if (birlesim > 0) best = maxOf(best, kesisim.toFloat() / birlesim)
+            }
+            if (best >= 0.65f) return true
+        }
+        if (!olcuUyan) {
+            if (!kilitUyarildi) {
+                kilitUyarildi = true
+                toast("Mob kilidi başka bir ekranda yapılmış. ⋯ menüsünden yeniden kilitle")
+            }
+            return true
+        }
+        return false
+    }
+
+    /** Su an secili mobun ismini kilide ekle */
+    private fun mobuKilitle() {
+        if (!ScreenSampler.running) {
+            toast("Ekran okuma kapalı. Önce ▶ ile bir kere başlat"); return
+        }
+        toast("Mob ismi okunuyor…")
+        h.post {
+            val o = olcek ?: try { Preset.olcekBul(this) } catch (e: Exception) { null }
+            if (o == null) {
+                toast("Oyun ekranı tanınamadı"); return@post
+            }
+            val a = isimAlani(o)
+            val r = ScreenSampler.bolge(a[0], a[1], a[2], a[3])
+            if (r == null) {
+                toast("Ekran görüntüsü alınamadı"); return@post
+            }
+            val (w, hh, px) = r
+            // Ismin rengi: bolgedeki canli (doygun) piksellerin ortancasi
+            val rs = ArrayList<Int>(); val gs = ArrayList<Int>(); val bs = ArrayList<Int>()
+            for (c in px) {
+                val rr = (c shr 16) and 0xff
+                val gg = (c shr 8) and 0xff
+                val bb = c and 0xff
+                val mx = maxOf(rr, gg, bb)
+                val mn = minOf(rr, gg, bb)
+                if (mx - mn > 80 && mx > 120) { rs.add(rr); gs.add(gg); bs.add(bb) }
+            }
+            if (rs.size < 20) {
+                toast("İsim bulunamadı. Önce oyunda bir mob seç, ismi üstte görünsün"); return@post
+            }
+            rs.sort(); gs.sort(); bs.sort()
+            val renk = (rs[rs.size / 2] shl 16) or (gs[gs.size / 2] shl 8) or bs[bs.size / 2]
+            val m = isimMaske(px, renk)
+            val bits = StringBuilder(m.size)
+            for (b in m) bits.append(if (b) '1' else '0')
+            val c = Config.load(this)
+            c.kilitler.add(Kilit(w, hh, renk, bits.toString()))
+            c.save(this)
+            toast("🎯 Mob kilitlendi. Toplam ${c.kilitler.size} mob, sadece bunlara vurulacak")
+        }
     }
 
     /** Hedefin kalan cani (0..1): barda kirmizinin ne kadar saga uzandigi */
@@ -1474,6 +1739,20 @@ class MacroService : AccessibilityService() {
                     }
                     nextTarget = 0L
                     return target
+                }
+            }
+            // Mob kilidi: isim tutmuyorsa vurma, siradaki mobu sec
+            if (alive && cfg.kilitler.isNotEmpty() && olcek != null) {
+                if (isimUygun()) {
+                    kilitKotu = 0
+                } else {
+                    if (now >= nextTarget) {
+                        kilitKotu++
+                        // Cevrede kilitli mob yoksa cok hizli donmesin
+                        nextTarget = now + if (kilitKotu > 8) rand(1200, 1800) else rand(350, 500)
+                        return target
+                    }
+                    return null
                 }
             }
             if (!alive) {

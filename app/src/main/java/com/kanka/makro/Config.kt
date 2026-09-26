@@ -53,6 +53,22 @@ class Sablon(
     }
 }
 
+/** Kilitli mob ismi: harflerin sekli (renk maskesi), yari cozunurlukte */
+class Kilit(val w: Int, val h: Int, val renk: Int, val bits: String) {
+    fun toJson(): JSONObject = JSONObject().put("w", w).put("h", h).put("renk", renk).put("bits", bits)
+
+    companion object {
+        fun from(o: JSONObject?): Kilit? {
+            if (o == null) return null
+            val b = o.optString("bits")
+            val w = o.optInt("w")
+            val h = o.optInt("h")
+            if (b.length != w * h) return null
+            return Kilit(w, h, o.optInt("renk"), b)
+        }
+    }
+}
+
 class Config {
     val points = mutableListOf<Nokta>()
     var hp: RenkNokta? = null
@@ -97,6 +113,13 @@ class Config {
     // Otomatik ekran tanima: HP/MP, hedef bari ve kutular her cihazda kendiliginden bulunur
     var otoArayuz = true
 
+    // Pot esikleri (%): otomatik tanimada barin doluluguna gore
+    var hpYuzde = 74
+    var mpYuzde = 25
+
+    // Sadece bu moblara vur (bos = hepsi)
+    val kilitler = mutableListOf<Kilit>()
+
     // Tuslar hazir ayardan mi (kullanici duzenlemediyse ekrana gore olceklenir)
     var tuslarOto = true
 
@@ -126,6 +149,8 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde)
+            .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
 
@@ -187,6 +212,11 @@ class Config {
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
+                c.hpYuzde = o.optInt("hpYuzde", 74)
+                c.mpYuzde = o.optInt("mpYuzde", 25)
+                o.optJSONArray("kilitler")?.let { a ->
+                    for (i in 0 until a.length()) Kilit.from(a.optJSONObject(i))?.let { c.kilitler.add(it) }
+                }
             } catch (e: Exception) {
                 return null
             }

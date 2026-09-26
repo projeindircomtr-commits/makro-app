@@ -116,6 +116,9 @@ class MainActivity : Activity() {
     private lateinit var speedSeri: Button
     private lateinit var lootSwitch: Switch
     private lateinit var otoSwitch: Switch
+    private lateinit var hpTv: TextView
+    private lateinit var mpTv: TextView
+    private lateinit var kilitTv: TextView
     private lateinit var advBox: LinearLayout
     private lateinit var advToggle: TextView
     private lateinit var listBox: LinearLayout
@@ -262,6 +265,42 @@ class MainActivity : Activity() {
         mRow.addView(minutesTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
         mRow.addView(smallButton("+") { changeMinutes(10) })
         quick.addView(mRow)
+
+        // Pot esikleri
+        val hRow = row()
+        hRow.addView(label("❤ HP potu, can şunun altına inince"), weight1())
+        hRow.addView(smallButton("−") { yuzdeDegis(true, -5) })
+        hpTv = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        hRow.addView(hpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
+        hRow.addView(smallButton("+") { yuzdeDegis(true, 5) })
+        quick.addView(hRow)
+
+        val pRow2 = row()
+        pRow2.addView(label("💧 MP potu, mana şunun altına inince"), weight1())
+        pRow2.addView(smallButton("−") { yuzdeDegis(false, -5) })
+        mpTv = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        pRow2.addView(mpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
+        pRow2.addView(smallButton("+") { yuzdeDegis(false, 5) })
+        quick.addView(pRow2)
+
+        // Mob kilidi
+        val kRow = row()
+        kilitTv = TextView(this).apply { textSize = 15f; setTextColor(Color.WHITE) }
+        kRow.addView(kilitTv, weight1())
+        kRow.addView(smallButton("Kaldır") {
+            val c = Config.load(this)
+            c.kilitler.clear()
+            c.save(this)
+            refresh()
+            toast("Kilitler kaldırıldı")
+        })
+        quick.addView(kRow)
+        quick.addView(TextView(this).apply {
+            text = "Mob kilitlemek için: oyunda mobu seç → panelde ⋯ → 🎯 Seçili mobu kilitle. Birden fazla mob kilitleyebilirsin."
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(dp(4), 0, 0, dp(6))
+        })
 
         val sRow = row()
         sRow.addView(label("Hız"), weight1())
@@ -571,6 +610,10 @@ class MainActivity : Activity() {
         speedFast.background = rounded(if (mod == 1) ACCENT else kapali, 10)
         speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
+        hpTv.text = "%${cfg.hpYuzde}"
+        mpTv.text = "%${cfg.mpYuzde}"
+        kilitTv.text = if (cfg.kilitler.isEmpty()) "🎯 Mob kilidi: yok (her moba vurur)"
+        else "🎯 Kilitli mob: ${cfg.kilitler.size}"
         otoSwitch.isChecked = cfg.otoArayuz
         for ((a, e) in alanEdits) e.setText(a.get(cfg).toString())
         buildList()
@@ -578,6 +621,15 @@ class MainActivity : Activity() {
     }
 
     // ================= Basit ayar islemleri =================
+
+    private fun yuzdeDegis(hp: Boolean, d: Int) {
+        saveAll()
+        val c = Config.load(this)
+        if (hp) c.hpYuzde = (c.hpYuzde + d).coerceIn(10, 95)
+        else c.mpYuzde = (c.mpYuzde + d).coerceIn(5, 95)
+        c.save(this)
+        refresh()
+    }
 
     private fun changeMinutes(d: Int) {
         saveAll()
