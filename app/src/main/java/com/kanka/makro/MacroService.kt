@@ -36,6 +36,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -68,6 +69,11 @@ class MacroService : AccessibilityService() {
     private val ui = Handler(Looper.getMainLooper())
     private val worker = HandlerThread("macro").apply { start() }
     private val h = Handler(worker.looper)
+
+    // Kayit uyumlu mod: erisilebilirlik ekran goruntusu dongusu
+    private val ssThread = HandlerThread("ekran").apply { start() }
+    private val ssH = Handler(ssThread.looper)
+    @Volatile private var ssAktif = false
 
     // Ag islemleri (mesaj / surum kontrolu) icin ayri thread
     private val agThread = HandlerThread("ag").apply { start() }
@@ -189,6 +195,7 @@ class MacroService : AccessibilityService() {
         updateScreenSize()
         showPanel()
         ah.postDelayed(mesajDongu, 3000)
+        if (Config.kayitUyumlu(this)) kayitModu(true)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -290,6 +297,11 @@ class MacroService : AccessibilityService() {
         worker.quitSafely()
         ah.removeCallbacksAndMessages(null)
         agThread.quitSafely()
+        ssAktif = false
+        ssH.removeCallbacksAndMessages(null)
+        ssThread.quitSafely()
+        pazarCalisiyor = false
+        pzThread.quitSafely()
         super.onDestroy()
     }
 
@@ -374,6 +386,19 @@ class MacroService : AccessibilityService() {
             cornerRadius = dp(4).toFloat()
             setStroke(dp(2), KO_BEJ)
         }
+    }
+
+    /** Oyundaki gibi buton zemini: 0 = celik, 1 = altin (onay), 2 = koyu kirmizi (iptal) */
+    private fun koButon(tur: Int = 0): GradientDrawable = when (tur) {
+        1 -> GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(0xFFB8955A.toInt(), 0xFF7A5E32.toInt(), 0xFF4A3A20.toInt())).apply {
+            cornerRadius = dp(4).toFloat(); setStroke(dp(2), 0xFFF0D59A.toInt())
+        }
+        2 -> GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(0xFF7A3A34.toInt(), 0xFF4E1F1B.toInt(), 0xFF2E110F.toInt())).apply {
+            cornerRadius = dp(4).toFloat(); setStroke(dp(2), KO_BEJ)
+        }
+        else -> rounded(KO_LACI)
     }
 
     private fun btn(text: String, onClick: () -> Unit) = TextView(this).apply {
@@ -564,7 +589,7 @@ class MacroService : AccessibilityService() {
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         box.addView(TextView(this).apply {
-            text = "⚙ Ayarlar"
+            text = "⚙ " + (if (Config.pkMi(this@MacroService)) "PK Bot • " + Config.sinifAd(this@MacroService) else "Farm Bot") + " ayarları"
             setTextColor(0xFFE0B04A.toInt())
             textSize = 16f
             setPadding(0, 0, 0, dp(6))
@@ -607,6 +632,35 @@ class MacroService : AccessibilityService() {
             { kaydet { it.mpYuzde = (it.mpYuzde - 5).coerceIn(5, 95) } },
             { kaydet { it.mpYuzde = (it.mpYuzde + 5).coerceIn(5, 95) } })
         if (Config.minorVar(this)) {
+            val minorBtn = menuBtn("") {}
+            fun minorYaz() {
+                val ak = Config.load(this).minorAktif
+                minorBtn.text = if (ak) "💚 Minor: AKTİF" else "💚 Minor: PASİF"
+                minorBtn.background = if (ak) koButon(1) else koButon()
+            }
+            minorBtn.setOnClickListener {
+                val c = Config.load(this)
+                c.minorAktif = !c.minorAktif
+                c.save(this)
+                cfg.minorAktif = c.minorAktif
+                // Pasife alinirken Minor aciksa bir kez basip kapat (mana yemesin)
+                if (!c.minorAktif && minorAcik) {
+                    minorAcik = false
+                    cfg.points.firstOrNull { it.type == "minor" }?.let { m ->
+                        try {
+                            val p = Path().apply { moveTo(m.x.toFloat(), m.y.toFloat()); lineTo(m.x + 1f, m.y + 1f) }
+                            dispatchGesture(GestureDescription.Builder()
+                                .addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null)
+                        } catch (e: Exception) {
+                        }
+                    }
+                }
+                minorYaz()
+            }
+            minorYaz()
+            box.addView(minorBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
             satir("💚 Minor, can altında", { "%" + Config.load(this).minorYuzde },
                 { kaydet { it.minorYuzde = (it.minorYuzde - 5).coerceIn(20, 99) } },
                 { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
@@ -660,6 +714,21 @@ class MacroService : AccessibilityService() {
         }
         hizBoya()
         box.addView(hizSatir)
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+
+        // Ekran kaydi uyumlu mod
+        val kayitBtn = menuBtn("") {}
+        fun kayitYaz() {
+            kayitBtn.text = if (Config.kayitUyumlu(this)) "🎥 Ekran kaydı uyumlu: AÇIK (yavaş tarama)"
+            else "🎥 Ekran kaydı uyumlu: KAPALI"
+        }
+        kayitBtn.setOnClickListener {
+            kayitModu(!Config.kayitUyumlu(this))
+            kayitYaz()
+        }
+        kayitYaz()
+        box.addView(kayitBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
 
         // Kutu toplama ac/kapa
@@ -1231,6 +1300,603 @@ class MacroService : AccessibilityService() {
         return null
     }
 
+    // ================= 🏪 Pazar Bot =================
+    // Pazar kur: Commands -> OPEN MERCHANT -> ogretilen esyalara 2 kez dokun -> fiyat -> OK -> OK
+    // Kontrol (her N dk): Commands -> SLAVE MERCHANT -> satilanlarin parasini al ->
+    //   hepsi satildiysa Close Slave Merchant -> pazari yeniden kur.
+
+    private val pzThread = HandlerThread("pazar").apply { start() }
+    private val pzH = Handler(pzThread.looper)
+    @Volatile private var pazarCalisiyor = false
+    private var pzSonrakiKontrol = 0L
+
+    private class PzSablonlar(
+        val commands: Sablon, val openM: Sablon, val slaveM: Sablon, val create: Sablon,
+        val fiyat: Sablon, val slave: Sablon, val satilmadi: Sablon, val slaveKapat: Sablon
+    )
+    private var pzT: PzSablonlar? = null
+
+    private fun pzSablonYukle(s: Float): PzSablonlar? {
+        fun y(ad: String, tol: Int) = Preset.loadTemplateF(this, ad, s, tol, 0.5f, 0.5f)
+        return PzSablonlar(
+            y("pz_commands.png", 24) ?: return null,
+            y("pz_open_merchant.png", 18) ?: return null,
+            y("pz_slave_merchant.png", 19) ?: return null,
+            y("pz_create_baslik.png", 19) ?: return null,
+            y("pz_fiyat_baslik.png", 17) ?: return null,
+            y("pz_slave_baslik.png", 29) ?: return null,
+            y("pz_satilmadi.png", 23) ?: return null,
+            y("pz_slave_kapat.png", 21) ?: return null
+        )
+    }
+
+    private fun pzUyu(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (e: InterruptedException) {
+        }
+    }
+
+    /** Pazar thread'inden bekleyerek dokun (cift = iki kez hizli) */
+    private fun pzDokun(x: Float, y: Float, cift: Boolean = false) {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val b = GestureDescription.Builder()
+        b.addStroke(GestureDescription.StrokeDescription(Path().apply { moveTo(x, y); lineTo(x + 1f, y + 1f) }, 0, 50))
+        if (cift) b.addStroke(GestureDescription.StrokeDescription(Path().apply { moveTo(x, y); lineTo(x + 1f, y) }, 170, 50))
+        ui.post {
+            try {
+                dispatchGesture(b.build(), object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(d: GestureDescription?) { latch.countDown() }
+                    override fun onCancelled(d: GestureDescription?) { latch.countDown() }
+                }, null)
+            } catch (e: Exception) {
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** Sablonu en fazla ms boyunca arar; bulursa sol-ust kosesinin ekran konumu */
+    private fun pzBekle(t: Sablon, ms: Long): FloatArray? {
+        val son = SystemClock.uptimeMillis() + ms
+        while (pazarCalisiyor || pzOgretme) {
+            ScreenSampler.grab()?.let { f ->
+                findT(f, t)?.let { p ->
+                    return floatArrayOf(ScreenSampler.toScreen(p[0].toFloat()), ScreenSampler.toScreen(p[1].toFloat()))
+                }
+            }
+            if (SystemClock.uptimeMillis() > son) return null
+            pzUyu(150)
+        }
+        return null
+    }
+
+    private fun pzS() = olcek?.s ?: (screenW / 2712f)
+
+    /** Bir noktanin etrafindaki ortalama parlaklik (0-255) */
+    private fun pzParlaklik(x: Float, y: Float, r: Float): Int {
+        val k = ScreenSampler.bolge((x - r).toInt(), (y - r).toInt(), (x + r).toInt(), (y + r).toInt()) ?: return 0
+        var t = 0L
+        for (c in k.third) t += (((c shr 16) and 0xff) * 299 + ((c shr 8) and 0xff) * 587 + (c and 0xff) * 114) / 1000
+        return if (k.third.isEmpty()) 0 else (t / k.third.size).toInt()
+    }
+
+    /** Envanter kutusundaki ikon (sag-alt adet sayisi haric), yari cozunurluk */
+    private fun pzIkon(cx: Float, cy: Float): Triple<Int, Int, IntArray>? {
+        val s = pzS()
+        return ScreenSampler.bolge((cx - 38 * s).toInt(), (cy - 38 * s).toInt(), (cx + 20 * s).toInt(), (cy + 20 * s).toInt())
+    }
+
+    private fun pzIkonUyar(k: Triple<Int, Int, IntArray>, e: PazarEsya): Boolean {
+        val (w, hh, px) = k
+        if (kotlin.math.abs(w - e.w) > 1 || kotlin.math.abs(hh - e.h) > 1) return false
+        val ww = minOf(w, e.w)
+        val h2 = minOf(hh, e.h)
+        var best = Long.MAX_VALUE
+        for (dy in -1..1) for (dx in -1..1) {
+            var top = 0L
+            var n = 0
+            for (y in 1 until h2 - 1) for (x in 1 until ww - 1) {
+                val yy = y + dy
+                val xx = x + dx
+                if (yy !in 0 until hh || xx !in 0 until w) continue
+                top += ScreenSampler.diff(px[yy * w + xx] and 0xFFFFFF, e.px[y * e.w + x] and 0xFFFFFF)
+                n++
+            }
+            if (n > 0) best = minOf(best, top / n)
+        }
+        return best < 75
+    }
+
+    /** Oyunun fiyat alanina yazar (erisilebilirlik ile); olmazsa klavyenin rakam tuslarina basar */
+    private fun pzFiyatYaz(fiyat: Long) {
+        var yazildi = false
+        val latch = java.util.concurrent.CountDownLatch(1)
+        ui.post {
+            try {
+                val root = rootInActiveWindow
+                var n = root?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+                if (n == null && root != null) n = pzYaziAlaniBul(root)
+                if (n != null) {
+                    val b = android.os.Bundle()
+                    b.putCharSequence(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        fiyat.toString()
+                    )
+                    yazildi = n.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+                }
+            } catch (e: Exception) {
+            }
+            latch.countDown()
+        }
+        try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
+        if (!yazildi) {
+            // Yedek: sayi klavyesi (ekran oranlari, oyunun acildigi klavye duzeni)
+            val tus = mapOf(
+                '1' to (432f to 758f), '2' to (1039f to 758f), '3' to (1647f to 758f),
+                '4' to (432f to 890f), '5' to (1039f to 890f), '6' to (1647f to 890f),
+                '7' to (432f to 1019f), '8' to (1039f to 1019f), '9' to (1647f to 1019f),
+                '0' to (1039f to 1148f)
+            )
+            for (ch in fiyat.toString()) {
+                val (kx, ky) = tus[ch] ?: continue
+                pzDokun(kx / 2712f * screenW, ky / 1220f * screenH)
+                pzUyu(120)
+            }
+        }
+        pzUyu(300)
+        // Klavyedeki TAMAM / onay
+        val tamam = java.util.concurrent.CountDownLatch(1)
+        var basildi = false
+        ui.post {
+            try {
+                val root = rootInActiveWindow
+                for (ad in listOf("TAMAM", "Tamam", "OK", "Done", "Bitti")) {
+                    val l = root?.findAccessibilityNodeInfosByText(ad) ?: continue
+                    val d = l.firstOrNull { it.isClickable } ?: l.firstOrNull()?.parent
+                    if (d != null && d.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) {
+                        basildi = true; break
+                    }
+                }
+            } catch (e: Exception) {
+            }
+            tamam.countDown()
+        }
+        try { tamam.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {}
+        if (!basildi) pzDokun(2253f / 2712f * screenW, 1148f / 1220f * screenH)   // klavyedeki ✓
+    }
+
+    private fun pzYaziAlaniBul(n: android.view.accessibility.AccessibilityNodeInfo): android.view.accessibility.AccessibilityNodeInfo? {
+        if (n.isEditable) return n
+        for (i in 0 until n.childCount) {
+            val c = n.getChild(i) ?: continue
+            pzYaziAlaniBul(c)?.let { return it }
+        }
+        return null
+    }
+
+    private fun pzDurum(t: String) = ui.post { statusTv?.text = t }
+
+    /** Pazari kurar; konan esya sayisi (-1 = hata) */
+    private fun pazarKur(): Int {
+        val t = pzT ?: return -1
+        val s = pzS()
+        val esyalar = Config.pazarEsyalar(this)
+        if (esyalar.isEmpty()) return -1
+        pzDurum("🏪 Pazar kuruluyor")
+        val cm = pzBekle(t.commands, 2500) ?: return -1
+        pzDokun(cm[0] + 77 * s, cm[1] + 24 * s)
+        val om = pzBekle(t.openM, 3000) ?: return -1
+        pzDokun(om[0] + 135 * s, om[1] + 30 * s)
+        val cr = pzBekle(t.create, 3500) ?: return -1
+        pzUyu(500)
+        var konan = 0
+        loop@ for (r in 0 until 4) for (c in 0 until 7) {
+            if (!pazarCalisiyor) return konan
+            if (konan >= 12) break@loop
+            val cx = cr[0] + (-144 + 100 * c) * s
+            val cy = cr[1] + (395 + 100.67f * r) * s
+            val ikon = pzIkon(cx, cy) ?: continue
+            val e = esyalar.firstOrNull { pzIkonUyar(ikon, it) } ?: continue
+            pzDokun(cx, cy, cift = true)
+            val fp = pzBekle(t.fiyat, 2500) ?: continue
+            pzDokun(fp[0] + 276 * s, fp[1] + 371 * s)      // fiyat alani
+            pzUyu(900)
+            pzFiyatYaz(e.fiyat)
+            pzUyu(700)
+            val fp2 = pzBekle(t.fiyat, 1500)
+            if (fp2 != null) pzDokun(fp2[0] + 163 * s, fp2[1] + 464 * s)   // OK
+            pzUyu(900)
+            konan++
+            pzDurum("🏪 $konan eşya kondu")
+        }
+        if (konan == 0) {
+            pzDokun(cr[0] + 253 * s, cr[1] + 804 * s)   // CANCEL
+            return 0
+        }
+        pzDokun(cr[0] + 66 * s, cr[1] + 804 * s)        // OK: pazar acilir
+        pzUyu(1500)
+        return konan
+    }
+
+    /** Satislari kontrol eder: paralari alir, hepsi satildiysa pazari yeniden kurar */
+    private fun pazarKontrol() {
+        val t = pzT ?: return
+        val s = pzS()
+        pzDurum("🏪 Kontrol")
+        val cm = pzBekle(t.commands, 2500) ?: return
+        pzDokun(cm[0] + 77 * s, cm[1] + 24 * s)
+        val sm = pzBekle(t.slaveM, 3000) ?: return
+        pzDokun(sm[0] + 135 * s, sm[1] + 29 * s)
+        val sb = pzBekle(t.slave, 3500)
+        if (sb == null) {
+            // Pazar yok gibi: dogrudan kur
+            kurVeBildir(); return
+        }
+        pzUyu(600)
+        var alinan = 0
+        for (k in 0 until 6) {
+            val ry = sb[1] + (209 + 104 * k) * s
+            val ikonVar = pzParlaklik(sb[0] - 239 * s, ry, 20 * s) > 35
+            if (!ikonVar) continue
+            val cx = sb[0] + 513 * s
+            if (pzParlaklik(cx, ry, 22 * s) > 45) {   // para isareti
+                pzDokun(cx, ry)
+                alinan++
+                pzUyu(800)
+            }
+        }
+        pzUyu(1200)
+        val f = ScreenSampler.grab()
+        val kalanVar = f != null && findT(f, t.satilmadi) != null
+        if (alinan > 0) bildirim(4100, "🏪 Pazar", "$alinan eşya satıldı, paraları toplandı")
+        if (!kalanVar) {
+            // Hepsi satildi: pazari kapat ve yeniden kur
+            val kp = pzBekle(t.slaveKapat, 2000)
+            if (kp != null) pzDokun(kp[0] + 210 * s, kp[1] + 25 * s)
+            else pzDokun(sb[0] + 561 * s, sb[1] + 23 * s)
+            pzUyu(2000)
+            kurVeBildir()
+        } else {
+            pzDokun(sb[0] + 561 * s, sb[1] + 23 * s)    // X ile kapat
+            pzUyu(600)
+        }
+    }
+
+    private fun kurVeBildir() {
+        val n = pazarKur()
+        when {
+            n > 0 -> bildirim(4101, "🏪 Pazar kuruldu", "$n eşya satışa kondu")
+            n == 0 -> {
+                bildirim(4102, "🏪 Pazar", "Satılacak eşya kalmadı, Pazar Bot durdu")
+                ui.post { pazarDurdur() }
+            }
+            else -> toast("🏪 Pazar kurulamadı, sonraki kontrolde tekrar denenecek")
+        }
+    }
+
+    private val pazarDongu = Runnable {
+        try {
+            // Ekrani tani ve sablonlari yukle
+            val o = olcek ?: Preset.olcekBul(this)
+            if (o == null) {
+                toast("Oyun ekranı tanınamadı"); ui.post { pazarDurdur() }; return@Runnable
+            }
+            olcek = o
+            pzT = pzSablonYukle(o.s)
+            if (pzT == null) {
+                toast("Pazar görüntüleri yüklenemedi"); ui.post { pazarDurdur() }; return@Runnable
+            }
+            // Ilk tur: once kontrol et (pazar zaten aciksa bozma), gerekirse kur
+            pazarKontrol()
+            while (pazarCalisiyor) {
+                pzSonrakiKontrol = SystemClock.uptimeMillis() + Config.pazarDk(this) * 60_000L
+                while (pazarCalisiyor && SystemClock.uptimeMillis() < pzSonrakiKontrol) {
+                    val kalan = (pzSonrakiKontrol - SystemClock.uptimeMillis()) / 1000
+                    pzDurum("🏪 %d:%02d".format(kalan / 60, kalan % 60))
+                    pzUyu(1000)
+                }
+                if (!pazarCalisiyor) break
+                // Oyun ekranda degilse bekle
+                while (pazarCalisiyor && !oyundaMi()) {
+                    pzDurum("🏪 ⏸"); pzUyu(2000)
+                }
+                if (pazarCalisiyor) pazarKontrol()
+            }
+        } catch (e: Exception) {
+            hataKaydet("pazar", e)
+        }
+    }
+
+    private fun pazarBaslat() {
+        if (Config.pazarEsyalar(this).isEmpty()) {
+            toast("Önce satılacak eşyaları ekle: ⋯ Bot seç → 🏪 Pazar Bot → ➕ Eşya ekle")
+            pazarKarti(); return
+        }
+        pazarCalisiyor = true
+        playBtn?.text = "⏸"
+        pzDurum("🏪 Başlıyor")
+        pzH.post(pazarDongu)
+    }
+
+    private fun pazarDurdur() {
+        pazarCalisiyor = false
+        pzH.removeCallbacksAndMessages(null)
+        playBtn?.text = "▶"
+        statusTv?.text = "🏪 Durdu"
+    }
+
+    // ---------- Pazar ayarlari ve esya ogretme ----------
+    @Volatile private var pzOgretme = false
+
+    private fun pazarKarti() {
+        removeOverlay()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF00E0D08.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+        }
+        box.addView(TextView(this).apply {
+            text = "🏪 Pazar Bot ayarları"
+            setTextColor(0xFFD2A866.toInt()); textSize = 17f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
+        })
+        box.addView(TextView(this).apply {
+            text = "Pazarı kurar, satışları her ${Config.pazarDk(this@MacroService)} dakikada kontrol edip paraları toplar, " +
+                "hepsi satılınca aynı yerde yeniden kurar. Sadece listedeki eşyaları satar."
+            setTextColor(0xFFB0B8C4.toInt()); textSize = 12f
+            setPadding(0, dp(4), 0, dp(8))
+        })
+        val esyalar = Config.pazarEsyalar(this)
+        if (esyalar.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "Henüz eşya yok. Commands → OPEN MERCHANT'ı aç, sonra ➕ Eşya ekle."
+                setTextColor(Color.WHITE); textSize = 13f
+                setPadding(0, 0, 0, dp(6))
+            })
+        }
+        esyalar.forEachIndexed { i, e ->
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val ikon = ImageView(this).apply {
+                setImageBitmap(Bitmap.createBitmap(e.px.map { it or (0xFF shl 24) }.toIntArray(), e.w, e.h, Bitmap.Config.ARGB_8888))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            r.addView(ikon, LinearLayout.LayoutParams(dp(34), dp(34)))
+            r.addView(TextView(this).apply {
+                text = "  " + "%,d".format(e.fiyat).replace(',', '.') + " coin"
+                setTextColor(Color.WHITE); textSize = 14f
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            r.addView(menuBtn("✎") { pzFiyatSor(e.fiyat) { yeni -> val l = Config.pazarEsyalar(this); if (i < l.size) { l[i].fiyat = yeni; Config.pazarEsyalarYaz(this, l) }; pazarKarti() } })
+            r.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            r.addView(menuBtn("🗑") { val l = Config.pazarEsyalar(this); if (i < l.size) l.removeAt(i); Config.pazarEsyalarYaz(this, l); pazarKarti() })
+            box.addView(r)
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+        }
+        box.addView(menuBtn("➕ Eşya ekle (OPEN MERCHANT açıkken)") { pzEsyaOgret() },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+        val dr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        dr.addView(TextView(this).apply { text = "⏱ Kontrol aralığı"; setTextColor(Color.WHITE); textSize = 14f },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        dr.addView(menuBtn("−") { Config.pazarDkYaz(this, (Config.pazarDk(this) - 5).coerceIn(5, 240)); pazarKarti() })
+        dr.addView(TextView(this).apply {
+            text = "${Config.pazarDk(this@MacroService)} dk"; setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT))
+        dr.addView(menuBtn("+") { Config.pazarDkYaz(this, (Config.pazarDk(this) + 5).coerceIn(5, 240)); pazarKarti() })
+        box.addView(dr)
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(10)))
+        val ar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        ar.addView(btn("▶ BAŞLAT") { removeOverlay(); startMacro() }.apply { background = koButon(1) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        ar.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+        ar.addView(btn("Kapat") { removeOverlay() }.apply { background = koButon() },
+            LinearLayout.LayoutParams(dp(110), LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(ar)
+        ortadaGoster(box, dp(430))
+    }
+
+    /** Create a Merchant acikken envanterdeki bir esyaya dokunarak listeye ekle */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun pzEsyaOgret() {
+        removeOverlay()
+        if (!ScreenSampler.running) {
+            toast("Ekran okuma kapalı: önce ▶ ile bir kere başlatıp durdur"); return
+        }
+        pzOgretme = true
+        pzH.post {
+            try {
+                val o = olcek ?: Preset.olcekBul(this)
+                if (o == null) { toast("Oyun ekranı tanınamadı"); return@post }
+                olcek = o
+                if (pzT == null) pzT = pzSablonYukle(o.s)
+                val t = pzT ?: return@post
+                val cr = pzBekle(t.create, 800)
+                if (cr == null) {
+                    toast("Önce Commands → OPEN MERCHANT'ı aç, eşyalar görünürken ➕'ya bas"); return@post
+                }
+                ui.post { pzDokunusYakala(cr) }
+            } finally {
+                pzOgretme = false
+            }
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun pzDokunusYakala(cr: FloatArray) {
+        removeOverlay()
+        val v = FrameLayout(this).apply { setBackgroundColor(0x33000000); isClickable = true }
+        v.addView(TextView(this).apply {
+            text = "Satmak istediğin eşyaya dokun"
+            setTextColor(Color.WHITE); textSize = 14f
+            background = rounded(0xE6000000.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }, FrameLayout.LayoutParams(dp(250), FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER_VERTICAL or Gravity.START).apply { leftMargin = dp(24) })
+        v.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_UP) {
+                val tx = e.rawX
+                val ty = e.rawY
+                removeOverlay()
+                val s = pzS()
+                // En yakin envanter kutusu
+                var en = Float.MAX_VALUE
+                var bx = 0f
+                var by = 0f
+                for (r in 0 until 4) for (c in 0 until 7) {
+                    val cx = cr[0] + (-144 + 100 * c) * s
+                    val cy = cr[1] + (395 + 100.67f * r) * s
+                    val d = (cx - tx) * (cx - tx) + (cy - ty) * (cy - ty)
+                    if (d < en) { en = d; bx = cx; by = cy }
+                }
+                ui.postDelayed({
+                    val k = pzIkon(bx, by)
+                    if (k == null) {
+                        toast("İkon okunamadı, tekrar dene")
+                    } else {
+                        pzFiyatSor(0L) { fiyat ->
+                            val l = Config.pazarEsyalar(this)
+                            l.add(PazarEsya(k.first, k.second, k.third, fiyat))
+                            Config.pazarEsyalarYaz(this, l)
+                            toast("🏪 Eklendi: " + "%,d".format(fiyat).replace(',', '.') + " coin")
+                            pazarKarti()
+                        }
+                    }
+                }, 400)
+            }
+            true
+        }
+        overlay = v
+        try {
+            wm.addView(v, lp(screenW, screenH).apply { x = 0; y = 0 })
+        } catch (e: Exception) {
+            overlay = null
+        }
+    }
+
+    /** Fiyat girisi: klavye acilabilen pencere */
+    private fun pzFiyatSor(baslangic: Long, sonra: (Long) -> Unit) {
+        removeOverlay()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF00E0D08.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+        }
+        box.addView(TextView(this).apply {
+            text = "💰 Bu eşyanın fiyatı (adet başı)"
+            setTextColor(0xFFD2A866.toInt()); textSize = 15f
+            setPadding(0, 0, 0, dp(6))
+        })
+        val et = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setTextColor(Color.WHITE); textSize = 20f
+            hint = "ör. 9599866"
+            setHintTextColor(0xFF777777.toInt())
+            if (baslangic > 0) setText(baslangic.toString())
+        }
+        box.addView(et, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        val ar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
+        ar.addView(btn("✓ Kaydet") {
+            val f = et.text.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L
+            if (f <= 0L) { toast("Fiyat gir"); return@btn }
+            removeOverlay(); sonra(f)
+        }.apply { background = koButon(1) }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        ar.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+        ar.addView(btn("İptal") { removeOverlay(); pazarKarti() }.apply { background = koButon(2) },
+            LinearLayout.LayoutParams(dp(100), LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(ar)
+        // Klavye acilabilsin diye odaklanabilir pencere
+        val p = WindowManager.LayoutParams(
+            dp(380), WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(20)
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+        }
+        overlay = box
+        try {
+            wm.addView(box, p)
+            et.requestFocus()
+        } catch (e: Exception) {
+            overlay = null
+        }
+    }
+
+    // ================= Ekran kaydi uyumlu mod =================
+
+    /**
+     * Acikken ekran paylasimi (MediaProjection) kullanilmaz; ekran goruntusu erisilebilirlik
+     * izniyle alinir (Android 11+, saniyede ~3). Boylece ekran kaydi ile makro ayni anda calisir.
+     */
+    fun kayitModu(ac: Boolean) {
+        if (ac && Build.VERSION.SDK_INT < 30) {
+            toast("Bu özellik Android 11 ve üstünde çalışır"); return
+        }
+        Config.kayitUyumluYaz(this, ac)
+        if (ac) {
+            // Ekran paylasimini birak ki ekran kaydi kullanabilsin
+            try {
+                stopService(Intent(this, CaptureService::class.java))
+            } catch (e: Exception) {
+            }
+            ScreenSampler.clear()
+            ssAktif = true
+            ssH.removeCallbacksAndMessages(null)
+            ssH.postDelayed(ssDongu, 400)
+        } else {
+            ssAktif = false
+            ssH.removeCallbacksAndMessages(null)
+            ScreenSampler.running = false
+            ScreenSampler.clear()
+        }
+    }
+
+    private val ssDongu = object : Runnable {
+        override fun run() {
+            if (!ssAktif) return
+            if (Build.VERSION.SDK_INT < 30) return
+            try {
+                takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    java.util.concurrent.Executor { r -> ssH.post(r) },
+                    object : AccessibilityService.TakeScreenshotCallback {
+                        override fun onSuccess(sonuc: AccessibilityService.ScreenshotResult) {
+                            try {
+                                val hb = sonuc.hardwareBuffer
+                                val hw = Bitmap.wrapHardwareBuffer(hb, sonuc.colorSpace)
+                                if (hw != null) {
+                                    val sw = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                    val yarim = Bitmap.createScaledBitmap(
+                                        sw, (sw.width * ScreenSampler.SCALE).toInt(),
+                                        (sw.height * ScreenSampler.SCALE).toInt(), true
+                                    )
+                                    if (yarim !== sw) sw.recycle()
+                                    ScreenSampler.offerBitmap(yarim)
+                                    ScreenSampler.running = true
+                                }
+                                hb.close()
+                            } catch (e: Exception) {
+                            }
+                            if (ssAktif) ssH.postDelayed(ssDongu, 340)   // Android siniri ~3/sn
+                        }
+
+                        override fun onFailure(hata: Int) {
+                            if (ssAktif) ssH.postDelayed(ssDongu, 500)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                if (ssAktif) ssH.postDelayed(this, 1000)
+            }
+        }
+    }
+
     private fun showBarChooser() {
         if (running) {
             toast("Önce makroyu durdur"); return
@@ -1416,38 +2082,64 @@ class MacroService : AccessibilityService() {
 
     fun isRunning() = running
 
-    private fun modYazi() = if (Config.pkMi(this)) "PK • ${Config.sinifAd(this)} ▾" else "Farm ▾"
+    private fun modYazi() = when {
+        Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
+        Config.pkMi(this) -> "⚔ PK Bot • ${Config.sinifAd(this)} ▾"
+        else -> "🌾 Farm Bot ▾"
+    }
 
-    /** Panelden mod secimi: hemen gecmez, secim menusu acar */
+    /** Oyun ici ana menu: Farm Bot / PK Bot / Pazar Bot */
     private fun modMenu() {
+        val pk = Config.pkMi(this)
+        showMenu("Bot seç", listOf(
+            (if (!pk) "✓ " else "") + "🌾 Farm Bot" to {
+                modSec(false)
+                ui.postDelayed({ ayarKarti() }, 250)
+            },
+            (if (pk) "✓ " else "") + "⚔ PK Bot" to { pkKarakterMenu() },
+            (if (Config.pazarMi(this)) "✓ " else "") + "🏪 Pazar Bot" to {
+                if (running) stopMacro()
+                Config.pazarSec(this)
+                modBtn?.text = modYazi()
+                statusTv?.text = "🏪 Pazar hazır"
+                pazarKarti()
+            }
+        ))
+    }
+
+    /** PK Bot: once karakter, sonra o karakterin ayarlari */
+    private fun pkKarakterMenu() {
         val pk = Config.pkMi(this)
         val sn = Config.sinif(this)
         val liste = ArrayList<Pair<String, () -> Unit>>()
-        liste.add((if (!pk) "✓ " else "") + "🌾 FARM" to { modSec(false) })
         for ((kod, ad) in Config.SINIFLAR) {
-            liste.add((if (pk && sn == kod) "✓ " else "") + "⚔ PK • $ad" to { modSec(true, kod) })
+            liste.add((if (pk && sn == kod) "✓ " else "") + ad to {
+                modSec(true, kod)
+                ui.postDelayed({ ayarKarti() }, 250)
+            })
         }
-        showMenu("Mod seç", liste)
+        showMenu("⚔ PK Bot • karakter seç", liste)
     }
 
     /** Modu secer; her modun kendi tus duzeni ve ayarlari yuklenir (uygulamadan da cagrilir) */
     fun modSec(pk: Boolean, sinif: String? = null) {
         ui.post {
-            if (Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) {
-                toast(if (pk) "Zaten bu karakterdesin" else "Zaten Farm modundasın")
+            if (!Config.pazarMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) {
                 return@post
             }
             if (running) stopMacro()
+            if (pazarCalisiyor) pazarDurdur()
             Config.modDegistir(this, pk, sinif)
             cfg = Config.load(this)
             modBtn?.text = modYazi()
             statusTv?.text = if (pk) "PK hazır" else "Farm hazır"
-            toast(if (pk) "⚔ PK • ${Config.sinifAd(this)}: ayarları yüklendi" else "🌾 Farm modu: ayarları yüklendi")
+            toast(if (pk) "⚔ PK Bot • ${Config.sinifAd(this)}" else "🌾 Farm Bot")
         }
     }
 
     private fun toggle() {
         when {
+            pazarCalisiyor -> pazarDurdur()
             running -> stopMacro()
             pendingStart -> {
                 pendingStart = false
@@ -1543,6 +2235,13 @@ class MacroService : AccessibilityService() {
         if (!oyundaMi()) {
             toast("Önce oyunu (MykoMobile) aç, sonra ▶")
             return
+        }
+        // 🏪 Pazar Bot: ekran okuma gerekli, sonra pazar dongusu
+        if (Config.pazarMi(this)) {
+            if (!ScreenSampler.running) {
+                requestCaptureThenStart(); return
+            }
+            pazarBaslat(); return
         }
         if (Lisans.guncelleGerekli) {
             guncelleKarti()
@@ -2078,6 +2777,7 @@ class MacroService : AccessibilityService() {
      */
     private fun minorAction(now: Long): Nokta? {
         if (pkAktif && Config.sinif(this) != "asas") return null   // Minor sadece Asas'ta
+        if (!cfg.minorAktif) return null
         val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
@@ -2137,7 +2837,10 @@ class MacroService : AccessibilityService() {
         if (target != null && bar != null && ScreenSampler.running) {
             // Akilli mod: hedef barina bak
             val alive = targetAlive(bar)
-            if (oncekiCanli && !alive) kesilen++
+            if (oncekiCanli && !alive) {
+                kesilen++
+                nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
+            }
             if (alive && !oncekiCanli) {
                 // Yeni hedef: ilerleme sayacini ve mesafe sayacini baslat
                 sonYuzde = hedefYuzde()
@@ -2284,7 +2987,7 @@ class MacroService : AccessibilityService() {
             if (kotlin.math.abs(d.x - doluKutuX) < 80 && kotlin.math.abs(d.y - doluKutuY) < 80) return true
         }
         if (collectedSinceOpen) return false
-        if (now - lastOpenAt > 6000) return false
+        if (now - lastOpenAt > 1200) return false   // sadece cift basmayi onle
         val t = sablonHedef(op, pos)
         return kotlin.math.abs(t.x - lastOpenX) < 80 && kotlin.math.abs(t.y - lastOpenY) < 80
     }
@@ -2311,12 +3014,15 @@ class MacroService : AccessibilityService() {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
+                    // Pencere gelmedi (karakter uzaklasmis olabilir): Open hala gorunuyorsa hemen tekrar bas
+                    if (op != null && openDeneme < 3) {
+                        findT(f, op)?.let { pos ->
+                            openDeneme++
+                            return openHit(now, op, pos, tekrar = true)
+                        }
+                    }
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
-                    if (!warnedCollect) {
-                        warnedCollect = true
-                        toast("Collect All penceresi tanınmadı. Uygulamada Gelişmiş → ⚡ ayarları yeniden yükle")
-                    }
                 } else {
                     nextLootScan = now + rand(60, 100)
                 }
@@ -2349,10 +3055,14 @@ class MacroService : AccessibilityService() {
         return null
     }
 
-    private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
+    private var openDeneme = 0
+
+    private fun openHit(now: Long, op: Sablon, pos: IntArray, tekrar: Boolean = false): Hedef {
+        if (!tekrar) openDeneme = 0
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
-        phaseUntil = now + cfg.collectWait
+        // Collect All en fazla 0.9 sn beklenir; gelmezse Open'a tekrar basilir
+        phaseUntil = now + minOf(cfg.collectWait, 900)
         nextLootScan = now + rand(100, 150)
         val t = sablonHedef(op, pos)
         lastOpenX = t.x

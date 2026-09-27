@@ -23,6 +23,10 @@ object ScreenSampler {
     @Volatile
     var lastFrameAt = 0L
 
+    /** Kayit uyumlu modda: erisilebilirlik ekran goruntusu (yari cozunurluk, yazilim bitmap) */
+    private var latestBmp: Bitmap? = null
+    private var bmpPx: IntArray? = null
+
     fun offer(img: Image) {
         synchronized(lock) {
             latest?.close()
@@ -31,7 +35,29 @@ object ScreenSampler {
         lastFrameAt = SystemClock.uptimeMillis()
     }
 
-    fun hasFrame(): Boolean = synchronized(lock) { latest != null }
+    fun offerBitmap(b: Bitmap) {
+        val px = IntArray(b.width * b.height)
+        b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
+        synchronized(lock) {
+            latest?.close()
+            latest = null
+            latestBmp?.recycle()
+            latestBmp = b
+            bmpPx = px
+        }
+        lastFrameAt = SystemClock.uptimeMillis()
+    }
+
+    /** Bitmap kaynagindan piksel (yari cozunurluk koordinati); kilit icinde cagrilir */
+    private fun bmpPiksel(x: Int, y: Int): Int {
+        val b = latestBmp ?: return 0
+        val p = bmpPx ?: return 0
+        val xx = x.coerceIn(0, b.width - 1)
+        val yy = y.coerceIn(0, b.height - 1)
+        return p[yy * b.width + xx] and 0xFFFFFF
+    }
+
+    fun hasFrame(): Boolean = synchronized(lock) { latest != null || latestBmp != null }
 
     /** Goruntu yoksa en fazla ms kadar bekle (ana thread'de cagirma) */
     fun bekle(ms: Long): Boolean {
@@ -51,12 +77,25 @@ object ScreenSampler {
         synchronized(lock) {
             latest?.close()
             latest = null
+            latestBmp?.recycle()
+            latestBmp = null
+            bmpPx = null
         }
     }
 
     /** Ekran koordinatindaki rengi (3x3 ortalama) 0xRRGGBB olarak dondurur; yoksa -1 */
     fun readPixel(x: Int, y: Int): Int {
         synchronized(lock) {
+            if (latest == null && latestBmp != null) {
+                val cx = (x * SCALE).toInt()
+                val cy = (y * SCALE).toInt()
+                var rs = 0; var gs = 0; var bs = 0
+                for (dy in -1..1) for (dx in -1..1) {
+                    val c = bmpPiksel(cx + dx, cy + dy)
+                    rs += (c shr 16) and 0xff; gs += (c shr 8) and 0xff; bs += c and 0xff
+                }
+                return ((rs / 9) shl 16) or ((gs / 9) shl 8) or (bs / 9)
+            }
             val img = latest ?: return -1
             return try {
                 val plane = img.planes[0]
@@ -97,6 +136,14 @@ object ScreenSampler {
     /** Son kareyi izgara cozunurlugunde kopyalar (kilit kisa surer) */
     fun grab(): Frame? {
         synchronized(lock) {
+            val bm = latestBmp
+            if (latest == null && bm != null) {
+                val w = bm.width / GRID
+                val h = bm.height / GRID
+                val out = IntArray(w * h)
+                for (y in 0 until h) for (x in 0 until w) out[y * w + x] = bmpPiksel(x * GRID, y * GRID)
+                return Frame(w, h, out)
+            }
             val img = latest ?: return null
             return try {
                 val plane = img.planes[0]
@@ -199,6 +246,18 @@ object ScreenSampler {
 
     private fun copyRegion(x1: Int, y1: Int, x2: Int, y2: Int): Crop? {
         synchronized(lock) {
+            val bm = latestBmp
+            if (latest == null && bm != null) {
+                val sx1 = (x1 * SCALE).toInt().coerceIn(0, bm.width - 1)
+                val sy1 = (y1 * SCALE).toInt().coerceIn(0, bm.height - 1)
+                val sx2 = (x2 * SCALE).toInt().coerceIn(sx1, bm.width - 1)
+                val sy2 = (y2 * SCALE).toInt().coerceIn(sy1, bm.height - 1)
+                val w = sx2 - sx1 + 1
+                val h = sy2 - sy1 + 1
+                val px = IntArray(w * h)
+                for (y in 0 until h) for (x in 0 until w) px[y * w + x] = (0xFF shl 24) or bmpPiksel(sx1 + x, sy1 + y)
+                return Crop(w, h, px)
+            }
             val img = latest ?: return null
             return try {
                 val plane = img.planes[0]

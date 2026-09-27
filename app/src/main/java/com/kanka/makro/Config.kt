@@ -53,6 +53,22 @@ class Sablon(
     }
 }
 
+/** Pazarda satilacak esya: envanterdeki ikonu (yari cozunurluk) ve fiyati */
+class PazarEsya(val w: Int, val h: Int, val px: IntArray, var fiyat: Long) {
+    fun toJson(): JSONObject = JSONObject().put("w", w).put("h", h).put("fiyat", fiyat)
+        .put("px", JSONArray().apply { px.forEach { put(it) } })
+
+    companion object {
+        fun from(o: JSONObject?): PazarEsya? {
+            if (o == null) return null
+            val a = o.optJSONArray("px") ?: return null
+            val w = o.optInt("w"); val h = o.optInt("h")
+            if (w <= 0 || a.length() != w * h) return null
+            return PazarEsya(w, h, IntArray(a.length()) { a.getInt(it) }, o.optLong("fiyat", 0L))
+        }
+    }
+}
+
 /** Kilitli mob ismi: harflerin sekli (renk maskesi), yari cozunurlukte */
 class Kilit(val w: Int, val h: Int, val renk: Int, val bits: String) {
     fun toJson(): JSONObject = JSONObject().put("w", w).put("h", h).put("renk", renk).put("bits", bits)
@@ -115,6 +131,7 @@ class Config {
 
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
+    var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
     // Mesafe siniri: mob secildikten sonra bu kadar sn icinde vurulmaya baslanmazsa (uzak) birak. 0 = kapali
     var menzilSn = 0
@@ -155,7 +172,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("minorYuzde", minorYuzde)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("minorYuzde", minorYuzde).put("minorAktif", minorAktif)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
@@ -175,7 +192,47 @@ class Config {
         private fun genel(ctx: Context) =
             ctx.applicationContext.getSharedPreferences("genel", Context.MODE_PRIVATE)
 
-        fun pkMi(ctx: Context): Boolean = genel(ctx).getBoolean("pk", false)
+        /** Secili bot: "farm", "pk" ya da "pazar" */
+        fun bot(ctx: Context): String =
+            genel(ctx).getString("bot", null) ?: if (genel(ctx).getBoolean("pk", false)) "pk" else "farm"
+
+        fun pazarMi(ctx: Context): Boolean = bot(ctx) == "pazar"
+
+        fun pazarSec(ctx: Context) {
+            genel(ctx).edit().putString("bot", "pazar").commit()
+        }
+
+        fun pkMi(ctx: Context): Boolean = bot(ctx) == "pk"
+
+        // ---------- Pazar: satilacak esyalar (ikon + fiyat) ve kontrol araligi ----------
+        fun pazarEsyalar(ctx: Context): MutableList<PazarEsya> {
+            val out = mutableListOf<PazarEsya>()
+            try {
+                val a = JSONArray(genel(ctx).getString("pazarEsyalar", "[]"))
+                for (i in 0 until a.length()) PazarEsya.from(a.optJSONObject(i))?.let { out.add(it) }
+            } catch (e: Exception) {
+            }
+            return out
+        }
+
+        fun pazarEsyalarYaz(ctx: Context, l: List<PazarEsya>) {
+            val a = JSONArray()
+            l.forEach { a.put(it.toJson()) }
+            genel(ctx).edit().putString("pazarEsyalar", a.toString()).commit()
+        }
+
+        fun pazarDk(ctx: Context): Int = genel(ctx).getInt("pazarDk", 30)
+
+        fun pazarDkYaz(ctx: Context, dk: Int) {
+            genel(ctx).edit().putInt("pazarDk", dk).commit()
+        }
+
+        /** Ekran kaydi uyumlu mod: ekran paylasimi yerine erisilebilirlik ekran goruntusu (~3/sn) */
+        fun kayitUyumlu(ctx: Context): Boolean = genel(ctx).getBoolean("kayitUyumlu", false)
+
+        fun kayitUyumluYaz(ctx: Context, acik: Boolean) {
+            genel(ctx).edit().putBoolean("kayitUyumlu", acik).commit()
+        }
 
         /** PK karakterleri: her birinin tus duzeni ve ayarlari ayri */
         // Sira: Mage, Warrior, Asas/Okcu (oyunda ayni sinif), Priest. Anahtarlar degismedi (kayitlar korunur)
@@ -210,7 +267,7 @@ class Config {
                     }
                 }
             }
-            genel(ctx).edit().putBoolean("pk", pk).commit()
+            genel(ctx).edit().putBoolean("pk", pk).putString("bot", if (pk) "pk" else "farm").commit()
         }
 
         fun load(ctx: Context): Config {
@@ -262,6 +319,7 @@ class Config {
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
                 c.menzilSn = o.optInt("menzilSn", 0)
                 c.minorYuzde = o.optInt("minorYuzde", 80)
+                c.minorAktif = o.optBoolean("minorAktif", true)
                 c.hpYuzde = o.optInt("hpYuzde", 74)
                 c.mpYuzde = o.optInt("mpYuzde", 25)
                 o.optJSONArray("kilitler")?.let { a ->

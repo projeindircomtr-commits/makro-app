@@ -786,7 +786,7 @@ class MainActivity : Activity() {
     }
 
     private fun modSec(pk: Boolean, sinif: String? = null) {
-        if (Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
+        if (!Config.pazarMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
         saveAll()
         val servis = MacroService.instance
         if (servis != null) servis.modSec(pk, sinif) else Config.modDegistir(this, pk, sinif)
@@ -1189,7 +1189,8 @@ class MainActivity : Activity() {
         ) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 5)
         }
-        if (ScreenSampler.running) {
+        if (ScreenSampler.running || Config.kayitUyumlu(this)) {
+            // Kayit uyumlu modda ekran paylasimi gerekmez
             afterCapture(true)
             return
         }
