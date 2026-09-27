@@ -100,6 +100,8 @@ class MainActivity : Activity() {
     private lateinit var girisBox: LinearLayout
     private lateinit var cikisBtn: Button
     private lateinit var guncelleBtn: Button
+    private lateinit var girisBtn: Button
+    private lateinit var siteUyari: LinearLayout
     private lateinit var kEdit: EditText
     private lateinit var sEdit: EditText
     private lateinit var step1: TextView
@@ -187,9 +189,29 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
         }
+        // Giris icin once site ziyareti (bir kere)
+        siteUyari = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xFF2A2230.toInt(), 10)
+            setPadding(dp(10), dp(8), dp(10), dp(10))
+        }
+        siteUyari.addView(TextView(this).apply {
+            text = "Giriş yapabilmek için önce sitemizi ziyaret et:"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, dp(6))
+        })
+        siteUyari.addView(smallButton("🌐 Siteye git") { siteyeGit() }.apply {
+            background = rounded(ACCENT, 10)
+            setTextColor(0xFF12161C.toInt())
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        girisBox.addView(siteUyari, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) })
         girisBox.addView(kEdit)
         girisBox.addView(sEdit)
-        girisBox.addView(smallButton("Giriş yap") { girisYap() })
+        girisBtn = smallButton("Giriş yap") { girisYap() }
+        girisBox.addView(girisBtn)
         girisBox.addView(TextView(this).apply {
             text = "Cihaz kodu: " + Lisans.cihazKodu(this@MainActivity)
             textSize = 12f
@@ -372,7 +394,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             // Cihazda WebView yoksa sadece buton kalsin
         }
-        site.addView(smallButton("🌐 Siteye git") { siteAc(Uri.parse("https://projeindir.com.tr")) },
+        site.addView(smallButton("🌐 Siteye git") { siteyeGit() },
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) })
@@ -458,9 +480,33 @@ class MainActivity : Activity() {
         for (v in uyeBolumleri) v.visibility = g
         advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
+        girisKilidi()
+    }
+
+    private fun siteGidildi(): Boolean =
+        getSharedPreferences("genel", MODE_PRIVATE).getBoolean("siteGidildi", false)
+
+    /** Siteyi acar ve giris kilidini kalici olarak kaldirir */
+    private fun siteyeGit() {
+        getSharedPreferences("genel", MODE_PRIVATE).edit().putBoolean("siteGidildi", true).apply()
+        siteAc(Uri.parse("https://projeindir.com.tr"))
+        girisKilidi()
+    }
+
+    /** Site ziyaret edilmediyse giris alanlari kilitli */
+    private fun girisKilidi() {
+        val acik = siteGidildi()
+        siteUyari.visibility = if (acik) View.GONE else View.VISIBLE
+        for (v in listOf<View>(kEdit, sEdit, girisBtn)) {
+            v.isEnabled = acik
+            v.alpha = if (acik) 1f else 0.35f
+        }
     }
 
     private fun girisYap() {
+        if (!siteGidildi()) {
+            toast("Önce 🌐 Siteye git'e bas"); return
+        }
         val k = kEdit.text.toString().trim()
         val s = sEdit.text.toString()
         if (k.isEmpty() || s.isEmpty()) {

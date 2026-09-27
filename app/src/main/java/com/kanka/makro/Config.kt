@@ -113,6 +113,12 @@ class Config {
     // Otomatik ekran tanima: HP/MP, hedef bari ve kutular her cihazda kendiliginden bulunur
     var otoArayuz = true
 
+    // Minor (iyilestirme skili): can bu %'nin altindayken basilir
+    var minorYuzde = 80
+
+    // Mesafe siniri: mob secildikten sonra bu kadar sn icinde vurulmaya baslanmazsa (uzak) birak. 0 = kapali
+    var menzilSn = 0
+
     // Pot esikleri (%): otomatik tanimada barin doluluguna gore
     var hpYuzde = 74
     var mpYuzde = 25
@@ -149,13 +155,13 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("minorYuzde", minorYuzde)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
 
     fun save(ctx: Context) {
-        prefs(ctx).edit().putString("cfg", toJson().toString()).apply()
+        prefs(ctx).edit().putString(anahtar(ctx), toJson().toString()).apply()
     }
 
     companion object {
@@ -165,8 +171,24 @@ class Config {
         private fun profPrefs(ctx: Context) =
             ctx.applicationContext.getSharedPreferences("makro_profiller", Context.MODE_PRIVATE)
 
+        // ---------- Mod: Farm / PK (her modun kendi ayarlari) ----------
+        private fun genel(ctx: Context) =
+            ctx.applicationContext.getSharedPreferences("genel", Context.MODE_PRIVATE)
+
+        fun pkMi(ctx: Context): Boolean = genel(ctx).getBoolean("pk", false)
+
+        private fun anahtar(ctx: Context) = if (pkMi(ctx)) "cfg_pk" else "cfg"
+
+        /** Modu degistirir. PK'ya ilk geciste farm ayarlari baslangic olarak kopyalanir */
+        fun modDegistir(ctx: Context, pk: Boolean) {
+            if (pk && prefs(ctx).getString("cfg_pk", null) == null) {
+                prefs(ctx).getString("cfg", null)?.let { prefs(ctx).edit().putString("cfg_pk", it).apply() }
+            }
+            genel(ctx).edit().putBoolean("pk", pk).apply()
+        }
+
         fun load(ctx: Context): Config {
-            val s = prefs(ctx).getString("cfg", null) ?: return Config()
+            val s = prefs(ctx).getString(anahtar(ctx), null) ?: return Config()
             return parse(s) ?: Config()
         }
 
@@ -212,6 +234,8 @@ class Config {
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
+                c.menzilSn = o.optInt("menzilSn", 0)
+                c.minorYuzde = o.optInt("minorYuzde", 80)
                 c.hpYuzde = o.optInt("hpYuzde", 74)
                 c.mpYuzde = o.optInt("mpYuzde", 25)
                 o.optJSONArray("kilitler")?.let { a ->
@@ -243,7 +267,8 @@ class Config {
         }
 
         fun label(type: String) = when (type) {
-            "saldiri" -> "Saldırı"
+            "saldiri" -> "Kılıç"
+            "minor" -> "Minor"
             "hedef" -> "Mob seç"
             "hp_pot" -> "HP pot"
             "mp_pot" -> "MP pot"

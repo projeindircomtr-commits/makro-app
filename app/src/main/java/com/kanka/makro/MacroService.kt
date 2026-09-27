@@ -121,6 +121,17 @@ class MacroService : AccessibilityService() {
     private var sonYuzde = 1f
     private var ilerlemeAt = 0L
     private var iptalBekliyor = false
+    // PK modu
+    @Volatile private var pkAktif = false
+    private var pkSira = 0
+    // Minor ac-kapa durumu (1. basis acar ve mana yer, 2. basis kapatir)
+    @Volatile private var minorAcik = false
+    private var minorSon = 0L
+    private var modBtn: TextView? = null
+
+    // Mesafe siniri
+    private var hedefBaslangic = 0L
+    private var ilkVurus = false
 
     // Bar dolulugu ve mob kilidi (otomatik tanimadan gelir)
     private var hpBar = IntArray(3)
@@ -334,8 +345,11 @@ class MacroService : AccessibilityService() {
         }
         statusTv = st
 
+        val mb = btn(if (Config.pkMi(this)) "⚔" else "🌾") { modDegis() }
+        modBtn = mb
         root.addView(drag)
         root.addView(play)
+        root.addView(mb)
         root.addView(btn("⋯") { showMainMenu() })
         root.addView(st)
 
@@ -500,6 +514,15 @@ class MacroService : AccessibilityService() {
         satir("💧 MP potu", { "%" + Config.load(this).mpYuzde },
             { kaydet { it.mpYuzde = (it.mpYuzde - 5).coerceIn(5, 95) } },
             { kaydet { it.mpYuzde = (it.mpYuzde + 5).coerceIn(5, 95) } })
+        satir("💚 Minor, can altında", { "%" + Config.load(this).minorYuzde },
+            { kaydet { it.minorYuzde = (it.minorYuzde - 5).coerceIn(20, 99) } },
+            { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
+        satir("🏃 Mesafe sınırı", {
+            val m = Config.load(this).menzilSn
+            if (m <= 0) "kapalı" else "$m sn"
+        },
+            { kaydet { it.menzilSn = (it.menzilSn - 1).coerceIn(0, 15) } },
+            { kaydet { it.menzilSn = (it.menzilSn + 1).coerceIn(0, 15) } })
         satir("⏱ Süre", { "${Config.load(this).minutes} dk" },
             { kaydet { it.minutes = (it.minutes - 10).coerceIn(10, 600) } },
             { kaydet { it.minutes = (it.minutes + 10).coerceIn(10, 600) } })
@@ -584,6 +607,7 @@ class MacroService : AccessibilityService() {
         "saldiri" -> "⚔"
         "hedef" -> "🎯"
         "hp_pot" -> "HP"
+        "minor" -> "💚"
         "mp_pot" -> "MP"
         else -> {
             val no = p.name.removePrefix("Skill ").trim()
@@ -700,7 +724,9 @@ class MacroService : AccessibilityService() {
         "✨ Skill" to { onPick("skill") },
         "❤ HP pot" to { onPick("hp_pot") },
         "💧 MP pot" to { onPick("mp_pot") },
-        "🎯 Mob seç" to { onPick("hedef") }
+        "🎯 Mob seç" to { onPick("hedef") },
+        "⚔ Kılıç (PK)" to { onPick("saldiri") },
+        "💚 Minor" to { onPick("minor") }
     )
 
     private fun cdMenu(onPick: (Float) -> Unit) {
@@ -722,7 +748,16 @@ class MacroService : AccessibilityService() {
     /** Bos yere dokunuldu: yeni tus ekle */
     private fun editorAdd(x: Int, y: Int) {
         showMenu("Bu slot ne olsun?", turListesi { type ->
-            if (type == "skill") {
+            if (type == "minor") {
+                cdMenu { cd ->
+                    val cf = Config.load(this)
+                    cf.points.removeAll { it.type == "minor" }
+                    cf.points.add(Nokta("Minor", "minor", x, y, cd, true))
+                    cf.tuslarOto = false
+                    cf.save(this)
+                    editorRefresh()
+                }
+            } else if (type == "skill") {
                 cdMenu { cd ->
                     val cf = Config.load(this)
                     cf.points.add(Nokta("Skill", "skill", x, y, cd, true))
@@ -1069,7 +1104,7 @@ class MacroService : AccessibilityService() {
     private fun showTypeChooser(x: Int, y: Int) {
         showMenu(
             "Bu tuş ne? ($x, $y)",
-            listOf("hedef", "skill", "hp_pot", "mp_pot").map { t ->
+            listOf("hedef", "skill", "hp_pot", "mp_pot", "saldiri", "minor").map { t ->
                 Config.label(t) to { savePoint(t, x, y) }
             }
         )
@@ -1223,6 +1258,17 @@ class MacroService : AccessibilityService() {
 
     fun isRunning() = running
 
+    /** Farm <-> PK. Her modun kendi tus duzeni ve ayarlari var */
+    private fun modDegis() {
+        if (running) stopMacro()
+        val pk = !Config.pkMi(this)
+        Config.modDegistir(this, pk)
+        cfg = Config.load(this)
+        modBtn?.text = if (pk) "⚔" else "🌾"
+        statusTv?.text = if (pk) "PK" else "Farm"
+        toast(if (pk) "⚔ PK modu: kendi skill düzeni ve ayarları yüklendi" else "🌾 Farm modu")
+    }
+
     private fun toggle() {
         when {
             running -> stopMacro()
@@ -1301,7 +1347,7 @@ class MacroService : AccessibilityService() {
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
-            statusTv?.text = "$ne %d:%02d".format(left / 60, left % 60) +
+            statusTv?.text = (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
                 "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
             ui.postDelayed(this, 1000)
         }
@@ -1351,7 +1397,14 @@ class MacroService : AccessibilityService() {
             requestCaptureThenStart()
             return
         }
-        if (cfg.points.none { it.type == "hedef" || (it.type == "skill" && it.on) }) {
+        pkAktif = Config.pkMi(this)
+        pkSira = 0
+        minorAcik = false
+        minorSon = 0L
+        if (pkAktif && cfg.points.none { it.type == "saldiri" }) {
+            toast("PK için ⚔ Kılıç tuşunu ata: ⋯ → 🛠 Tuşları düzenle"); return
+        }
+        if (!pkAktif && cfg.points.none { it.type == "hedef" || (it.type == "skill" && it.on) }) {
             toast("Önce + ile saldırı / mob seç / skill tuşu kaydet"); return
         }
         val needScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
@@ -1415,6 +1468,18 @@ class MacroService : AccessibilityService() {
     }
 
     private fun stopMacro(reason: String? = null) {
+        // Minor acik kaldiysa kapat (mana akip gitmesin)
+        if (minorAcik) {
+            minorAcik = false
+            cfg.points.firstOrNull { it.type == "minor" }?.let { m ->
+                try {
+                    val p = Path().apply { moveTo(m.x.toFloat(), m.y.toFloat()); lineTo(m.x + 1f, m.y + 1f) }
+                    dispatchGesture(GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null)
+                } catch (e: Exception) {
+                }
+            }
+        }
         running = false
         h.removeCallbacksAndMessages(null)
         ui.removeCallbacks(statusTick)
@@ -1485,7 +1550,8 @@ class MacroService : AccessibilityService() {
         // Potlar beklemeden, hemen ardindan skill/saldiri/kutu. Oyun ayni anda gelen
         // coklu dokunuslari yok saydigi icin arka arkaya (cok kisa aralikla) basilir.
         val r = cfg.radius.toFloat()
-        val pots = potActions(now).map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
+        val pots = (potActions(now) + listOfNotNull(minorAction(now)))
+            .map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
         val p = pickTarget(now)
         val list = pots + listOfNotNull(p)
         if (list.isEmpty()) {
@@ -1609,7 +1675,8 @@ class MacroService : AccessibilityService() {
     private fun potActions(now: Long): List<Nokta> {
         val out = ArrayList<Nokta>(2)
         val hp = cfg.hp
-        if (hp != null && now - lastHpPot > cfg.potCd && isLow(hp)) {
+        val potBekle = if (pkAktif) 450 else cfg.potCd
+        if (hp != null && now - lastHpPot > potBekle && isLow(hp)) {
             cfg.points.firstOrNull { it.type == "hp_pot" }?.let {
                 basilanPot++
                 lastHpPot = now
@@ -1617,7 +1684,7 @@ class MacroService : AccessibilityService() {
             }
         }
         val mp = cfg.mp
-        if (mp != null && now - lastMpPot > cfg.potCd && isLow(mp)) {
+        if (mp != null && now - lastMpPot > potBekle && isLow(mp)) {
             cfg.points.firstOrNull { it.type == "mp_pot" }?.let {
                 basilanPot++
                 lastMpPot = now
@@ -1817,7 +1884,63 @@ class MacroService : AccessibilityService() {
         return !isLow(bar)
     }
 
+    /**
+     * Minor ac-kapa calisir: can esigin altina inince BIR KEZ basip acar (HP dolar, mana yer),
+     * can %97'ye gelince BIR KEZ basip kapatir (mana yemeyi birakir). Arada dokunmaz.
+     */
+    private fun minorAction(now: Long): Nokta? {
+        val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
+        if (olcek == null || hpBar[1] <= hpBar[0]) return null
+        // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
+        if (now - minorSon < 150) return null
+        val hp = barDoluluk(hpBar, true)
+        if (!minorAcik && hp < cfg.minorYuzde / 100f) {
+            minorAcik = true
+            minorSon = now
+            return m
+        }
+        if (minorAcik && hp >= 0.97f) {
+            minorAcik = false
+            minorSon = now
+            return m
+        }
+        return null
+    }
+
+    /**
+     * PK: kilicla hedef sec; hedef varken skilleri SENIN SIRANLA bas (1-2-3-...-1).
+     * Siradaki kisa sure icinde hazir olacaksa onu bekler (sira bozulmaz), uzun bekleyecekse atlar.
+     */
+    private fun pkSec(now: Long): Nokta? {
+        val pts = cfg.points
+        val kilic = pts.firstOrNull { it.type == "saldiri" }
+        val bar = cfg.tgtBar
+        val alive = bar != null && ScreenSampler.running && targetAlive(bar)
+        if (!alive) {
+            if (kilic != null && now >= nextTarget) {
+                nextTarget = now + rand(300, 450)
+                return kilic
+            }
+            return null
+        }
+        val skills = pts.indices.filter { pts[it].type == "skill" && pts[it].on }
+        if (skills.isEmpty()) return kilic
+        for (deneme in skills.indices) {
+            val i = skills[pkSira % skills.size]
+            val kalan = (skillReady[i] ?: 0L) - now
+            if (kalan <= 0) {
+                skillReady[i] = now + (pts[i].cd * 1000).toLong() + rand(0, 80)
+                pkSira = (pkSira + 1) % skills.size
+                return pts[i]
+            }
+            if (kalan <= 600) return null       // az kaldi: sirayi koru, bekle
+            pkSira = (pkSira + 1) % skills.size // uzun bekleyecek: atla
+        }
+        return null
+    }
+
     private fun pick(now: Long): Nokta? {
+        if (pkAktif) return pkSec(now)
         val pts = cfg.points
         val target = pts.firstOrNull { it.type == "hedef" }
         val bar = cfg.tgtBar
@@ -1827,17 +1950,30 @@ class MacroService : AccessibilityService() {
             val alive = targetAlive(bar)
             if (oncekiCanli && !alive) kesilen++
             if (alive && !oncekiCanli) {
-                // Yeni hedef: ilerleme sayacini baslat
+                // Yeni hedef: ilerleme sayacini ve mesafe sayacini baslat
                 sonYuzde = hedefYuzde()
                 ilerlemeAt = now
+                hedefBaslangic = now
+                ilkVurus = false
             }
             oncekiCanli = alive
             if (alive) {
                 // Takili hedef: 12 sn boyunca cani azalmiyorsa birak, yenisini sec
                 val y = hedefYuzde()
+                val o0 = olcek
                 if (y < sonYuzde - 0.02f) {
                     sonYuzde = y
                     ilerlemeAt = now
+                    ilkVurus = true
+                } else if (!ilkVurus && cfg.menzilSn > 0 && o0 != null &&
+                    now - hedefBaslangic > cfg.menzilSn * 1000L
+                ) {
+                    // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak
+                    hedefBaslangic = now
+                    ilkVurus = true
+                    nextTarget = now + rand(250, 400)
+                    val x = Preset.sagAlt(o0, 2632, 926)
+                    return Nokta("İptal", "iptal", x[0], x[1])
                 } else if (now - ilerlemeAt > 12_000) {
                     ilerlemeAt = now
                     sonYuzde = 1f
@@ -1974,6 +2110,7 @@ class MacroService : AccessibilityService() {
         val op = cfg.openT
         val hasCollect = cfg.collectT != null || cfg.collectT2 != null
         if (op == null && !hasCollect) return null
+        if (pkAktif) return null
         if (!cfg.lootOn || !ScreenSampler.running || now < lootPauseUntil) {
             lootPhase = Loot.BOS
             return null
@@ -2073,6 +2210,7 @@ class MacroService : AccessibilityService() {
     private fun basmaSuresi(): Long = if (cfg.maxDelay <= 150) rand(35, 70) else rand(55, 140)
 
     private fun nextDelay(): Long {
+        if (pkAktif) return rand(40, 90)
         val lo = cfg.minDelay.coerceAtLeast(50)
         val hi = cfg.maxDelay.coerceAtLeast(lo + 1)
         // Iki rastgele sayinin ortalamasi: ortaya yakin, dogal dagilim
