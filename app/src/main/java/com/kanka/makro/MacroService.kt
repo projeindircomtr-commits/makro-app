@@ -90,7 +90,7 @@ class MacroService : AccessibilityService() {
     private var statusTv: TextView? = null
 
     @Volatile
-    private var running = false
+    @Volatile private var running = false
 
     // Adim dongusu ve dokunus durumu (kutu gozcusu araya girebilsin diye)
     private val stepR = Runnable { step() }
@@ -98,7 +98,7 @@ class MacroService : AccessibilityService() {
     private var pendingStart = false
     private var lisansKontrolde = false
     private var sonLisansKontrol = 0L
-    private var cfg = Config()
+    @Volatile private var cfg = Config()
 
     // Motor durumu (sadece worker thread'inde degisir)
     private var endAt = 0L
@@ -112,7 +112,7 @@ class MacroService : AccessibilityService() {
 
     // Otomatik ekran tanima
     private var otoMod = false
-    private var olcek: Preset.Olcek? = null
+    @Volatile private var olcek: Preset.Olcek? = null
     private var sonTarama = 0L
 
     // Koruma
@@ -288,6 +288,7 @@ class MacroService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        ui.removeCallbacksAndMessages(null)   // ana thread'de bekleyen post/postDelayed cagrilari (statusTick, mesaj kartlari vb.)
         kartKapat()
         closeEditor()
         stopMacro()

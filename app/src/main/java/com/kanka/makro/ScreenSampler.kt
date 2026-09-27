@@ -17,11 +17,11 @@ object ScreenSampler {
     const val SCALE = 0.5f
 
     @Volatile
-    var running = false
+    @Volatile var running = false
 
     /** Son goruntunun geldigi an (uptime ms) */
     @Volatile
-    var lastFrameAt = 0L
+    @Volatile var lastFrameAt = 0L
 
     /** Kayit uyumlu modda: erisilebilirlik ekran goruntusu (yari cozunurluk, yazilim bitmap) */
     private var latestBmp: Bitmap? = null

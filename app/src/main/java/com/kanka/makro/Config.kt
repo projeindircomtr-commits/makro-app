@@ -296,7 +296,7 @@ class Config {
                 c.openT = Sablon.from(o.optJSONObject("openT"))
                 c.collectT = Sablon.from(o.optJSONObject("collectT"))
                 c.collectT2 = Sablon.from(o.optJSONObject("collectT2"))
-                c.minutes = o.optInt("minutes", c.minutes)
+                c.minutes = o.optInt("minutes", c.minutes).coerceIn(10, 600)
                 c.radius = o.optInt("radius", c.radius)
                 c.tol = o.optInt("tol", c.tol)
                 c.ttol = o.optInt("ttol", c.ttol)
@@ -317,11 +317,11 @@ class Config {
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
-                c.menzilSn = o.optInt("menzilSn", 0)
-                c.minorYuzde = o.optInt("minorYuzde", 80)
+                c.menzilSn = o.optInt("menzilSn", 0).coerceIn(0, 15)
+                c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.minorAktif = o.optBoolean("minorAktif", true)
-                c.hpYuzde = o.optInt("hpYuzde", 74)
-                c.mpYuzde = o.optInt("mpYuzde", 25)
+                c.hpYuzde = o.optInt("hpYuzde", 74).coerceIn(10, 95)
+                c.mpYuzde = o.optInt("mpYuzde", 25).coerceIn(5, 95)
                 o.optJSONArray("kilitler")?.let { a ->
                     for (i in 0 until a.length()) Kilit.from(a.optJSONObject(i))?.let { c.kilitler.add(it) }
                 }
