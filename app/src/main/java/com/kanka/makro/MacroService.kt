@@ -2438,22 +2438,22 @@ class MacroService : AccessibilityService() {
         if (korumaKontrol(now)) return
         if (safetyStop(now)) return
 
-        // Potlar beklemeden, hemen ardindan skill/saldiri/kutu. Oyun ayni anda gelen
-        // coklu dokunuslari yok saydigi icin arka arkaya (cok kisa aralikla) basilir.
+        // Pot, kutu (Open/Collect) ve skill/saldiri BIRLIKTE, ayni anda basilir (iki el gibi):
+        // biri digerini bekletmez, digeri de onu bekletmez.
         val r = cfg.radius.toFloat()
         val pots = (potActions(now) + listOfNotNull(minorAction(now)))
             .map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
-        val p = pickTarget(now)
-        val list = pots + listOfNotNull(p)
+        val hedefler = pickTargets(now)
+        val list = pots + hedefler
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
             stepPlanla( if (lootPhase != Loot.BOS) 60L else 200L)
             return
         }
         tapping = true
-        tapSeq(list, 0) {
+        tapMulti(list) {
             tapping = false
-            val hizli = p?.fast == true || lootPhase != Loot.BOS
+            val hizli = hedefler.any { it.fast } || lootPhase != Loot.BOS
             if (running) stepPlanla( if (hizli) rand(40, 90) else nextDelay())
         }
     }
@@ -2474,8 +2474,9 @@ class MacroService : AccessibilityService() {
         }
 
         private fun gozcuIc() {
-            // Kutu skilden oncelikli: dokunus suruyor olsa bile kutu gorulunce hemen basilir
-            if ((!otoMod || olcek != null) &&
+            // Kutu skilden oncelikli. step() zaten ayni anda basiyor; bu gozcu sadece
+            // step() bir sonraki adimi beklerken (uzun bekleme sirasinda) devreye girer.
+            if (!tapping && (!otoMod || olcek != null) &&
                 dokunmaEngeli(SystemClock.uptimeMillis()) == null
             ) {
                 val now = SystemClock.uptimeMillis()
@@ -2553,14 +2554,14 @@ class MacroService : AccessibilityService() {
         return false
     }
 
-    private fun pickTarget(now: Long): Hedef? {
+    /** Ayni adimda hem kutu hem skill/saldiri gerekiyorsa ikisi de doner (birlikte, ayni anda basilir) */
+    private fun pickTargets(now: Long): List<Hedef> {
         val r = cfg.radius.toFloat()
-        // 1) Kutu (Open / Collect All) - potlar ayrica ayni anda basilir
-        lootAction(now)?.let { return it }
-        // Kutu toplarken de saldiri/skill devam eder; kutu butonu gorununce araya girer
-        // 3) Hedef / skill / saldiri
-        val p = pick(now) ?: return null
-        return Hedef(p.x.toFloat(), p.y.toFloat(), r)
+        val out = ArrayList<Hedef>(2)
+        lootAction(now)?.let { out.add(it) }
+        // Kutu varken de skill/saldiri secimi devam eder: hicbiri digerini beklemez
+        pick(now)?.let { out.add(Hedef(it.x.toFloat(), it.y.toFloat(), r, fast = out.isNotEmpty())) }
+        return out
     }
 
     /** Gereken potlar (HP, MP ya da ikisi) - beklemeden, saldiriyla birlikte basilir */
@@ -3019,13 +3020,6 @@ class MacroService : AccessibilityService() {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
-                    // Pencere gelmedi (karakter uzaklasmis olabilir): Open hala gorunuyorsa hemen tekrar bas
-                    if (op != null && openDeneme < 3) {
-                        findT(f, op)?.let { pos ->
-                            openDeneme++
-                            return openHit(now, op, pos, tekrar = true)
-                        }
-                    }
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
@@ -3060,14 +3054,10 @@ class MacroService : AccessibilityService() {
         return null
     }
 
-    private var openDeneme = 0
-
-    private fun openHit(now: Long, op: Sablon, pos: IntArray, tekrar: Boolean = false): Hedef {
-        if (!tekrar) openDeneme = 0
+    private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
-        // Collect All en fazla 0.9 sn beklenir; gelmezse Open'a tekrar basilir
-        phaseUntil = now + minOf(cfg.collectWait, 900)
+        phaseUntil = now + cfg.collectWait
         nextLootScan = now + rand(100, 150)
         val t = sablonHedef(op, pos)
         lastOpenX = t.x
