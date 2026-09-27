@@ -23,6 +23,13 @@ object ScreenSampler {
     @Volatile
     @Volatile var lastFrameAt = 0L
 
+    // Kare onbellegi: yakalanan goruntu ~10/sn degisir ama grab() cok daha sik cagrilir
+    // (kutu gozcusu, adim dongusu, pazar). Ayni goruntu icin izgara donusumunu bir kez yap,
+    // sonraki cagrilara AYNI (salt okunur) Frame'i ver. Yeni kare gelince/clear'da gecersiz olur.
+    private var seq = 0L
+    private var cachedFrame: Frame? = null
+    private var cachedSeq = -1L
+
     /** Kayit uyumlu modda: erisilebilirlik ekran goruntusu (yari cozunurluk, yazilim bitmap) */
     private var latestBmp: Bitmap? = null
     private var bmpPx: IntArray? = null
@@ -31,6 +38,7 @@ object ScreenSampler {
         synchronized(lock) {
             latest?.close()
             latest = img
+            seq++
         }
         lastFrameAt = SystemClock.uptimeMillis()
     }
@@ -44,6 +52,7 @@ object ScreenSampler {
             latestBmp?.recycle()
             latestBmp = b
             bmpPx = px
+            seq++
         }
         lastFrameAt = SystemClock.uptimeMillis()
     }
@@ -80,6 +89,8 @@ object ScreenSampler {
             latestBmp?.recycle()
             latestBmp = null
             bmpPx = null
+            seq++
+            cachedFrame = null
         }
     }
 
@@ -135,6 +146,17 @@ object ScreenSampler {
 
     /** Son kareyi izgara cozunurlugunde kopyalar (kilit kisa surer) */
     fun grab(): Frame? {
+        synchronized(lock) {
+            val c = cachedFrame
+            if (c != null && cachedSeq == seq) return c
+            val f = grabBuild()
+            cachedFrame = f
+            cachedSeq = seq
+            return f
+        }
+    }
+
+    private fun grabBuild(): Frame? {
         synchronized(lock) {
             val bm = latestBmp
             if (latest == null && bm != null) {

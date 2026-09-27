@@ -2441,8 +2441,19 @@ class MacroService : AccessibilityService() {
                 if (o != null) {
                     olcekUygula(o)
                 } else if (++taramaHata >= 3) {
-                    // Takilip kalma: eski (genislige gore) ayarla devam et
-                    olcekUygula(Preset.varsayilanOlcek(this), yedek = true)
+                    // Yedek olcek SADECE HP bari o olcekte gercekten gorunuyorsa kullanilir.
+                    // Gorunmuyorsa yanlis yerlere dokunmamak icin bekle ve tekrar tara.
+                    val yo = Preset.varsayilanOlcek(this)
+                    if (yedekOlcekMakul(yo)) {
+                        olcekUygula(yo, yedek = true)
+                    } else {
+                        bekleNeden = "🔍"
+                        if (taramaHata % 10 == 3) {
+                            toast("Ekran tanınamadı. Oyun ekranda ve HP barı görünüyor mu? ⋯ → 🧪 Ekran testi")
+                        }
+                        stepPlanla(1500)
+                        return
+                    }
                 } else if (cfg.tuslarOto) {
                     // Hazir tuslar bu ekranda yanlis olabilir: oyun gorunene kadar dokunma
                     stepPlanla( 1500)
@@ -2606,6 +2617,17 @@ class MacroService : AccessibilityService() {
     }
 
     /** Bulunan olcege gore barlari, hedef barini, kutulari ve tuslari yerlestir (sadece bellekte) */
+    /** Yedek olcekte HP barinin sol kismi kirmizi mi? (barin gercekten orada oldugunu dogrular) */
+    private fun yedekOlcekMakul(o: Preset.Olcek): Boolean {
+        if (!ScreenSampler.hasFrame()) return false
+        val y = Preset.solUst(o, 0, 26)[1]
+        for (xr in intArrayOf(75, 100, 125)) {
+            val c = ScreenSampler.readPixel(Preset.solUst(o, xr, 26)[0], y)
+            if (c >= 0 && isRed(c)) return true
+        }
+        return false
+    }
+
     private fun olcekUygula(o: Preset.Olcek, yedek: Boolean = false) {
         olcek = o
         collectAnkorHazirla(o)
