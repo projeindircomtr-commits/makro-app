@@ -346,14 +346,20 @@ class MacroService : AccessibilityService() {
             }
         }
 
+    // Knight Online temasi: koyu zemin, altin cerceve, lacivert butonlar
+    private val KO_ALTIN = 0xFFC9A24A.toInt()
+    private val KO_LACI = 0xFF1C2A3E.toInt()
+
     private fun rounded(color: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(12).toFloat()
+        cornerRadius = dp(6).toFloat()
+        setStroke(dp(2), KO_ALTIN)
     }
 
     private fun btn(text: String, onClick: () -> Unit) = TextView(this).apply {
         this.text = text
-        setTextColor(Color.WHITE)
+        typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
+        setTextColor(0xFFF3E6C4.toInt())
         textSize = 15f
         gravity = Gravity.CENTER
         setPadding(dp(11), dp(9), dp(11), dp(9))
@@ -361,7 +367,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun menuBtn(text: String, onClick: () -> Unit) =
-        btn(text, onClick).apply { background = rounded(0xFF3A3A3A.toInt()) }
+        btn(text, onClick).apply { background = rounded(KO_LACI) }
 
     // ================= Yuzen panel =================
 
@@ -374,7 +380,7 @@ class MacroService : AccessibilityService() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(0xCC202020.toInt())
+            background = rounded(0xE6110D09.toInt())
         }
 
         val drag = btn("⠿") {}
@@ -462,7 +468,7 @@ class MacroService : AccessibilityService() {
         removeOverlay()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xEE202020.toInt())
+            background = rounded(0xF0110D09.toInt())
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         box.addView(TextView(this).apply {
@@ -534,7 +540,7 @@ class MacroService : AccessibilityService() {
         val c = Config.load(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF01E2A3A.toInt())
+            background = rounded(0xF0110D09.toInt())
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         box.addView(TextView(this).apply {
@@ -805,7 +811,7 @@ class MacroService : AccessibilityService() {
         var deger = baslangic.coerceIn(0f, 3600f)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF01E2A3A.toInt())
+            background = rounded(0xF0110D09.toInt())
             setPadding(dp(14), dp(10), dp(14), dp(12))
         }
         box.addView(TextView(this).apply {
@@ -1148,7 +1154,7 @@ class MacroService : AccessibilityService() {
         kartKapat()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF01E2A3A.toInt())
+            background = rounded(0xF0110D09.toInt())
             setPadding(dp(18), dp(14), dp(18), dp(14))
         }
         box.addView(TextView(this).apply {
@@ -1616,7 +1622,7 @@ class MacroService : AccessibilityService() {
 
         sonLisansKontrol = SystemClock.uptimeMillis()
         playBtn?.text = "⏸"
-        h.postDelayed(stepR, 700)
+        stepPlanla( 700)
         h.postDelayed(kutuGozcu, 900)
         ui.removeCallbacks(statusTick)
         ui.post(statusTick)
@@ -1649,6 +1655,12 @@ class MacroService : AccessibilityService() {
     }
 
     /** worker thread'inde calisir; her adimda tek dokunus, bitince sonraki planlanir */
+    /** Adimi planla; ayni anda tek adim bekler (kutu araya girince cift dongu olusmasin) */
+    private fun stepPlanla(ms: Long) {
+        h.removeCallbacks(stepR)
+        h.postDelayed(stepR, ms)
+    }
+
     private fun step() {
         if (!running) return
         try {
@@ -1657,7 +1669,7 @@ class MacroService : AccessibilityService() {
             // Makro olmesin: hatayi kaydet, 1 sn sonra devam et
             hataKaydet("adım", e)
             tapping = false
-            if (running) h.postDelayed(stepR, 1000)
+            if (running) stepPlanla( 1000)
         }
     }
 
@@ -1667,7 +1679,7 @@ class MacroService : AccessibilityService() {
         val engel = dokunmaEngeli(SystemClock.uptimeMillis())
         if (engel != null) {
             bekleNeden = engel
-            h.postDelayed(stepR, 500)
+            stepPlanla( 500)
             return
         }
         bekleNeden = ""
@@ -1691,11 +1703,11 @@ class MacroService : AccessibilityService() {
                     olcekUygula(Preset.varsayilanOlcek(this), yedek = true)
                 } else if (cfg.tuslarOto) {
                     // Hazir tuslar bu ekranda yanlis olabilir: oyun gorunene kadar dokunma
-                    h.postDelayed(stepR, 1500)
+                    stepPlanla( 1500)
                     return
                 }
             } else if (cfg.tuslarOto) {
-                h.postDelayed(stepR, 300)
+                stepPlanla( 300)
                 return
             }
         }
@@ -1711,14 +1723,14 @@ class MacroService : AccessibilityService() {
         val list = pots + listOfNotNull(p)
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
-            h.postDelayed(stepR, if (lootPhase != Loot.BOS) 60L else 200L)
+            stepPlanla( if (lootPhase != Loot.BOS) 60L else 200L)
             return
         }
         tapping = true
         tapSeq(list, 0) {
             tapping = false
             val hizli = p?.fast == true || lootPhase != Loot.BOS
-            if (running) h.postDelayed(stepR, if (hizli) rand(40, 90) else nextDelay())
+            if (running) stepPlanla( if (hizli) rand(40, 90) else nextDelay())
         }
     }
 
@@ -1738,7 +1750,8 @@ class MacroService : AccessibilityService() {
         }
 
         private fun gozcuIc() {
-            if (!tapping && (!otoMod || olcek != null) &&
+            // Kutu skilden oncelikli: dokunus suruyor olsa bile kutu gorulunce hemen basilir
+            if ((!otoMod || olcek != null) &&
                 dokunmaEngeli(SystemClock.uptimeMillis()) == null
             ) {
                 val now = SystemClock.uptimeMillis()
@@ -1748,7 +1761,7 @@ class MacroService : AccessibilityService() {
                     tapping = true
                     tap(t.x, t.y, t.r) {
                         tapping = false
-                        if (running) h.postDelayed(stepR, rand(40, 90))
+                        if (running) stepPlanla( rand(40, 90))
                     }
                 }
             }
@@ -2346,7 +2359,7 @@ class MacroService : AccessibilityService() {
         collectStreak++
         lootPhase = Loot.SONRAKI_KUTU
         phaseUntil = now + 700
-        nextLootScan = now + rand(200, 260)
+        nextLootScan = now + rand(130, 190)
         if (collectStreak >= 3) {
             // 2 kez Collect All'a rağmen acik: envanter dolu, Close ile kapat ve devam et
             doluKutuX = lastOpenX

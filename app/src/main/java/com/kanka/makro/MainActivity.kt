@@ -34,10 +34,13 @@ class MainActivity : Activity() {
     companion object {
         const val EXTRA_AUTO = "autoCapture"
 
-        private const val BG = 0xFF12161C.toInt()
-        private const val CARD = 0xFF1C232D.toInt()
-        private const val ACCENT = 0xFFE0B04A.toInt()
-        private const val GREEN = 0xFF2E9E5B.toInt()
+        // Knight Online temasi
+        private const val BG = 0xFF0B0907.toInt()          // koyu tas
+        private const val CARD = 0xFF17120D.toInt()        // koyu deri/ahsap
+        private const val ACCENT = 0xFFC9A24A.toInt()      // altin
+        private const val GREEN = 0xFF7A1E18.toInt()       // KO koyu kirmizi (baslat)
+        private const val LACI = 0xFF1C2A3E.toInt()        // oyun butonu laciverti
+        private const val PARSOMEN = 0xFFF3E6C4.toInt()    // parsomen yazi
         private const val RED = 0xFFB33A3A.toInt()
         private const val MUTED = 0xFF9AA4B2.toInt()
     }
@@ -159,9 +162,10 @@ class MainActivity : Activity() {
         // Baslik
         root.addView(TextView(this).apply {
             text = "Projeindirpedal"
-            textSize = 30f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            textSize = 32f
+            typeface = SERIF_BOLD
+            setTextColor(ACCENT)
+            setShadowLayer(8f, 0f, 2f, 0xFF000000.toInt())
         })
         root.addView(TextView(this).apply {
             text = "MykoMobile için hazır  •  Yapımcı: Muhammed Salman"
@@ -609,8 +613,11 @@ class MainActivity : Activity() {
 
     private fun rounded(color: Int, r: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(r).toFloat()
+        cornerRadius = dp(minOf(r, 8)).toFloat()
+        setStroke(dp(2), ACCENT)   // altin cerceve
     }
+
+    private val SERIF_BOLD = Typeface.create(Typeface.SERIF, Typeface.BOLD)
 
     private fun card(parent: LinearLayout): LinearLayout {
         val c = LinearLayout(this).apply {
@@ -626,9 +633,9 @@ class MainActivity : Activity() {
 
     private fun cardTitle(t: String) = TextView(this).apply {
         text = t
-        textSize = 17f
-        setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Color.WHITE)
+        textSize = 18f
+        typeface = SERIF_BOLD
+        setTextColor(ACCENT)
         setPadding(dp(4), 0, 0, dp(8))
     }
 
@@ -651,8 +658,9 @@ class MainActivity : Activity() {
         isAllCaps = false
         minWidth = 0
         minimumWidth = 0
-        setTextColor(Color.WHITE)
-        background = rounded(0xFF2D3846.toInt(), 10)
+        typeface = SERIF_BOLD
+        setTextColor(PARSOMEN)
+        background = rounded(LACI, 10)
         setPadding(dp(14), dp(6), dp(14), dp(6))
         setOnClickListener { onClick() }
     }
@@ -708,14 +716,14 @@ class MainActivity : Activity() {
             cfg.maxDelay <= 320 -> 1
             else -> 0
         }
-        val kapali = 0xFF2D3846.toInt()
+        val kapali = LACI
         speedNormal.background = rounded(if (mod == 0) ACCENT else kapali, 10)
         speedFast.background = rounded(if (mod == 1) ACCENT else kapali, 10)
         speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
         val pk = Config.pkMi(this)
-        modFarmBtn.background = rounded(if (!pk) ACCENT else 0xFF2D3846.toInt(), 14)
-        modPkBtn.background = rounded(if (pk) ACCENT else 0xFF2D3846.toInt(), 14)
+        modFarmBtn.background = rounded(if (!pk) ACCENT else LACI, 14)
+        modPkBtn.background = rounded(if (pk) ACCENT else LACI, 14)
         modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
         modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
         ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this) else "Ayarlar • Farm"
@@ -723,7 +731,7 @@ class MainActivity : Activity() {
         val sn = Config.sinif(this)
         for ((kod, b) in sinifBtnler) {
             val sec = pk && kod == sn
-            b.background = rounded(if (sec) ACCENT else 0xFF2D3846.toInt(), 12)
+            b.background = rounded(if (sec) ACCENT else LACI, 12)
             b.setTextColor(if (sec) 0xFF12161C.toInt() else Color.WHITE)
         }
         hpTv.text = "%${cfg.hpYuzde}"
