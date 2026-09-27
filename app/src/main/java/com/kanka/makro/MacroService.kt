@@ -90,7 +90,7 @@ class MacroService : AccessibilityService() {
     private var statusTv: TextView? = null
 
     @Volatile
-    @Volatile private var running = false
+    private var running = false
 
     // Adim dongusu ve dokunus durumu (kutu gozcusu araya girebilsin diye)
     private val stepR = Runnable { step() }

@@ -17,11 +17,11 @@ object ScreenSampler {
     const val SCALE = 0.5f
 
     @Volatile
-    @Volatile var running = false
+    var running = false
 
     /** Son goruntunun geldigi an (uptime ms) */
     @Volatile
-    @Volatile var lastFrameAt = 0L
+    var lastFrameAt = 0L
 
     // Kare onbellegi: yakalanan goruntu ~10/sn degisir ama grab() cok daha sik cagrilir
     // (kutu gozcusu, adim dongusu, pazar). Ayni goruntu icin izgara donusumunu bir kez yap,
