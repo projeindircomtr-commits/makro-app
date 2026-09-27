@@ -2591,6 +2591,7 @@ class MacroService : AccessibilityService() {
     private fun olcekUygula(o: Preset.Olcek, yedek: Boolean = false) {
         olcek = o
         collectAnkorHazirla(o)
+        openBandHazirla(o)
         val hp = Preset.solUst(o, 315, 26)
         val mp = Preset.solUst(o, 150, 68)
         val tb = Preset.ustOrta(o, 1262, 60)
@@ -2992,6 +2993,25 @@ class MacroService : AccessibilityService() {
         collectAnkorGY = (p[1] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
     }
 
+    // Open (kutu/mob dusunca cikan "Open" yazisi) HUD'a gore degil kameraya/karaktere gore
+    // hareket eder, ama olculdugune gore ekranin daima ayni dikey bandinda kalir: ustte
+    // can/mana/gorev seridi, altta menu cubugu asilmaz. Sadece bu bantta aramak yeter.
+    private var openBandGY1 = -1
+    private var openBandGY2 = -1
+
+    private fun openBandHazirla(o: Preset.Olcek) {
+        val ust = Preset.solUst(o, 0, 358)
+        val alt = Preset.solUst(o, 0, 1114)
+        openBandGY1 = (ust[1] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        openBandGY2 = (alt[1] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+    }
+
+    /** Open sablonunu sadece dikey bantta arar (tam ekran degil) */
+    private fun findOpen(f: ScreenSampler.Frame, op: Sablon): IntArray? {
+        if (openBandGY1 < 0) return findT(f, op)
+        return ScreenSampler.findBand(f, op, if (op.tol > 0) op.tol else cfg.ttol, openBandGY1, openBandGY2)
+    }
+
     /** Collect All penceresini ara: sabit konumun cevresinde, once tum pencere, olmazsa sadece buton */
     private fun findCollect(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
         if (collectAnkorGX < 0) return null
@@ -3052,7 +3072,7 @@ class MacroService : AccessibilityService() {
             Loot.SONRAKI_KUTU -> {
                 findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (op != null) {
-                    val pos = findT(f, op)
+                    val pos = findOpen(f, op)
                     if (pos != null && !openBlocked(now, op, pos)) return openHit(now, op, pos)
                 }
                 if (now > phaseUntil) {
@@ -3070,7 +3090,7 @@ class MacroService : AccessibilityService() {
         // Acik kalmis kutu penceresi varsa once onu topla
         findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
         if (op != null) {
-            val pos = findT(f, op)
+            val pos = findOpen(f, op)
             if (pos != null && !openBlocked(now, op, pos)) return openHit(now, op, pos)
         }
         return null

@@ -206,6 +206,19 @@ object ScreenSampler {
      * degismeyen pencereler icin - Collect All gibi). Tam ekran taramaktan cok daha hizli.
      * gx, gy: merkez (izgara koordinati). margin: her yonde aranacak piksel.
      */
+    /**
+     * Sablonu, sadece verilen dikey bant icinde arar (tam genislik). Open gibi dunyada
+     * (karakter/kameraya gore) hareket eden ama HER ZAMAN oyun goruntusunun ortasindaki
+     * bantta kalan, HUD'un ustune/altina hic tasmayan seyler icin: tam ekran taramaktan
+     * cok daha hizli, ama Open'in yerini (Collect All gibi) sabit varsaymaz.
+     */
+    fun findBand(f: Frame, t: Sablon, tol: Int, gy1: Int, gy2: Int): IntArray? {
+        val y1 = gy1.coerceAtLeast(0)
+        val y2 = gy2.coerceAtMost(f.h - t.h)
+        if (y2 < y1) return null
+        return findIn(f, t, tol, 0, f.w - t.w, y1, y2)
+    }
+
     fun findNear(f: Frame, t: Sablon, tol: Int, gx: Int, gy: Int, margin: Int): IntArray? {
         val x1 = (gx - margin).coerceAtLeast(0)
         val x2 = (gx + margin).coerceAtMost(f.w - t.w)
