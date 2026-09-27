@@ -117,6 +117,9 @@ class MainActivity : Activity() {
     private lateinit var speedFast: Button
     private lateinit var speedSeri: Button
     private lateinit var lootSwitch: Switch
+    private lateinit var modFarmBtn: Button
+    private lateinit var modPkBtn: Button
+    private lateinit var ayarBaslik: TextView
     private lateinit var otoSwitch: Switch
     private lateinit var hpTv: TextView
     private lateinit var mpTv: TextView
@@ -227,6 +230,41 @@ class MainActivity : Activity() {
         guncelleBtn = smallButton("⬇ Yeni sürümü indir") { siteAc(Uri.parse(Lisans.guncelleUrl)) }
         lk.addView(guncelleBtn)
 
+        // --- Mod secimi: Farm / PK (her modun kendi ayarlari) ---
+        val modKart = card(root)
+        uyeBolumleri.add(modKart)
+        modKart.addView(cardTitle("Mod"))
+        val modSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        modFarmBtn = Button(this).apply {
+            text = "🌾  FARM"
+            textSize = 17f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(14), 0, dp(14))
+            setOnClickListener { modSec(false) }
+        }
+        modPkBtn = Button(this).apply {
+            text = "⚔  PK"
+            textSize = 17f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(14), 0, dp(14))
+            setOnClickListener { modSec(true) }
+        }
+        modSatir.addView(modFarmBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        modSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        modKart.addView(modSatir)
+        modKart.addView(TextView(this).apply {
+            text = "Farm: mob keser, kutu toplar.  PK: oyuncuya kılıçla saldırır, skilleri senin sıranla basar. " +
+                "Her modun tuş düzeni ve ayarları ayrı saklanır."
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(8), 0, 0)
+        })
+
         // --- Kurulum karti ---
         val setup = card(root)
         uyeBolumleri.add(setup)
@@ -274,7 +312,8 @@ class MainActivity : Activity() {
         // --- Basit ayarlar ---
         val quick = card(root)
         uyeBolumleri.add(quick)
-        quick.addView(cardTitle("Ayarlar"))
+        ayarBaslik = cardTitle("Ayarlar")
+        quick.addView(ayarBaslik)
 
         val mRow = row()
         mRow.addView(label("Çalışma süresi"), weight1())
@@ -656,6 +695,12 @@ class MainActivity : Activity() {
         speedFast.background = rounded(if (mod == 1) ACCENT else kapali, 10)
         speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
+        val pk = Config.pkMi(this)
+        modFarmBtn.background = rounded(if (!pk) ACCENT else 0xFF2D3846.toInt(), 14)
+        modPkBtn.background = rounded(if (pk) ACCENT else 0xFF2D3846.toInt(), 14)
+        modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
+        modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
+        ayarBaslik.text = if (pk) "Ayarlar • PK" else "Ayarlar • Farm"
         hpTv.text = "%${cfg.hpYuzde}"
         mpTv.text = "%${cfg.mpYuzde}"
         kilitTv.text = if (cfg.kilitler.isEmpty()) "🎯 Mob kilidi: yok (her moba vurur)"
@@ -675,6 +720,15 @@ class MainActivity : Activity() {
         else c.mpYuzde = (c.mpYuzde + d).coerceIn(5, 95)
         c.save(this)
         refresh()
+    }
+
+    private fun modSec(pk: Boolean) {
+        if (Config.pkMi(this) == pk) return
+        saveAll()
+        val servis = MacroService.instance
+        if (servis != null) servis.modSec(pk) else Config.modDegistir(this, pk)
+        // Servis ui thread'inde degistirir; kisa gecikmeyle yenile
+        modFarmBtn.postDelayed({ refresh() }, 150)
     }
 
     private fun changeMinutes(d: Int) {

@@ -345,7 +345,7 @@ class MacroService : AccessibilityService() {
         }
         statusTv = st
 
-        val mb = btn(if (Config.pkMi(this)) "⚔" else "🌾") { modDegis() }
+        val mb = btn(modYazi()) { modMenu() }.apply { setTextColor(0xFFE0B04A.toInt()) }
         modBtn = mb
         root.addView(drag)
         root.addView(play)
@@ -1258,15 +1258,31 @@ class MacroService : AccessibilityService() {
 
     fun isRunning() = running
 
-    /** Farm <-> PK. Her modun kendi tus duzeni ve ayarlari var */
-    private fun modDegis() {
-        if (running) stopMacro()
-        val pk = !Config.pkMi(this)
-        Config.modDegistir(this, pk)
-        cfg = Config.load(this)
-        modBtn?.text = if (pk) "⚔" else "🌾"
-        statusTv?.text = if (pk) "PK" else "Farm"
-        toast(if (pk) "⚔ PK modu: kendi skill düzeni ve ayarları yüklendi" else "🌾 Farm modu")
+    private fun modYazi() = if (Config.pkMi(this)) "PK ▾" else "Farm ▾"
+
+    /** Panelden mod secimi: hemen gecmez, secim menusu acar */
+    private fun modMenu() {
+        val pk = Config.pkMi(this)
+        showMenu("Mod seç (şu an: ${if (pk) "PK" else "Farm"})", listOf(
+            (if (!pk) "✓ " else "") + "🌾 FARM  •  mob kes, kutu topla" to { modSec(false) },
+            (if (pk) "✓ " else "") + "⚔ PK  •  oyuncuya saldır" to { modSec(true) }
+        ))
+    }
+
+    /** Modu secer; her modun kendi tus duzeni ve ayarlari yuklenir (uygulamadan da cagrilir) */
+    fun modSec(pk: Boolean) {
+        ui.post {
+            if (Config.pkMi(this) == pk) {
+                toast(if (pk) "Zaten PK modundasın" else "Zaten Farm modundasın")
+                return@post
+            }
+            if (running) stopMacro()
+            Config.modDegistir(this, pk)
+            cfg = Config.load(this)
+            modBtn?.text = modYazi()
+            statusTv?.text = if (pk) "PK hazır" else "Farm hazır"
+            toast(if (pk) "⚔ PK modu seçildi: PK ayarları yüklendi" else "🌾 Farm modu seçildi: Farm ayarları yüklendi")
+        }
     }
 
     private fun toggle() {
