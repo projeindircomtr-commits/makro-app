@@ -198,7 +198,24 @@ object ScreenSampler {
      * tol: kanal basina ortalama izin verilen fark.
      * Hizli: once seyrek noktalarla eler, uyusmayan konumu erken birakir.
      */
-    fun find(f: Frame, t: Sablon, tol: Int): IntArray? {
+    fun find(f: Frame, t: Sablon, tol: Int): IntArray? =
+        findIn(f, t, tol, 0, f.w - t.w, 0, f.h - t.h)
+
+    /**
+     * Sablonu SADECE verilen ekran-sabit merkezin cevresinde arar (ekranda yeri
+     * degismeyen pencereler icin - Collect All gibi). Tam ekran taramaktan cok daha hizli.
+     * gx, gy: merkez (izgara koordinati). margin: her yonde aranacak piksel.
+     */
+    fun findNear(f: Frame, t: Sablon, tol: Int, gx: Int, gy: Int, margin: Int): IntArray? {
+        val x1 = (gx - margin).coerceAtLeast(0)
+        val x2 = (gx + margin).coerceAtMost(f.w - t.w)
+        val y1 = (gy - margin).coerceAtLeast(0)
+        val y2 = (gy + margin).coerceAtMost(f.h - t.h)
+        if (x2 < x1 || y2 < y1) return null
+        return findIn(f, t, tol, x1, x2, y1, y2)
+    }
+
+    private fun findIn(f: Frame, t: Sablon, tol: Int, x1: Int, x2: Int, y1: Int, y2: Int): IntArray? {
         if (t.w > f.w || t.h > f.h) return null
         // Seyrek ornek noktalar (her 2 pikselden biri)
         val sxl = ArrayList<Int>()
@@ -222,8 +239,8 @@ object ScreenSampler {
         var best = limit + 1
         var bx = -1
         var by = -1
-        for (y in 0..(f.h - t.h)) {
-            for (x in 0..(fw - t.w)) {
+        for (y in y1..y2) {
+            for (x in x1..x2) {
                 var s = 0
                 var k = 0
                 while (k < n) {

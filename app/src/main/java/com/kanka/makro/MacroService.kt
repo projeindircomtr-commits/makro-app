@@ -2590,6 +2590,7 @@ class MacroService : AccessibilityService() {
     /** Bulunan olcege gore barlari, hedef barini, kutulari ve tuslari yerlestir (sadece bellekte) */
     private fun olcekUygula(o: Preset.Olcek, yedek: Boolean = false) {
         olcek = o
+        collectAnkorHazirla(o)
         val hp = Preset.solUst(o, 315, 26)
         val mp = Preset.solUst(o, 150, 68)
         val tb = Preset.ustOrta(o, 1262, 60)
@@ -2978,10 +2979,31 @@ class MacroService : AccessibilityService() {
      *  COLLECT_BEKLE -> Collect All cikinca bas, SONRAKI_KUTU'ya gec
      *  SONRAKI_KUTU  -> kisa sure baska Open var mi bak (seri toplama), yoksa saldiriya don
      */
-    /** Collect All penceresini ara: once tum pencere, olmazsa sadece buton */
+    // Collect All penceresi oyunda EKRANDA SABIT bir yerde acilir (karakterin/kameranin
+    // yerine gore degismez). Bunu her karede tum ekranda aramak yerine, sadece o sabit
+    // noktanin cevresinde arayarak hem cok hizlanir hem de kutu ile saldiri birbirini
+    // geciktirmez. Sabit nokta, referans ekranda (2712x1220) olculmustur: (398, 540).
+    private var collectAnkorGX = -1
+    private var collectAnkorGY = -1
+
+    private fun collectAnkorHazirla(o: Preset.Olcek) {
+        val p = Preset.solUst(o, 398, 540)
+        collectAnkorGX = (p[0] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        collectAnkorGY = (p[1] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+    }
+
+    /** Collect All penceresini ara: sabit konumun cevresinde, once tum pencere, olmazsa sadece buton */
     private fun findCollect(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
-        cfg.collectT?.let { t -> findT(f, t)?.let { return t to it } }
-        cfg.collectT2?.let { t -> findT(f, t)?.let { return t to it } }
+        if (collectAnkorGX < 0) return null
+        val m = 60   // izgara birimi (~120 ekran pikseli): kucuk cihaz/olcek sapmalarini tolere eder
+        cfg.collectT?.let { t ->
+            ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, m)
+                ?.let { return t to it }
+        }
+        cfg.collectT2?.let { t ->
+            ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, m)
+                ?.let { return t to it }
+        }
         return null
     }
 
