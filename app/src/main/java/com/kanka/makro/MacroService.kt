@@ -1309,6 +1309,7 @@ class MacroService : AccessibilityService() {
     private val pzH = Handler(pzThread.looper)
     @Volatile private var pazarCalisiyor = false
     private var pzSonrakiKontrol = 0L
+    private var pzArdArdaHata = 0   // ust uste basarisiz kurulum: bir sinir sonra guvenli dur
 
     private class PzSablonlar(
         val commands: Sablon, val openM: Sablon, val slaveM: Sablon, val create: Sablon,
@@ -1569,12 +1570,26 @@ class MacroService : AccessibilityService() {
     private fun kurVeBildir() {
         val n = pazarKur()
         when {
-            n > 0 -> bildirim(4101, "🏪 Pazar kuruldu", "$n eşya satışa kondu")
+            n > 0 -> {
+                pzArdArdaHata = 0
+                bildirim(4101, "🏪 Pazar kuruldu", "$n eşya satışa kondu")
+            }
             n == 0 -> {
+                pzArdArdaHata = 0
                 bildirim(4102, "🏪 Pazar", "Satılacak eşya kalmadı, Pazar Bot durdu")
                 ui.post { pazarDurdur() }
             }
-            else -> toast("🏪 Pazar kurulamadı, sonraki kontrolde tekrar denenecek")
+            else -> {
+                pzArdArdaHata++
+                if (pzArdArdaHata >= 3) {
+                    bildirim(4103, "🏪 Pazar Bot durdu",
+                        "Commands/Merchant ekranı $pzArdArdaHata kez art arda tanınamadı. " +
+                            "Oyun ekranını kontrol et, gerekirse tekrar başlat.")
+                    ui.post { pazarDurdur() }
+                } else {
+                    toast("🏪 Pazar kurulamadı ($pzArdArdaHata/3), tekrar denenecek")
+                }
+            }
         }
     }
 
@@ -1612,6 +1627,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun pazarBaslat() {
+        pzArdArdaHata = 0
         if (Config.pazarEsyalar(this).isEmpty()) {
             toast("Önce satılacak eşyaları ekle: ⋯ Bot seç → 🏪 Pazar Bot → ➕ Eşya ekle")
             pazarKarti(); return
@@ -1877,6 +1893,7 @@ class MacroService : AccessibilityService() {
                                 val hw = Bitmap.wrapHardwareBuffer(hb, sonuc.colorSpace)
                                 if (hw != null) {
                                     val sw = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                    hw.recycle()   // sizinti: sw bagimsiz kopya oldugu icin hw hemen birakilabilir
                                     val yarim = Bitmap.createScaledBitmap(
                                         sw, (sw.width * ScreenSampler.SCALE).toInt(),
                                         (sw.height * ScreenSampler.SCALE).toInt(), true
