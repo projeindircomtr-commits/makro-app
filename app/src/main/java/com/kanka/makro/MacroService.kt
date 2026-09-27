@@ -196,6 +196,72 @@ class MacroService : AccessibilityService() {
         val p = event.packageName?.toString() ?: return
         if (gormezdenGel(p)) return
         sonPaket = p
+        ui.post { oyunGorunurluk() }
+    }
+
+    /**
+     * Geri tusu: makronun acik bir penceresi varsa onu kapatir (panele doner) ve tusu yutar.
+     * Acik pencere yoksa tus oyuna gider.
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent?): Boolean {
+        if (event == null || event.keyCode != android.view.KeyEvent.KEYCODE_BACK) return false
+        if (overlay == null && editor == null && kart == null) return false
+        if (event.action == android.view.KeyEvent.ACTION_UP) {
+            ui.post {
+                when {
+                    overlay != null -> removeOverlay()
+                    editor != null -> closeEditor()
+                    kart != null -> kartKapat()
+                }
+            }
+        }
+        return true
+    }
+
+    /** MykoMobile'in paket adi (yuklu uygulamalardan bulunur, bir kez) */
+    private var oyunPaketAdi: String? = null
+    private var oyunPaketArandi = false
+
+    @Suppress("DEPRECATION")
+    private fun oyunPaketiBul(): String? {
+        if (oyunPaketArandi) return oyunPaketAdi
+        oyunPaketArandi = true
+        oyunPaketAdi = try {
+            val pm = packageManager
+            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            pm.queryIntentActivities(q, 0).firstOrNull {
+                it.activityInfo.packageName.contains("myko", true) ||
+                    it.loadLabel(pm).toString().contains("myko", true)
+            }?.activityInfo?.packageName
+        } catch (e: Exception) {
+            null
+        }
+        return oyunPaketAdi
+    }
+
+    private fun oyundaMi(): Boolean {
+        val p = sonPaket
+        if (p.isEmpty()) return true   // henuz bilgi yok: gizleme
+        val oyun = oyunPaketiBul()
+        return (oyun != null && p == oyun) || p.contains("myko", true) ||
+            (oyunPaketi.isNotEmpty() && p == oyunPaketi)
+    }
+
+    /**
+     * Makro sadece oyunun icinde: oyundan cikinca panel gizlenir ve acik kalan
+     * butun pencereler (duzenleme, kayit, menu) kapanir; baska yerde dokunus engellenmez.
+     */
+    private fun oyunGorunurluk() {
+        if (oyundaMi()) {
+            panel?.visibility = View.VISIBLE
+            // Oyun disindayken gelen mesajlari simdi goster
+            if (kart == null && mesajKuyrugu.isNotEmpty()) siradakiMesaj()
+        } else {
+            removeOverlay()
+            closeEditor()
+            kartKapat()
+            panel?.visibility = View.GONE
+        }
     }
 
     /** Bu paketler one gelse de "oyundan cikildi" sayilmaz */
@@ -1042,7 +1108,8 @@ class MacroService : AccessibilityService() {
 
     private fun mesajGoster(baslik: String, metin: String) {
         mesajKuyrugu.addLast(baslik to metin)
-        if (kart == null) siradakiMesaj()
+        // Oyun disinda kart acma; bildirim zaten gitti, oyuna donunce gosterilir
+        if (kart == null && oyundaMi()) siradakiMesaj()
     }
 
     private fun siradakiMesaj() {
@@ -1133,7 +1200,7 @@ class MacroService : AccessibilityService() {
     private fun dokunmaEngeli(now: Long): String? {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return "🌙"
-        if (oyunPaketi.isNotEmpty() && sonPaket.isNotEmpty() && sonPaket != oyunPaketi) return "⏸"
+        if (!oyundaMi()) return "⏸"   // sadece MykoMobile ekrandayken dokun
         if (ScreenSampler.running && now - ScreenSampler.lastFrameAt > 3000) return "📷"
         return null
     }
@@ -1447,6 +1514,10 @@ class MacroService : AccessibilityService() {
     private fun startMacro() {
         removeOverlay()
         closeEditor()
+        if (!oyundaMi()) {
+            toast("Önce oyunu (MykoMobile) aç, sonra ▶")
+            return
+        }
         if (Lisans.guncelleGerekli) {
             guncelleKarti()
             return
