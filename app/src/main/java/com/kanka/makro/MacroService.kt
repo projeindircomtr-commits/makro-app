@@ -514,9 +514,11 @@ class MacroService : AccessibilityService() {
         satir("💧 MP potu", { "%" + Config.load(this).mpYuzde },
             { kaydet { it.mpYuzde = (it.mpYuzde - 5).coerceIn(5, 95) } },
             { kaydet { it.mpYuzde = (it.mpYuzde + 5).coerceIn(5, 95) } })
-        satir("💚 Minor, can altında", { "%" + Config.load(this).minorYuzde },
-            { kaydet { it.minorYuzde = (it.minorYuzde - 5).coerceIn(20, 99) } },
-            { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
+        if (Config.minorVar(this)) {
+            satir("💚 Minor, can altında", { "%" + Config.load(this).minorYuzde },
+                { kaydet { it.minorYuzde = (it.minorYuzde - 5).coerceIn(20, 99) } },
+                { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
+        }
         satir("🏃 Mesafe sınırı", {
             val m = Config.load(this).menzilSn
             if (m <= 0) "kapalı" else "$m sn"
@@ -725,24 +727,66 @@ class MacroService : AccessibilityService() {
         "❤ HP pot" to { onPick("hp_pot") },
         "💧 MP pot" to { onPick("mp_pot") },
         "🎯 Mob seç" to { onPick("hedef") },
-        "⚔ Kılıç (PK)" to { onPick("saldiri") },
-        "💚 Minor" to { onPick("minor") }
-    )
+        "⚔ Kılıç (PK)" to { onPick("saldiri") }
+    ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
 
-    private fun cdMenu(onPick: (Float) -> Unit) {
-        showMenu(
-            "Skill ne sıklıkla basılsın?",
-            listOf(
-                "∞ Sürekli (beklemeden)" to { onPick(0f) },
-                "1 sn" to { onPick(1f) },
-                "2 sn" to { onPick(2f) },
-                "3 sn" to { onPick(3f) },
-                "5 sn" to { onPick(5f) },
-                "10 sn" to { onPick(10f) },
-                "30 sn" to { onPick(30f) },
-                "60 sn" to { onPick(60f) }
-            )
-        )
+    /**
+     * Sure secici (oyun icinde): istedigin saniyeyi - / + ile ayarla, hazir secenekler de var.
+     * 0 = surekli (beklemeden).
+     */
+    private fun cdMenu(baslangic: Float = 1f, onPick: (Float) -> Unit) {
+        removeOverlay()
+        var deger = baslangic.coerceIn(0f, 3600f)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xF01E2A3A.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+        }
+        box.addView(TextView(this).apply {
+            text = "⏱ Bu tuş kaç saniyede bir basılsın?"
+            setTextColor(0xFFE0B04A.toInt()); textSize = 15f
+            setPadding(0, 0, 0, dp(6))
+        })
+        val goster = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 28f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(8))
+        }
+        fun yaz() {
+            goster.text = if (deger <= 0f) "∞ sürekli" else {
+                val r = Math.round(deger * 10) / 10f
+                (if (r == r.toLong().toFloat()) "${r.toLong()}" else "$r") + " sn"
+            }
+        }
+        yaz()
+        box.addView(goster, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        fun satir(adimlar: List<Pair<String, () -> Unit>>) {
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            adimlar.forEachIndexed { i, (ad, is_) ->
+                if (i > 0) r.addView(View(this), LinearLayout.LayoutParams(dp(5), 1))
+                r.addView(menuBtn(ad) { is_(); yaz() },
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            box.addView(r)
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(5)))
+        }
+        fun ekle(d: Float) {
+            deger = (Math.round((deger + d) * 10) / 10f).coerceIn(0f, 3600f)
+        }
+        satir(listOf("−10" to { ekle(-10f) }, "−1" to { ekle(-1f) }, "−0.1" to { ekle(-0.1f) },
+            "+0.1" to { ekle(0.1f) }, "+1" to { ekle(1f) }, "+10" to { ekle(10f) }))
+        satir(listOf("∞" to { deger = 0f }, "0.5" to { deger = 0.5f }, "1" to { deger = 1f },
+            "2" to { deger = 2f }, "5" to { deger = 5f }, "60" to { deger = 60f }, "100" to { deger = 100f }))
+
+        val alt = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        alt.addView(btn("✓ Tamam") { removeOverlay(); onPick(deger) }.apply { background = rounded(0xFF2E9E5B.toInt()) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        alt.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+        alt.addView(btn("İptal") { removeOverlay() }.apply { background = rounded(0xCC8B0000.toInt()) },
+            LinearLayout.LayoutParams(dp(100), LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(alt)
+        ortadaGoster(box, dp(430))
     }
 
     /** Bos yere dokunuldu: yeni tus ekle */
@@ -784,8 +828,10 @@ class MacroService : AccessibilityService() {
         val p = cf.points[i]
         val items = ArrayList<Pair<String, () -> Unit>>()
         if (p.type == "skill") {
-            items.add("⏱ Bekleme süresi" to {
-                cdMenu { cd ->
+            val skiller = cf.points.indices.filter { cf.points[it].type == "skill" }
+            val sira = skiller.indexOf(i)
+            items.add("⏱ Süre (${if (p.cd <= 0f) "∞" else "${p.cd} sn"})" to {
+                cdMenu(p.cd) { cd ->
                     val c = Config.load(this)
                     if (i < c.points.size) {
                         c.points[i].cd = cd
@@ -793,6 +839,24 @@ class MacroService : AccessibilityService() {
                     }
                     editorRefresh()
                 }
+            })
+            if (sira > 0) items.add("◀ Sırada öne al" to {
+                val c = Config.load(this)
+                val j = skiller[sira - 1]
+                if (i < c.points.size && j < c.points.size) {
+                    val t = c.points[i]; c.points[i] = c.points[j]; c.points[j] = t
+                    renumber(c); c.tuslarOto = false; c.save(this)
+                }
+                editorRefresh()
+            })
+            if (sira < skiller.size - 1) items.add("▶ Sırada arkaya al" to {
+                val c = Config.load(this)
+                val j = skiller[sira + 1]
+                if (i < c.points.size && j < c.points.size) {
+                    val t = c.points[i]; c.points[i] = c.points[j]; c.points[j] = t
+                    renumber(c); c.tuslarOto = false; c.save(this)
+                }
+                editorRefresh()
             })
             items.add((if (p.on) "⏸ Kapat" else "▶ Aç") to {
                 val c = Config.load(this)
@@ -1104,7 +1168,8 @@ class MacroService : AccessibilityService() {
     private fun showTypeChooser(x: Int, y: Int) {
         showMenu(
             "Bu tuş ne? ($x, $y)",
-            listOf("hedef", "skill", "hp_pot", "mp_pot", "saldiri", "minor").map { t ->
+            (listOf("hedef", "skill", "hp_pot", "mp_pot", "saldiri") +
+                (if (Config.minorVar(this)) listOf("minor") else emptyList())).map { t ->
                 Config.label(t) to { savePoint(t, x, y) }
             }
         )
@@ -1258,30 +1323,33 @@ class MacroService : AccessibilityService() {
 
     fun isRunning() = running
 
-    private fun modYazi() = if (Config.pkMi(this)) "PK ▾" else "Farm ▾"
+    private fun modYazi() = if (Config.pkMi(this)) "PK • ${Config.sinifAd(this)} ▾" else "Farm ▾"
 
     /** Panelden mod secimi: hemen gecmez, secim menusu acar */
     private fun modMenu() {
         val pk = Config.pkMi(this)
-        showMenu("Mod seç (şu an: ${if (pk) "PK" else "Farm"})", listOf(
-            (if (!pk) "✓ " else "") + "🌾 FARM  •  mob kes, kutu topla" to { modSec(false) },
-            (if (pk) "✓ " else "") + "⚔ PK  •  oyuncuya saldır" to { modSec(true) }
-        ))
+        val sn = Config.sinif(this)
+        val liste = ArrayList<Pair<String, () -> Unit>>()
+        liste.add((if (!pk) "✓ " else "") + "🌾 FARM" to { modSec(false) })
+        for ((kod, ad) in Config.SINIFLAR) {
+            liste.add((if (pk && sn == kod) "✓ " else "") + "⚔ PK • $ad" to { modSec(true, kod) })
+        }
+        showMenu("Mod seç", liste)
     }
 
     /** Modu secer; her modun kendi tus duzeni ve ayarlari yuklenir (uygulamadan da cagrilir) */
-    fun modSec(pk: Boolean) {
+    fun modSec(pk: Boolean, sinif: String? = null) {
         ui.post {
-            if (Config.pkMi(this) == pk) {
-                toast(if (pk) "Zaten PK modundasın" else "Zaten Farm modundasın")
+            if (Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) {
+                toast(if (pk) "Zaten bu karakterdesin" else "Zaten Farm modundasın")
                 return@post
             }
             if (running) stopMacro()
-            Config.modDegistir(this, pk)
+            Config.modDegistir(this, pk, sinif)
             cfg = Config.load(this)
             modBtn?.text = modYazi()
             statusTv?.text = if (pk) "PK hazır" else "Farm hazır"
-            toast(if (pk) "⚔ PK modu seçildi: PK ayarları yüklendi" else "🌾 Farm modu seçildi: Farm ayarları yüklendi")
+            toast(if (pk) "⚔ PK • ${Config.sinifAd(this)}: ayarları yüklendi" else "🌾 Farm modu: ayarları yüklendi")
         }
     }
 
@@ -1905,6 +1973,7 @@ class MacroService : AccessibilityService() {
      * can %97'ye gelince BIR KEZ basip kapatir (mana yemeyi birakir). Arada dokunmaz.
      */
     private fun minorAction(now: Long): Nokta? {
+        if (pkAktif && Config.sinif(this) != "asas") return null   // Minor sadece Asas'ta
         val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme

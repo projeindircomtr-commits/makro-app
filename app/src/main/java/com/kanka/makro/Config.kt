@@ -177,14 +177,40 @@ class Config {
 
         fun pkMi(ctx: Context): Boolean = genel(ctx).getBoolean("pk", false)
 
-        private fun anahtar(ctx: Context) = if (pkMi(ctx)) "cfg_pk" else "cfg"
+        /** PK karakterleri: her birinin tus duzeni ve ayarlari ayri */
+        // Sira: Mage, Warrior, Asas/Okcu (oyunda ayni sinif), Priest. Anahtarlar degismedi (kayitlar korunur)
+        val SINIFLAR = listOf(
+            "mage" to "🔥 Mage", "warrior" to "🛡 Warrior", "asas" to "🗡 Asas/Okçu", "priest" to "✨ Priest"
+        )
 
-        /** Modu degistirir. PK'ya ilk geciste farm ayarlari baslangic olarak kopyalanir */
-        fun modDegistir(ctx: Context, pk: Boolean) {
-            if (pk && prefs(ctx).getString("cfg_pk", null) == null) {
-                prefs(ctx).getString("cfg", null)?.let { prefs(ctx).edit().putString("cfg_pk", it).apply() }
+        fun sinif(ctx: Context): String = genel(ctx).getString("pkSinif", "asas") ?: "asas"
+
+        /** Minor sadece Asas/Okcu'da (farm'da da acik) */
+        fun minorVar(ctx: Context): Boolean = !pkMi(ctx) || sinif(ctx) == "asas"
+
+        fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
+
+        private fun anahtar(ctx: Context) = if (pkMi(ctx)) "cfg_pk_" + sinif(ctx) else "cfg"
+
+        /**
+         * Modu (ve PK'da karakteri) degistirir. Bir karaktere ilk geciste
+         * baslangic olarak onceki PK ayari ya da farm ayari kopyalanir.
+         */
+        fun modDegistir(ctx: Context, pk: Boolean, yeniSinif: String? = null) {
+            if (yeniSinif != null) genel(ctx).edit().putString("pkSinif", yeniSinif).commit()
+            if (pk) {
+                val k = "cfg_pk_" + sinif(ctx)
+                if (prefs(ctx).getString(k, null) == null) {
+                    val kaynak = prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
+                    kaynak?.let { js ->
+                        // Minor sadece Asas'ta var: diger karakterlere tasima
+                        val yaz = if (sinif(ctx) == "asas") js
+                        else parse(js)?.let { c -> c.points.removeAll { it.type == "minor" }; c.toJson().toString() } ?: js
+                        prefs(ctx).edit().putString(k, yaz).commit()
+                    }
+                }
             }
-            genel(ctx).edit().putBoolean("pk", pk).apply()
+            genel(ctx).edit().putBoolean("pk", pk).commit()
         }
 
         fun load(ctx: Context): Config {

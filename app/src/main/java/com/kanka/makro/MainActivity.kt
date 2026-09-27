@@ -120,6 +120,8 @@ class MainActivity : Activity() {
     private lateinit var modFarmBtn: Button
     private lateinit var modPkBtn: Button
     private lateinit var ayarBaslik: TextView
+    private lateinit var sinifSatir: LinearLayout
+    private val sinifBtnler = HashMap<String, Button>()
     private lateinit var otoSwitch: Switch
     private lateinit var hpTv: TextView
     private lateinit var mpTv: TextView
@@ -257,6 +259,22 @@ class MainActivity : Activity() {
         modSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
         modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         modKart.addView(modSatir)
+        // PK karakter secimi
+        sinifSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
+        Config.SINIFLAR.forEachIndexed { i, (kod, ad) ->
+            val b = Button(this).apply {
+                text = ad
+                textSize = 13f
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(10), 0, dp(10))
+                setOnClickListener { modSec(true, kod) }
+            }
+            sinifBtnler[kod] = b
+            if (i > 0) sinifSatir.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            sinifSatir.addView(b, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        modKart.addView(sinifSatir)
         modKart.addView(TextView(this).apply {
             text = "Farm: mob keser, kutu toplar.  PK: oyuncuya kılıçla saldırır, skilleri senin sıranla basar. " +
                 "Her modun tuş düzeni ve ayarları ayrı saklanır."
@@ -700,7 +718,14 @@ class MainActivity : Activity() {
         modPkBtn.background = rounded(if (pk) ACCENT else 0xFF2D3846.toInt(), 14)
         modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
         modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
-        ayarBaslik.text = if (pk) "Ayarlar • PK" else "Ayarlar • Farm"
+        ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this) else "Ayarlar • Farm"
+        sinifSatir.visibility = if (pk) View.VISIBLE else View.GONE
+        val sn = Config.sinif(this)
+        for ((kod, b) in sinifBtnler) {
+            val sec = pk && kod == sn
+            b.background = rounded(if (sec) ACCENT else 0xFF2D3846.toInt(), 12)
+            b.setTextColor(if (sec) 0xFF12161C.toInt() else Color.WHITE)
+        }
         hpTv.text = "%${cfg.hpYuzde}"
         mpTv.text = "%${cfg.mpYuzde}"
         kilitTv.text = if (cfg.kilitler.isEmpty()) "🎯 Mob kilidi: yok (her moba vurur)"
@@ -722,11 +747,11 @@ class MainActivity : Activity() {
         refresh()
     }
 
-    private fun modSec(pk: Boolean) {
-        if (Config.pkMi(this) == pk) return
+    private fun modSec(pk: Boolean, sinif: String? = null) {
+        if (Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
         saveAll()
         val servis = MacroService.instance
-        if (servis != null) servis.modSec(pk) else Config.modDegistir(this, pk)
+        if (servis != null) servis.modSec(pk, sinif) else Config.modDegistir(this, pk, sinif)
         // Servis ui thread'inde degistirir; kisa gecikmeyle yenile
         modFarmBtn.postDelayed({ refresh() }, 150)
     }
