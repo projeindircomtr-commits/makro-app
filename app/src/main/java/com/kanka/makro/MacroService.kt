@@ -1857,7 +1857,12 @@ class MacroService : AccessibilityService() {
         }
     }
 
-    private val ssDongu = object : Runnable {
+    /** Dongunun kendini yeniden planlamasi (kendine dogrudan basvurmak derleme hatasi veriyordu) */
+    private fun ssTekrar(ms: Long) {
+        if (ssAktif) ssH.postDelayed(ssDongu, ms)
+    }
+
+    private val ssDongu: Runnable = object : Runnable {
         override fun run() {
             if (!ssAktif) return
             if (Build.VERSION.SDK_INT < 30) return
@@ -1883,11 +1888,11 @@ class MacroService : AccessibilityService() {
                                 hb.close()
                             } catch (e: Exception) {
                             }
-                            if (ssAktif) ssH.postDelayed(ssDongu, 340)   // Android siniri ~3/sn
+                            ssTekrar(340)   // Android siniri ~3/sn
                         }
 
                         override fun onFailure(hata: Int) {
-                            if (ssAktif) ssH.postDelayed(ssDongu, 500)
+                            ssTekrar(500)
                         }
                     }
                 )
