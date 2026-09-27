@@ -34,13 +34,15 @@ class MainActivity : Activity() {
     companion object {
         const val EXTRA_AUTO = "autoCapture"
 
-        // Knight Online temasi
-        private const val BG = 0xFF0B0907.toInt()          // koyu tas
-        private const val CARD = 0xFF17120D.toInt()        // koyu deri/ahsap
-        private const val ACCENT = 0xFFC9A24A.toInt()      // altin
-        private const val GREEN = 0xFF7A1E18.toInt()       // KO koyu kirmizi (baslat)
-        private const val LACI = 0xFF1C2A3E.toInt()        // oyun butonu laciverti
-        private const val PARSOMEN = 0xFFF3E6C4.toInt()    // parsomen yazi
+        // Knight Online arayuzu (oyundaki CHAR INFO / SKILL PAGE pencereleri gibi)
+        private const val BG = 0xFF070707.toInt()          // siyah
+        private const val CARD = 0xFF121212.toInt()        // panel
+        private const val ACCENT = 0xFFD2A866.toInt()      // mat altin (oyundaki etiket yazisi)
+        private const val GREEN = 0xFFB8862B.toInt()       // baslat: altin degrade
+        private const val LACI = 0xFF2A3240.toInt()        // celik-lacivert buton
+        private const val PARSOMEN = 0xFFEDE3C8.toInt()    // krem yazi
+        private const val CERCEVE = 0xFF8C7A55.toInt()     // bronz cerceve (oyundaki paneller)
+        private const val BEJ = 0xFFC9AE78.toInt()         // buton kenari (oyundaki gibi)
         private const val RED = 0xFFB33A3A.toInt()
         private const val MUTED = 0xFF9AA4B2.toInt()
     }
@@ -312,7 +314,7 @@ class MainActivity : Activity() {
             text = "▶  OYUNU AÇ VE BAŞLAT"
             textSize = 20f
             isAllCaps = false
-            setTextColor(Color.WHITE)
+            setTextColor(0xFF1A1206.toInt())
             setTypeface(typeface, Typeface.BOLD)
             background = rounded(GREEN, 16)
             setPadding(0, dp(18), 0, dp(18))
@@ -344,6 +346,8 @@ class MainActivity : Activity() {
             textSize = 18f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
+            background = degerKutusu()
+            setPadding(0, dp(6), 0, dp(6))
         }
         mRow.addView(minutesTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
         mRow.addView(smallButton("+") { changeMinutes(10) })
@@ -353,7 +357,10 @@ class MainActivity : Activity() {
         val hRow = row()
         hRow.addView(label("❤ HP potu, can şunun altına inince"), weight1())
         hRow.addView(smallButton("−") { yuzdeDegis(true, -5) })
-        hpTv = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        hpTv = TextView(this).apply {
+            textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = degerKutusu(); setPadding(0, dp(6), 0, dp(6))
+        }
         hRow.addView(hpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         hRow.addView(smallButton("+") { yuzdeDegis(true, 5) })
         quick.addView(hRow)
@@ -361,7 +368,10 @@ class MainActivity : Activity() {
         val pRow2 = row()
         pRow2.addView(label("💧 MP potu, mana şunun altına inince"), weight1())
         pRow2.addView(smallButton("−") { yuzdeDegis(false, -5) })
-        mpTv = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        mpTv = TextView(this).apply {
+            textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = degerKutusu(); setPadding(0, dp(6), 0, dp(6))
+        }
         pRow2.addView(mpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         pRow2.addView(smallButton("+") { yuzdeDegis(false, 5) })
         quick.addView(pRow2)
@@ -611,10 +621,30 @@ class MainActivity : Activity() {
 
     // ================= UI yardimcilari =================
 
-    private fun rounded(color: Int, r: Int) = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(minOf(r, 8)).toFloat()
-        setStroke(dp(2), ACCENT)   // altin cerceve
+    private fun acik(c: Int, oran: Float): Int {
+        val a = (c ushr 24) and 0xff
+        fun k(v: Int) = (v + (255 - v) * oran).toInt().coerceIn(0, 255)
+        return (a shl 24) or (k((c shr 16) and 0xff) shl 16) or (k((c shr 8) and 0xff) shl 8) or k(c and 0xff)
+    }
+
+    /** Panel (koyu) -> gri metal cerceve; buton -> celik degrade + bej kenar */
+    private fun rounded(color: Int, r: Int): GradientDrawable {
+        val panelMi = ((color shr 16) and 0xff) < 40 && ((color shr 8) and 0xff) < 40 && (color and 0xff) < 40
+        return if (panelMi) GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(4).toFloat()
+            setStroke(dp(3), CERCEVE)
+        } else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(acik(color, 0.28f), color)).apply {
+            cornerRadius = dp(4).toFloat()
+            setStroke(dp(2), BEJ)
+        }
+    }
+
+    /** Oyundaki deger kutulari gibi: siyah zemin, beyaz ince cerceve */
+    private fun degerKutusu() = GradientDrawable().apply {
+        setColor(0xFF000000.toInt())
+        cornerRadius = dp(2).toFloat()
+        setStroke(dp(2), 0xFFD8D8D8.toInt())
     }
 
     private val SERIF_BOLD = Typeface.create(Typeface.SERIF, Typeface.BOLD)

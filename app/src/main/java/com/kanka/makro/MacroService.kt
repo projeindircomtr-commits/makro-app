@@ -346,14 +346,34 @@ class MacroService : AccessibilityService() {
             }
         }
 
-    // Knight Online temasi: koyu zemin, altin cerceve, lacivert butonlar
-    private val KO_ALTIN = 0xFFC9A24A.toInt()
-    private val KO_LACI = 0xFF1C2A3E.toInt()
+    // Knight Online arayuzu: siyah panel + metalik gri cerceve, celik degrade butonlar
+    private val KO_LACI = 0xFF2A3240.toInt()          // buton (celik-lacivert)
+    private val KO_CERCEVE = 0xFF8C7A55.toInt()       // bronz cerceve (oyundaki paneller)
+    private val KO_BEJ = 0xFFC9AE78.toInt()           // buton kenari (oyundaki gibi)
 
-    private fun rounded(color: Int) = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(6).toFloat()
-        setStroke(dp(2), KO_ALTIN)
+    private fun acik(c: Int, oran: Float): Int {
+        val a = (c ushr 24) and 0xff
+        val r = ((c shr 16) and 0xff); val g = ((c shr 8) and 0xff); val b = (c and 0xff)
+        fun k(v: Int) = (v + (255 - v) * oran).toInt().coerceIn(0, 255)
+        return (a shl 24) or (k(r) shl 16) or (k(g) shl 8) or k(b)
+    }
+
+    /**
+     * Koyu renkler (panel/pencere) -> siyah zemin + gri metal cerceve.
+     * Diger renkler (butonlar) -> yukaridan asagi koyulasan degrade + ince bej kenar.
+     */
+    private fun rounded(color: Int): GradientDrawable {
+        val r = (color shr 16) and 0xff; val g = (color shr 8) and 0xff; val b = color and 0xff
+        val panelMi = r < 40 && g < 40 && b < 40
+        return if (panelMi) GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(4).toFloat()
+            setStroke(dp(3), KO_CERCEVE)
+        } else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(acik(color, 0.28f), color)).apply {
+            cornerRadius = dp(4).toFloat()
+            setStroke(dp(2), KO_BEJ)
+        }
     }
 
     private fun btn(text: String, onClick: () -> Unit) = TextView(this).apply {
@@ -380,7 +400,7 @@ class MacroService : AccessibilityService() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(0xE6110D09.toInt())
+            background = rounded(0xE60E0E0E.toInt())
         }
 
         val drag = btn("⠿") {}
@@ -468,7 +488,7 @@ class MacroService : AccessibilityService() {
         removeOverlay()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF0110D09.toInt())
+            background = rounded(0xF20E0E0E.toInt())
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         box.addView(TextView(this).apply {
@@ -540,7 +560,7 @@ class MacroService : AccessibilityService() {
         val c = Config.load(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF0110D09.toInt())
+            background = rounded(0xF20E0E0E.toInt())
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         box.addView(TextView(this).apply {
@@ -811,7 +831,7 @@ class MacroService : AccessibilityService() {
         var deger = baslangic.coerceIn(0f, 3600f)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF0110D09.toInt())
+            background = rounded(0xF20E0E0E.toInt())
             setPadding(dp(14), dp(10), dp(14), dp(12))
         }
         box.addView(TextView(this).apply {
@@ -1154,7 +1174,7 @@ class MacroService : AccessibilityService() {
         kartKapat()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(0xF0110D09.toInt())
+            background = rounded(0xF20E0E0E.toInt())
             setPadding(dp(18), dp(14), dp(18), dp(14))
         }
         box.addView(TextView(this).apply {
