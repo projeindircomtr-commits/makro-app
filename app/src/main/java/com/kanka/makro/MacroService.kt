@@ -23,7 +23,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.BatteryManager
 import android.os.PowerManager
+import android.content.IntentFilter
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -135,6 +137,16 @@ class MacroService : AccessibilityService() {
     private var minorSon = 0L
     private var modBtn: TextView? = null
 
+    // Alan siniri
+    private var alanBitti = false        // bu hedef icin alan kontrolu tamamlandi
+    private var alanArdArda = 0          // ust uste alan disi hedef sayisi
+    @Volatile private var alanBekleUntil = 0L
+    private var alanView: View? = null
+    // Halka tespiti icin yeniden kullanilan tamponlar (her cagrida MB'larca dizi ayirma)
+    private var alanMask = BooleanArray(0)
+    private var alanVis = BooleanArray(0)
+    private var alanStack = IntArray(0)
+
     // Mesafe siniri
     private var hedefBaslangic = 0L
     private var ilkVurus = false
@@ -185,6 +197,7 @@ class MacroService : AccessibilityService() {
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
+        ui.postDelayed(sistemIzle, 30_000)
         Lisans.yukle(this)
         // Beklenmedik cokmeleri kaydet (panele raporlanir)
         val onceki = Thread.getDefaultUncaughtExceptionHandler()
@@ -289,6 +302,8 @@ class MacroService : AccessibilityService() {
     override fun onDestroy() {
         instance = null
         ui.removeCallbacksAndMessages(null)   // ana thread'de bekleyen post/postDelayed cagrilari (statusTick, mesaj kartlari vb.)
+        alanView?.let { safeRemove(it) }
+        alanView = null
         kartKapat()
         closeEditor()
         stopMacro()
@@ -316,6 +331,270 @@ class MacroService : AccessibilityService() {
     }
 
     // ================= Yardimcilar =================
+
+    // ================= Sistem kaydi (pil / sicaklik / termal durum / bellek) =================
+    // Bot calisirken 30 sn'de bir bir satir yazar. Telefon aniden kapanirsa son satir
+    // kapanmadan hemen onceki durumu gosterir. commit() ile aninda kalici yazilir.
+
+    private fun sistemIzle_ornekle() {
+        val bi = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val seviye = bi?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val olcek100 = bi?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        val pil = if (seviye >= 0 && olcek100 > 0) seviye * 100 / olcek100 else -1
+        val ham = bi?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+        val sicak = if (ham == Int.MIN_VALUE) Float.NaN else ham / 10f
+        val durum = bi?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val sarjda = durum == BatteryManager.BATTERY_STATUS_CHARGING || durum == BatteryManager.BATTERY_STATUS_FULL
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        val termal = if (Build.VERSION.SDK_INT >= 29) pm.currentThermalStatus else -1
+        val rt = Runtime.getRuntime()
+        val heapMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+        val bot = when {
+            pazarCalisiyor -> "pazar"
+            running -> if (pkAktif) "pk" else "farm"
+            else -> "-"
+        }
+        val saat = java.text.SimpleDateFormat("dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        val satir = "$saat $bot pil%$pil${if (sarjda) "⚡" else ""} " +
+            (if (sicak.isNaN()) "?°C" else "%.1f°C".format(sicak)) + " termal$termal heap${heapMb}MB"
+        val pr = getSharedPreferences("sistem", MODE_PRIVATE)
+        val eski = pr.getString("log", "") ?: ""
+        val yeni = (eski.split("\n").filter { it.isNotBlank() } + satir).takeLast(40).joinToString("\n")
+        pr.edit().putString("log", yeni).commit()
+
+        // Koruma: sistem agir kisitlamaya girdiyse (SEVERE ve ustu) ya da pil cok sicaksa dur
+        if ((termal >= 3 || (!sicak.isNaN() && sicak >= 46f)) && (running || pazarCalisiyor)) {
+            val neden = if (termal >= 3) "Telefon aşırı ısındı (termal seviye $termal)"
+            else "Pil sıcaklığı %.1f°C".format(sicak)
+            bildirim(4200, "🌡 Bot durduruldu", "$neden. Soğuyunca tekrar başlat.")
+            if (pazarCalisiyor) pazarDurdur()
+            if (running) stopMacro("$neden. Makro durdu")
+        }
+    }
+
+    private val sistemIzle: Runnable = object : Runnable {
+        override fun run() {
+            try {
+                if (running || pazarCalisiyor) sistemIzle_ornekle()
+            } catch (e: Exception) {
+                hataKaydet("sistem", e)
+            }
+            ui.postDelayed(this, 30_000)
+        }
+    }
+
+    // ================= Alan siniri =================
+
+    /** Alan dikdortgeni: yatayda ekranin ortasi, dikeyde alanCy, boyutlar ekran yuzdesi */
+    private fun alanIcinde(x: Float, y: Float): Boolean {
+        val cx = screenW * 0.5f
+        val cy = screenH * cfg.alanCy / 100f
+        val hw = screenW * cfg.alanW / 200f
+        val hh = screenH * cfg.alanH / 200f
+        return kotlin.math.abs(x - cx) <= hw && kotlin.math.abs(y - cy) <= hh
+    }
+
+    /**
+     * Secili mobun ayagindaki sari secim halkasini arar (renk + bos elips sekli).
+     * Bulursa halkanin ekran merkezi (x, y), bulamazsa null. HUD bolgeleri disarida birakilir.
+     */
+    private fun secimHalkasi(): FloatArray? {
+        val s = olcek?.s ?: (screenW / 2712f)
+        val yUst = (screenH * 0.10f).toInt()
+        val yAlt = (screenH * 0.88f).toInt()
+        val kr = ScreenSampler.bolge(0, yUst, screenW - 1, yAlt) ?: return null
+        val w = kr.first
+        val h = kr.second
+        val px = kr.third
+        if (w < 8 || h < 8) return null
+        val sc = ScreenSampler.SCALE
+        val n = w * h
+        if (alanMask.size != n) {
+            alanMask = BooleanArray(n)
+            alanVis = BooleanArray(n)
+            alanStack = IntArray(n)
+        } else {
+            alanMask.fill(false)
+            alanVis.fill(false)
+        }
+        val mask = alanMask
+        for (y in 0 until h) {
+            val sy = (y / sc + yUst) / screenH
+            for (x in 0 until w) {
+                val sx = (x / sc) / screenW
+                if (sx < 0.24f && sy < 0.36f) continue    // sol ust: can/mana + gorev listesi
+                if (sx < 0.18f && sy > 0.60f) continue    // sol alt: sohbet / bilgi yazilari
+                if (sx > 0.64f && sy > 0.42f) continue    // sag alt: skill dugmeleri
+                if (sx > 0.85f && sy < 0.45f) continue    // sag ust: kanal + kamera dugmeleri
+                val c = px[y * w + x]
+                val r = (c shr 16) and 0xff
+                val g = (c shr 8) and 0xff
+                val b = c and 0xff
+                if (r > 185 && g > 165 && r - b > 30) mask[y * w + x] = true
+            }
+        }
+        val vis = alanVis
+        val stack = alanStack
+        var best: FloatArray? = null
+        var bestD = Float.MAX_VALUE
+        val cxS = screenW * 0.5f
+        val cyS = screenH * (cfg.alanCy / 100f)
+        val minW = 40f * s * sc
+        val maxW = 450f * s * sc
+        for (start in 0 until w * h) {
+            if (!mask[start] || vis[start]) continue
+            var sp = 0
+            stack[sp++] = start
+            vis[start] = true
+            var minX = w
+            var maxX = 0
+            var minY = h
+            var maxY = 0
+            var cnt = 0
+            while (sp > 0) {
+                val i = stack[--sp]
+                val x = i % w
+                val y = i / w
+                cnt++
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+                // 2 piksellik bosluklari da birlestir (ince halka cizgisi)
+                for (dy in -2..2) for (dx in -2..2) {
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+                    val ni = ny * w + nx
+                    if (mask[ni] && !vis[ni]) {
+                        vis[ni] = true
+                        stack[sp++] = ni
+                    }
+                }
+            }
+            val bw = (maxX - minX + 1).toFloat()
+            val bh = (maxY - minY + 1).toFloat()
+            if (bw < minW || bw > maxW || bh < minW * 0.3f) continue
+            val asp = bw / bh
+            if (asp < 0.6f || asp > 4.5f) continue
+            if (cnt < 25 || cnt / (bw * bh) > 0.55f) continue   // dolu yuzey degil, bos halka olmali
+            val sxC = ((minX + maxX) / 2f) / sc
+            val syC = ((minY + maxY) / 2f) / sc + yUst
+            val d = (sxC - cxS) * (sxC - cxS) + (syC - cyS) * (syC - cyS)
+            if (d < bestD) {
+                bestD = d
+                best = floatArrayOf(sxC, syC)
+            }
+        }
+        return best
+    }
+
+    /** Alan dikdortgenini (ve varsa bulunan halka noktasini) 4 sn ekranda gosterir; dokunuslari engellemez */
+    private fun alanCerceveGoster(nokta: FloatArray? = null) {
+        ui.post {
+            alanView?.let { safeRemove(it) }
+            alanView = null
+            val c = Config.load(this)
+            val cx = screenW * 0.5f
+            val cy = screenH * c.alanCy / 100f
+            val hw = screenW * c.alanW / 200f
+            val hh = screenH * c.alanH / 200f
+            val cerceve = android.graphics.Paint().apply {
+                color = 0xFFFF7A2E.toInt()
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = dp(3).toFloat()
+            }
+            val dolu = android.graphics.Paint().apply {
+                color = 0xFFFFEB3B.toInt()
+                style = android.graphics.Paint.Style.FILL
+            }
+            val v = object : View(this@MacroService) {
+                override fun onDraw(canvas: android.graphics.Canvas) {
+                    canvas.drawRect(cx - hw, cy - hh, cx + hw, cy + hh, cerceve)
+                    if (nokta != null) canvas.drawCircle(nokta[0], nokta[1], dp(10).toFloat(), dolu)
+                }
+            }
+            val p = lp(screenW, screenH).apply {
+                x = 0
+                y = 0
+                flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            }
+            try {
+                wm.addView(v, p)
+                alanView = v
+                ui.postDelayed({
+                    if (alanView === v) {
+                        safeRemove(v)
+                        alanView = null
+                    }
+                }, 4000)
+            } catch (e: Exception) {
+                alanView = null
+            }
+        }
+    }
+
+    /** Menuden: bir mobu sec, sonra bas. Halkayi bulup alanin icinde/disinda oldugunu soyler */
+    private fun alanTesti() {
+        removeOverlay()
+        if (running || pazarCalisiyor) { toast("Önce botu durdur"); return }
+        if (!ScreenSampler.running) { toast("Ekran okuma kapalı: önce ▶ ile bir kere başlatıp durdur"); return }
+        if (!oyundaMi()) { toast("Önce oyunu aç"); return }
+        cfg = Config.load(this)
+        h.post {
+            val halka = try { secimHalkasi() } catch (e: Exception) { null }
+            if (halka == null) {
+                toast("📐 Seçim halkası bulunamadı. Bir mobu seçili tutup tekrar dene")
+            } else {
+                val ic = alanIcinde(halka[0], halka[1])
+                toast(if (ic) "📐 Halka bulundu: alanın İÇİNDE ✓ (saldırırdı)" else "📐 Halka bulundu: alanın DIŞINDA ✗ (bırakırdı)")
+            }
+            alanCerceveGoster(halka)
+        }
+    }
+
+    // ================= Kamera testi =================
+    // Sagdaki bos bir noktadan yatay surukleyip geri getirir. Amac: bu hareketin senin
+    // telefonunda oyun kamerasini gercekten cevirip cevirmedigini (ve hangi yone) gormek.
+
+    private fun kameraSurukle(x1: Float, y: Float, x2: Float, done: () -> Unit) {
+        val p = Path().apply { moveTo(x1, y); lineTo(x2, y + 2f) }
+        val g = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(p, 0, 400)).build()
+        val ok = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) { done() }
+            override fun onCancelled(gestureDescription: GestureDescription?) { done() }
+        }, h)
+        if (!ok) done()
+    }
+
+    private fun kameraTesti() {
+        removeOverlay()
+        if (running || pazarCalisiyor) { toast("Önce botu durdur"); return }
+        if (!oyundaMi()) { toast("Önce oyunu aç"); return }
+        val y = screenH * 0.30f
+        val x0 = screenW * 0.62f
+        val x1 = x0 + screenW * 0.16f
+        toast("🎥 Kamera testi: önce SAĞA, sonra SOLA sürükleniyor. Kameranın ne yaptığına bak")
+        h.postDelayed({
+            kameraSurukle(x0, y, x1) {
+                h.postDelayed({ kameraSurukle(x1, y, x0) {} }, 800)
+            }
+        }, 600)
+    }
+
+    private fun sistemKaydiGoster() {
+        val satirlar = (getSharedPreferences("sistem", MODE_PRIVATE).getString("log", "") ?: "")
+            .split("\n").filter { it.isNotBlank() }.takeLast(8)
+        val liste = ArrayList<Pair<String, () -> Unit>>()
+        if (satirlar.isEmpty()) liste.add("Henüz kayıt yok (bot çalışırken 30 sn'de bir yazılır)" to {})
+        satirlar.forEach { liste.add(it to {}) }
+        liste.add("🗑 Kaydı temizle" to {
+            getSharedPreferences("sistem", MODE_PRIVATE).edit().remove("log").commit()
+            toast("Sistem kaydı temizlendi")
+        })
+        showMenu("🌡 Son sistem kayıtları", liste)
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -560,6 +839,9 @@ class MacroService : AccessibilityService() {
                 "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
                 "🧪 Ekran testi" to { ekranTesti() },
+                "🌡 Sistem kaydı" to { sistemKaydiGoster() },
+                "🎥 Kamera testi" to { kameraTesti() },
+                "📐 Alan testi" to { alanTesti() },
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
@@ -665,6 +947,32 @@ class MacroService : AccessibilityService() {
             satir("💚 Minor, can altında", { "%" + Config.load(this).minorYuzde },
                 { kaydet { it.minorYuzde = (it.minorYuzde - 5).coerceIn(20, 99) } },
                 { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
+        }
+        if (!Config.pkMi(this) && !Config.pazarMi(this)) {
+            val alanBtn = menuBtn("") {}
+            fun alanYaz() {
+                val ak = Config.load(this).alanAktif
+                alanBtn.text = if (ak) "📐 Alan sınırı: AÇIK" else "📐 Alan sınırı: KAPALI"
+                alanBtn.background = if (ak) koButon(1) else koButon()
+            }
+            alanBtn.setOnClickListener {
+                kaydet { it.alanAktif = !it.alanAktif }
+                alanYaz()
+                if (Config.load(this).alanAktif) alanCerceveGoster()
+            }
+            alanYaz()
+            box.addView(alanBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+            satir("↔ Alan genişliği", { "%" + Config.load(this).alanW },
+                { kaydet { it.alanW = (it.alanW - 5).coerceIn(10, 95) }; alanCerceveGoster() },
+                { kaydet { it.alanW = (it.alanW + 5).coerceIn(10, 95) }; alanCerceveGoster() })
+            satir("↕ Alan yüksekliği", { "%" + Config.load(this).alanH },
+                { kaydet { it.alanH = (it.alanH - 5).coerceIn(10, 95) }; alanCerceveGoster() },
+                { kaydet { it.alanH = (it.alanH + 5).coerceIn(10, 95) }; alanCerceveGoster() })
+            satir("⇅ Alan konumu (üst/alt)", { "%" + Config.load(this).alanCy },
+                { kaydet { it.alanCy = (it.alanCy - 2).coerceIn(20, 80) }; alanCerceveGoster() },
+                { kaydet { it.alanCy = (it.alanCy + 2).coerceIn(20, 80) }; alanCerceveGoster() })
         }
         satir("🏃 Mesafe sınırı", {
             val m = Config.load(this).menzilSn
@@ -2235,7 +2543,7 @@ class MacroService : AccessibilityService() {
             val ne = when {
                 bekleNeden.isNotEmpty() -> bekleNeden
                 otoMod && olcek == null -> "🔍"
-                simdi < kilitBekleUntil -> "💤"
+                simdi < kilitBekleUntil || simdi < alanBekleUntil -> "💤"
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
@@ -2301,6 +2609,9 @@ class MacroService : AccessibilityService() {
             return
         }
         pkAktif = Config.pkMi(this)
+        alanBitti = false
+        alanArdArda = 0
+        alanBekleUntil = 0L
         pkSira = 0
         minorAcik = false
         minorSon = 0L
@@ -2895,6 +3206,7 @@ class MacroService : AccessibilityService() {
                 ilerlemeAt = now
                 hedefBaslangic = now
                 ilkVurus = false
+                alanBitti = false
             }
             oncekiCanli = alive
             if (alive) {
@@ -2929,6 +3241,32 @@ class MacroService : AccessibilityService() {
                     return target
                 }
             }
+            // Alan siniri: secili mobun halkasi dikdortgenin disindaysa X ile birak.
+            // Halka bulunamazsa engelleme (guvenli taraf: normal calismaya devam).
+            if (alive && cfg.alanAktif && !alanBitti) {
+                val halka = secimHalkasi()
+                if (halka != null) {
+                    alanBitti = true
+                    if (alanIcinde(halka[0], halka[1])) {
+                        alanArdArda = 0
+                    } else {
+                        alanArdArda++
+                        if (alanArdArda >= 4) {
+                            // Ust uste 4 hedef alan disi: alanda mob yok, biraz bekle
+                            alanBekleUntil = now + 4000
+                            alanArdArda = 0
+                        }
+                        nextTarget = now + rand(350, 500)
+                        val ol = olcek
+                        if (ol != null) {
+                            val x = Preset.sagAlt(ol, 2632, 926)
+                            return Nokta("İptal", "iptal", x[0], x[1])
+                        }
+                    }
+                } else if (now - hedefBaslangic > 1800) {
+                    alanBitti = true
+                }
+            }
             // Mob kilidi
             val o = olcek
             if (cfg.kilitler.isNotEmpty() && o != null) {
@@ -2952,6 +3290,8 @@ class MacroService : AccessibilityService() {
                 }
             }
             if (!alive) {
+                // Alan icinde mob yok: kisa sure bekle (potlar ayri calismaya devam eder)
+                if (cfg.alanAktif && now < alanBekleUntil) return null
                 // Hedef yok / oldu: sadece yeni mob sec, skill harcama
                 if (now >= nextTarget) {
                     nextTarget = now + rand(cfg.tgtFast, cfg.tgtFast + 400)

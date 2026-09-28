@@ -133,6 +133,12 @@ class Config {
     var minorYuzde = 80
     var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
+    // Alan siniri (Farm): secili mobun secim halkasi karakter etrafindaki dikdortgenin disindaysa birak
+    var alanAktif = false
+    var alanW = 36    // dikdortgen genisligi (ekran genisliginin %'si)
+    var alanH = 62    // dikdortgen yuksekligi (ekran yuksekliginin %'si)
+    var alanCy = 46   // dikdortgen merkezinin dikey konumu (ekran yuksekliginin %'si); yatayda hep ortada
+
     // Mesafe siniri: mob secildikten sonra bu kadar sn icinde vurulmaya baslanmazsa (uzak) birak. 0 = kapali
     var menzilSn = 0
 
@@ -173,6 +179,7 @@ class Config {
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("minorYuzde", minorYuzde).put("minorAktif", minorAktif)
+            .put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
@@ -320,6 +327,10 @@ class Config {
                 c.menzilSn = o.optInt("menzilSn", 0).coerceIn(0, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.minorAktif = o.optBoolean("minorAktif", true)
+                c.alanAktif = o.optBoolean("alanAktif", false)
+                c.alanW = o.optInt("alanW", 36).coerceIn(10, 95)
+                c.alanH = o.optInt("alanH", 62).coerceIn(10, 95)
+                c.alanCy = o.optInt("alanCy", 46).coerceIn(20, 80)
                 c.hpYuzde = o.optInt("hpYuzde", 74).coerceIn(10, 95)
                 c.mpYuzde = o.optInt("mpYuzde", 25).coerceIn(5, 95)
                 o.optJSONArray("kilitler")?.let { a ->
