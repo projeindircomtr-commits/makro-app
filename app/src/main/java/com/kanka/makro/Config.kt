@@ -139,8 +139,13 @@ class Config {
     var alanH = 62    // dikdortgen yuksekligi (ekran yuksekliginin %'si)
     var alanCy = 46   // dikdortgen merkezinin dikey konumu (ekran yuksekliginin %'si); yatayda hep ortada
 
+    // Mesafe siniri sonrasi bekleme: uzak mob birakilinca ayni moba tekrar kosmamak icin (sn).
+    // Ust uste her uzak mobda bekleme uzar (en fazla 20 sn), vurus alinca sifirlanir.
+    var menzilBekleSn = 4
+
     // Mesafe siniri: mob secildikten sonra bu kadar sn icinde vurulmaya baslanmazsa (uzak) birak. 0 = kapali
-    var menzilSn = 0
+    var menzilSn = 3          // mesafe siniri suresi (sn); acik/kapali menzilAktif ile
+    var menzilAktif = false   // mesafe siniri aktif mi (sure kapatinca kaybolmaz)
 
     // Pot esikleri (%): otomatik tanimada barin doluluguna gore
     var hpYuzde = 74
@@ -178,8 +183,8 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("minorYuzde", minorYuzde).put("minorAktif", minorAktif)
-            .put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("minorAktif", minorAktif)
+            .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
     }
@@ -324,9 +329,13 @@ class Config {
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
                 c.tuslarOto = o.optBoolean("tuslarOto", true)
-                c.menzilSn = o.optInt("menzilSn", 0).coerceIn(0, 15)
+                // Eski kayitlar: menzilSn > 0 ise mesafe siniri aciktir, 0 ise kapali
+                val eskiSn = o.optInt("menzilSn", 0)
+                c.menzilAktif = if (o.has("menzilAktif")) o.optBoolean("menzilAktif", false) else eskiSn > 0
+                c.menzilSn = (if (eskiSn <= 0) 3 else eskiSn).coerceIn(1, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.minorAktif = o.optBoolean("minorAktif", true)
+                c.menzilBekleSn = o.optInt("menzilBekleSn", 4).coerceIn(1, 15)
                 c.alanAktif = o.optBoolean("alanAktif", false)
                 c.alanW = o.optInt("alanW", 36).coerceIn(10, 95)
                 c.alanH = o.optInt("alanH", 62).coerceIn(10, 95)

@@ -137,6 +137,12 @@ class MacroService : AccessibilityService() {
     private var minorSon = 0L
     private var modBtn: TextView? = null
 
+    // Mesafe siniri sonrasi bekleme
+    @Volatile private var menzilBekleUntil = 0L
+    private var menzilXAt = 0L
+    private var menzilArdArda = 0
+    private var iptalAt = 0L             // son X (iptal) zamani: iptal edilen mob "kesildi" sayilmasin
+
     // Alan siniri
     private var alanBitti = false        // bu hedef icin alan kontrolu tamamlandi
     private var alanArdArda = 0          // ust uste alan disi hedef sayisi
@@ -949,21 +955,27 @@ class MacroService : AccessibilityService() {
                 { kaydet { it.minorYuzde = (it.minorYuzde + 5).coerceIn(20, 99) } })
         }
         if (!Config.pkMi(this) && !Config.pazarMi(this)) {
-            val alanBtn = menuBtn("") {}
-            fun alanYaz() {
-                val ak = Config.load(this).alanAktif
-                alanBtn.text = if (ak) "📐 Alan sınırı: AÇIK" else "📐 Alan sınırı: KAPALI"
-                alanBtn.background = if (ak) koButon(1) else koButon()
+            // AKTIF/PASIF anahtari: sure/boyut ayarlari kapatinca da saklanir
+            fun anahtar(baslik: String, oku: (Config) -> Boolean, yaz: (Config, Boolean) -> Unit, acilinca: () -> Unit = {}) {
+                val b = menuBtn("") {}
+                fun goster() {
+                    val ak = oku(Config.load(this))
+                    b.text = baslik + ": " + (if (ak) "AKTİF" else "PASİF")
+                    b.background = if (ak) koButon(1) else koButon()
+                }
+                b.setOnClickListener {
+                    kaydet { yaz(it, !oku(it)) }
+                    goster()
+                    if (oku(Config.load(this))) acilinca()
+                }
+                goster()
+                box.addView(b, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
             }
-            alanBtn.setOnClickListener {
-                kaydet { it.alanAktif = !it.alanAktif }
-                alanYaz()
-                if (Config.load(this).alanAktif) alanCerceveGoster()
-            }
-            alanYaz()
-            box.addView(alanBtn, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+
+            // --- Alan siniri (ekranda karakter etrafinda dikdortgen) ---
+            anahtar("📐 Alan sınırı", { it.alanAktif }, { c, v -> c.alanAktif = v }) { alanCerceveGoster() }
             satir("↔ Alan genişliği", { "%" + Config.load(this).alanW },
                 { kaydet { it.alanW = (it.alanW - 5).coerceIn(10, 95) }; alanCerceveGoster() },
                 { kaydet { it.alanW = (it.alanW + 5).coerceIn(10, 95) }; alanCerceveGoster() })
@@ -973,13 +985,16 @@ class MacroService : AccessibilityService() {
             satir("⇅ Alan konumu (üst/alt)", { "%" + Config.load(this).alanCy },
                 { kaydet { it.alanCy = (it.alanCy - 2).coerceIn(20, 80) }; alanCerceveGoster() },
                 { kaydet { it.alanCy = (it.alanCy + 2).coerceIn(20, 80) }; alanCerceveGoster() })
+
+            // --- Mesafe siniri (sure: bu surede vurulmaya baslanmazsa birak) ---
+            anahtar("🏃 Mesafe sınırı", { it.menzilAktif }, { c, v -> c.menzilAktif = v })
+            satir("⏱ Mesafe süresi", { "${Config.load(this).menzilSn} sn" },
+                { kaydet { it.menzilSn = (it.menzilSn - 1).coerceIn(1, 15) } },
+                { kaydet { it.menzilSn = (it.menzilSn + 1).coerceIn(1, 15) } })
+            satir("⏳ Uzak mob sonrası bekleme", { "${Config.load(this).menzilBekleSn} sn" },
+                { kaydet { it.menzilBekleSn = (it.menzilBekleSn - 1).coerceIn(1, 15) } },
+                { kaydet { it.menzilBekleSn = (it.menzilBekleSn + 1).coerceIn(1, 15) } })
         }
-        satir("🏃 Mesafe sınırı", {
-            val m = Config.load(this).menzilSn
-            if (m <= 0) "kapalı" else "$m sn"
-        },
-            { kaydet { it.menzilSn = (it.menzilSn - 1).coerceIn(0, 15) } },
-            { kaydet { it.menzilSn = (it.menzilSn + 1).coerceIn(0, 15) } })
         satir("⏱ Süre", { "${Config.load(this).minutes} dk" },
             { kaydet { it.minutes = (it.minutes - 10).coerceIn(10, 600) } },
             { kaydet { it.minutes = (it.minutes + 10).coerceIn(10, 600) } })
@@ -2543,7 +2558,7 @@ class MacroService : AccessibilityService() {
             val ne = when {
                 bekleNeden.isNotEmpty() -> bekleNeden
                 otoMod && olcek == null -> "🔍"
-                simdi < kilitBekleUntil || simdi < alanBekleUntil -> "💤"
+                simdi < kilitBekleUntil || simdi < alanBekleUntil || simdi < menzilBekleUntil -> "💤"
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
@@ -2612,6 +2627,8 @@ class MacroService : AccessibilityService() {
         alanBitti = false
         alanArdArda = 0
         alanBekleUntil = 0L
+        menzilBekleUntil = 0L
+        menzilArdArda = 0
         pkSira = 0
         minorAcik = false
         minorSon = 0L
@@ -3197,8 +3214,8 @@ class MacroService : AccessibilityService() {
             // Akilli mod: hedef barina bak
             val alive = targetAlive(bar)
             if (oncekiCanli && !alive) {
-                kesilen++
-                nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
+                if (now - iptalAt > 2500) kesilen++   // X ile birakilan mob kesildi sayilmaz
+                if (now >= menzilBekleUntil) nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
             }
             if (alive && !oncekiCanli) {
                 // Yeni hedef: ilerleme sayacini ve mesafe sayacini baslat
@@ -3209,6 +3226,19 @@ class MacroService : AccessibilityService() {
                 alanBitti = false
             }
             oncekiCanli = alive
+            // Uzak mob birakildiktan sonra bekleme: skill/mob secimi yok (potlar ayri calisir).
+            // Hedef hala secili kalmissa X'i tekrar gonder.
+            if (now < menzilBekleUntil) {
+                if (alive && now - menzilXAt > 900) {
+                    menzilXAt = now
+                    val ol = olcek
+                    if (ol != null) {
+                        val x = Preset.sagAlt(ol, 2632, 926)
+                        return Nokta("İptal", "iptal", x[0], x[1])
+                    }
+                }
+                return null
+            }
             if (alive) {
                 // Takili hedef: 12 sn boyunca cani azalmiyorsa birak, yenisini sec
                 val y = hedefYuzde()
@@ -3217,13 +3247,20 @@ class MacroService : AccessibilityService() {
                     sonYuzde = y
                     ilerlemeAt = now
                     ilkVurus = true
-                } else if (!ilkVurus && cfg.menzilSn > 0 && o0 != null &&
+                    menzilArdArda = 0
+                } else if (!ilkVurus && cfg.menzilAktif && o0 != null &&
                     now - hedefBaslangic > cfg.menzilSn * 1000L
                 ) {
                     // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak
                     hedefBaslangic = now
                     ilkVurus = true
-                    nextTarget = now + rand(250, 400)
+                    // Ayni uzak moba tekrar kosmamak icin bekle; ust uste olursa bekleme uzar
+                    menzilArdArda++
+                    val bekleSn = minOf(cfg.menzilBekleSn * menzilArdArda, 20)
+                    menzilBekleUntil = now + bekleSn * 1000L
+                    menzilXAt = now
+                    iptalAt = now
+                    nextTarget = menzilBekleUntil
                     val x = Preset.sagAlt(o0, 2632, 926)
                     return Nokta("İptal", "iptal", x[0], x[1])
                 } else if (now - ilerlemeAt > 12_000) {
@@ -3234,6 +3271,7 @@ class MacroService : AccessibilityService() {
                         // Once hedefi iptal et (X), sonraki adimda yeni mob sec
                         val x = Preset.sagAlt(ol, 2632, 926)
                         iptalBekliyor = true
+                        iptalAt = now
                         nextTarget = 0L
                         return Nokta("İptal", "iptal", x[0], x[1])
                     }
@@ -3257,6 +3295,7 @@ class MacroService : AccessibilityService() {
                             alanArdArda = 0
                         }
                         nextTarget = now + rand(350, 500)
+                        iptalAt = now
                         val ol = olcek
                         if (ol != null) {
                             val x = Preset.sagAlt(ol, 2632, 926)
@@ -3267,6 +3306,8 @@ class MacroService : AccessibilityService() {
                     alanBitti = true
                 }
             }
+            // Alan kontrolu bitmeden (en fazla 0,7 sn) skill basma: karakter uzak moba kosmaya baslamasin
+            if (alive && cfg.alanAktif && !alanBitti && now - hedefBaslangic < 700) return null
             // Mob kilidi
             val o = olcek
             if (cfg.kilitler.isNotEmpty() && o != null) {
@@ -3284,6 +3325,7 @@ class MacroService : AccessibilityService() {
                             kilitKotu = 5   // bekleme sonrasi tek deneme; tutmazsa yine bekle
                         }
                         nextTarget = now + rand(350, 500)
+                        iptalAt = now
                         val x = Preset.sagAlt(o, 2632, 926)
                         return Nokta("İptal", "iptal", x[0], x[1])
                     }
