@@ -240,12 +240,6 @@ class Config {
         }
 
         /** Ekran kaydi uyumlu mod: ekran paylasimi yerine erisilebilirlik ekran goruntusu (~3/sn) */
-        fun kayitUyumlu(ctx: Context): Boolean = genel(ctx).getBoolean("kayitUyumlu", false)
-
-        fun kayitUyumluYaz(ctx: Context, acik: Boolean) {
-            genel(ctx).edit().putBoolean("kayitUyumlu", acik).commit()
-        }
-
         /** PK karakterleri: her birinin tus duzeni ve ayarlari ayri */
         // Sira: Mage, Warrior, Asas/Okcu (oyunda ayni sinif), Priest. Anahtarlar degismedi (kayitlar korunur)
         val SINIFLAR = listOf(

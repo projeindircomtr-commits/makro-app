@@ -73,12 +73,6 @@ class MacroService : AccessibilityService() {
     private val h = Handler(worker.looper)
 
     // Kayit uyumlu mod: erisilebilirlik ekran goruntusu dongusu
-    private val ssThread = HandlerThread("ekran").apply { start() }
-    private val ssH = Handler(ssThread.looper)
-    @Volatile private var ssAktif = false
-    @Volatile private var ssGecici = false   // otomatik gecis: bot durunca kendini kapatir, ayar olarak kaydedilmez
-    private var ssHataSayisi = 0
-    private var ssUyarildi = false
 
     // Ag islemleri (mesaj / surum kontrolu) icin ayri thread
     private val agThread = HandlerThread("ag").apply { start() }
@@ -217,7 +211,6 @@ class MacroService : AccessibilityService() {
         updateScreenSize()
         showPanel()
         ah.postDelayed(mesajDongu, 3000)
-        if (Config.kayitUyumlu(this)) kayitModu(true)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -323,9 +316,6 @@ class MacroService : AccessibilityService() {
         worker.quitSafely()
         ah.removeCallbacksAndMessages(null)
         agThread.quitSafely()
-        ssAktif = false
-        ssH.removeCallbacksAndMessages(null)
-        ssThread.quitSafely()
         pazarCalisiyor = false
         pzThread.quitSafely()
         super.onDestroy()
@@ -571,15 +561,15 @@ class MacroService : AccessibilityService() {
             return
         }
         if (!oyundaMi()) { toast("Önce oyunu aç"); return }
+        if (CaptureService.instance?.canliProjeksiyon() == null) {
+            toast("Bot çalışıyor ama ekran izni henüz hazır değil. Birkaç saniye bekleyip tekrar dene")
+            return
+        }
         val basladi = try { VideoKaydedici.baslat(this) } catch (e: Exception) { false }
         if (basladi) {
             toast("🎬 Video kaydı başladı (gerçek ekran çözünürlüğü, H.264/MP4)")
         } else {
-            toast(
-                "Video kaydı için önce botu bir kere NORMAL modda başlat " +
-                    "(⚙ Ayarlar → 🎥 Ekran kaydı uyumlu: KAPALI olsun, sonra ▶). " +
-                    "Panel görününce Video kaydını tekrar dene."
-            )
+            toast("Video kaydı başlatılamadı (beklenmeyen hata). Tekrar dene")
         }
     }
 
@@ -1064,21 +1054,6 @@ class MacroService : AccessibilityService() {
         }
         hizBoya()
         box.addView(hizSatir)
-        box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
-
-        // Ekran kaydi uyumlu mod
-        val kayitBtn = menuBtn("") {}
-        fun kayitYaz() {
-            kayitBtn.text = if (Config.kayitUyumlu(this)) "🎥 Ekran kaydı uyumlu: AÇIK (yavaş tarama)"
-            else "🎥 Ekran kaydı uyumlu: KAPALI"
-        }
-        kayitBtn.setOnClickListener {
-            kayitModu(!Config.kayitUyumlu(this))
-            kayitYaz()
-        }
-        kayitYaz()
-        box.addView(kayitBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
 
         // Kutu toplama ac/kapa
@@ -1646,11 +1621,7 @@ class MacroService : AccessibilityService() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return "🌙"
         if (!oyundaMi()) return "⏸"   // sadece MykoMobile ekrandayken dokun
-        if (ScreenSampler.running && now - ScreenSampler.lastFrameAt > 3000) {
-            // CaptureService kendi yenilemesini denedi; 8 sn'dir kare yoksa kayit uyumlu moda gec
-            if (now - ScreenSampler.lastFrameAt > 8000 && !ssAktif && Build.VERSION.SDK_INT >= 30) projeksiyonKesildi()
-            return "📷"
-        }
+        if (ScreenSampler.running && now - ScreenSampler.lastFrameAt > 3000) return "📷"
         return null
     }
 
@@ -2204,117 +2175,17 @@ class MacroService : AccessibilityService() {
      * Acikken ekran paylasimi (MediaProjection) kullanilmaz; ekran goruntusu erisilebilirlik
      * izniyle alinir (Android 11+, saniyede ~3). Boylece ekran kaydi ile makro ayni anda calisir.
      */
-    fun kayitModu(ac: Boolean, kalici: Boolean = true) {
-        if (ac && Build.VERSION.SDK_INT < 30) {
-            toast("Bu özellik Android 11 ve üstünde çalışır"); return
-        }
-        if (kalici) Config.kayitUyumluYaz(this, ac)
-        ssGecici = ac && !kalici
-        if (ac) {
-            ssHataSayisi = 0
-            ssUyarildi = false
-            // Ekran paylasimini birak ki ekran kaydi kullanabilsin
-            try {
-                stopService(Intent(this, CaptureService::class.java))
-            } catch (e: Exception) {
-            }
-            ScreenSampler.clear()
-            ssAktif = true
-            ssH.removeCallbacksAndMessages(null)
-            ssH.postDelayed(ssDongu, 400)
-        } else {
-            ssAktif = false
-            ssH.removeCallbacksAndMessages(null)
-            ScreenSampler.running = false
-            ScreenSampler.clear()
-        }
-    }
-
     /**
-     * Sistem ekran paylasimini kesti (ekran kaydi basladi vb.). Bot calisiyorsa makro
-     * durmasin: kayit uyumlu moda (erisilebilirlik ekran goruntusu) gecici olarak gec.
+     * Sistem ekran paylasimini tamamen kesti (baska bir uygulama ekrani aldi, izin geri cekildi vb.).
+     * Makro artik goremiyor: kor kor dokunmaya devam etmek yerine calisan botu guvenle durdurur.
      */
     fun projeksiyonKesildi() {
         ui.post {
-            if (ssAktif) return@post
             if (!(running || pazarCalisiyor)) return@post
-            if (Build.VERSION.SDK_INT >= 30) {
-                kayitModu(true, kalici = false)
-                toast("🎥 Ekran paylaşımı kesildi (ekran kaydı başladı). Kayıt uyumlu moda geçildi, bot devam ediyor")
-            } else {
-                toast("📷 Ekran paylaşımı kesildi, makro ekranı göremiyor. Botu durdurup yeniden başlat")
-            }
-        }
-    }
-
-    /** Kayit uyumlu modda ekran goruntusu alinamiyorsa sessiz kalma: 4. ust uste hatada bir kez uyar */
-    private fun ssHataBildir(kod: Int) {
-        ssHataSayisi++
-        if (ssHataSayisi == 4 && !ssUyarildi) {
-            ssUyarildi = true
-            ui.post {
-                toast(
-                    if (kod == 2) "📷 Ekran görüntüsü izni yok. Erişilebilirliği KAPATIP tekrar AÇ"
-                    else "📷 Kayıt uyumlu mod ekran görüntüsü alamıyor (kod $kod)"
-                )
-            }
-        }
-    }
-
-    /** Dongunun kendini yeniden planlamasi (kendine dogrudan basvurmak derleme hatasi veriyordu) */
-    private fun ssTekrar(ms: Long) {
-        if (ssAktif) ssH.postDelayed(ssDongu, ms)
-    }
-
-    private val ssDongu: Runnable = object : Runnable {
-        override fun run() {
-            if (!ssAktif) return
-            if (Build.VERSION.SDK_INT < 30) return
-            // Otomatik (gecici) gecis: bot durduysa kendini kapat, pil harcama
-            if (ssGecici && !running && !pazarCalisiyor) {
-                ssAktif = false
-                ssGecici = false
-                ScreenSampler.running = false
-                ScreenSampler.clear()
-                return
-            }
-            try {
-                takeScreenshot(
-                    Display.DEFAULT_DISPLAY,
-                    java.util.concurrent.Executor { r -> ssH.post(r) },
-                    object : AccessibilityService.TakeScreenshotCallback {
-                        override fun onSuccess(sonuc: AccessibilityService.ScreenshotResult) {
-                            try {
-                                val hb = sonuc.hardwareBuffer
-                                val hw = Bitmap.wrapHardwareBuffer(hb, sonuc.colorSpace)
-                                if (hw != null) {
-                                    val sw = hw.copy(Bitmap.Config.ARGB_8888, false)
-                                    hw.recycle()   // sizinti: sw bagimsiz kopya oldugu icin hw hemen birakilabilir
-                                    val yarim = Bitmap.createScaledBitmap(
-                                        sw, (sw.width * ScreenSampler.SCALE).toInt(),
-                                        (sw.height * ScreenSampler.SCALE).toInt(), true
-                                    )
-                                    if (yarim !== sw) sw.recycle()
-                                    ScreenSampler.offerBitmap(yarim)
-                                    ScreenSampler.running = true
-                                    ssHataSayisi = 0
-                                }
-                                hb.close()
-                            } catch (e: Exception) {
-                            }
-                            ssTekrar(340)   // Android siniri ~3/sn
-                        }
-
-                        override fun onFailure(hata: Int) {
-                            if (hata != 3) ssHataBildir(hata)   // 3 = cok sik istek, zararsiz
-                            ssTekrar(500)
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                ssHataBildir(-1)
-                if (ssAktif) ssH.postDelayed(this, 1000)
-            }
+            val neden = "Ekran paylaşımı kesildi (başka bir kayıt/yayın uygulaması ekranı almış olabilir)."
+            if (pazarCalisiyor) pazarDurdur()
+            if (running) stopMacro(neden)
+            bildirim(4300, "📷 Bot durduruldu", "$neden Oyunu kontrol edip ▶ ile tekrar başlat.")
         }
     }
 
