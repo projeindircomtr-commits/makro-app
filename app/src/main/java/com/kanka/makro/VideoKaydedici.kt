@@ -8,7 +8,9 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -20,13 +22,11 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Ekran videosunu (H.264 / MP4) botun zaten sahip oldugu ekran izniyle (MediaProjection)
- * kaydeder. Ikinci bir izin penceresi CIKMAZ: CaptureService'in projeksiyonuna, ikinci bir
- * VirtualDisplay olarak "biner". Boylece bot kendi (kucuk/hizli) goruntusunu almaya devam
- * ederken, video AYRICA gercek ekran cozunurlugunde kaydedilir.
- *
- * Kisitlama: Sadece bot en az bir kez NORMAL modda (Kayit uyumlu KAPALI) baslatilip
- * CaptureService calisirken kullanilabilir; kendi basina yeni bir ekran izni istemez.
+ * Ekran videosunu (H.264 / MP4) kaydeder. BOTUN ekran izninden TAMAMEN BAGIMSIZ, kendi
+ * ayri MediaProjection iznini kullanir (MainActivity uzerinden istenir). Boylece botun
+ * gordugu goruntuye hic dokunmaz; ayni MediaProjection'a ikinci bir VirtualDisplay
+ * bindirmek bazi cihazlarda (ornegin bazi Xiaomi/HyperOS surumleri) TUM ekran iznini
+ * bozdugu icin bu yontem terk edildi.
  */
 object VideoKaydedici {
 
@@ -48,21 +48,39 @@ object VideoKaydedici {
     private val h: Handler by lazy { Handler(thread.looper) }
     @Volatile private var drainDevam = false
 
-    /** true = basladi. Hata olursa false ve nedeni toast ile bildirilir (ctx uzerinden). */
-    fun baslat(ctx: Context): Boolean {
+    private var kendiProjeksiyon: MediaProjection? = null
+
+    /**
+     * Kendi izin sonucundan (code+data) baslatir. true = basladi.
+     * Hata olursa false doner, cagiran taraf mesaj gosterir.
+     */
+    fun baslat(ctx: Context, code: Int, data: android.content.Intent): Boolean {
         if (kayitta) return true
-        val cs = CaptureService.instance
-        val projection = cs?.canliProjeksiyon()
-        if (cs == null || projection == null) {
-            return false   // cagiran taraf uygun mesaji gosterir
-        }
         return try {
-            baslatIc(ctx, projection, cs.gercekBoyut())
+            val mpm = ctx.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = mpm.getMediaProjection(code, data) ?: return false
+            kendiProjeksiyon = projection
+            projection.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    kendiProjeksiyon = null
+                    if (kayitta) h.post { bitir() }
+                }
+            }, h)
+            val boyut = gercekBoyut(ctx)
+            baslatIc(ctx, projection, boyut)
             true
         } catch (e: Exception) {
             temizle()
             false
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun gercekBoyut(ctx: Context): Pair<Int, Int> {
+        val dm = android.util.DisplayMetrics()
+        val d = (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        d.getRealMetrics(dm)
+        return dm.widthPixels to dm.heightPixels
     }
 
     private fun baslatIc(ctx: Context, projection: MediaProjection, boyut: Pair<Int, Int>) {
@@ -201,6 +219,8 @@ object VideoKaydedici {
         try { codec?.release() } catch (e: Exception) {}
         try { if (muxerBasladi) muxer?.stop() } catch (e: Exception) {}
         try { muxer?.release() } catch (e: Exception) {}
+        try { kendiProjeksiyon?.stop() } catch (e: Exception) {}
+        kendiProjeksiyon = null
         val uri = cikanUri
         val pf = pfd
         try { pf?.close() } catch (e: Exception) {}
@@ -229,11 +249,6 @@ object VideoKaydedici {
         cikanUri = null
         cikanDosya = null
         muxerBasladi = false
-    }
-
-    /** CaptureService kapanirsa (bot durdu, izin gitti) yarim kalan videoyu guvenle bitir */
-    fun projeksiyonKesildi() {
-        if (kayitta) h.post { bitir() }
     }
 
     fun sureSaniye(): Long =

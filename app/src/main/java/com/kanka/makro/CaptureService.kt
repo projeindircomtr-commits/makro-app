@@ -203,7 +203,6 @@ class CaptureService : Service() {
 
     private fun release() {
         instance = null
-        VideoKaydedici.projeksiyonKesildi()
         handler.removeCallbacks(yonKontrol)
         ScreenSampler.running = false
         ScreenSampler.clear()

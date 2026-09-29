@@ -151,6 +151,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = BG
         Lisans.yukle(this)
+        if (intent?.getBooleanExtra("video_kayit_iste", false) == true) askVideoCapture()
 
         // Ilk acilista MykoMobile ayarlari hazir gelsin
         if (Config.load(this).points.isEmpty()) Preset.apply(this)
@@ -512,6 +513,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAuto(intent)
+        if (intent.getBooleanExtra("video_kayit_iste", false)) askVideoCapture()
     }
 
     override fun onResume() {
@@ -1182,6 +1184,13 @@ class MainActivity : Activity() {
 
     // ================= Ekran yakalama izni =================
 
+    /** Video kaydi icin: bottun izninden BAGIMSIZ, ayri bir ekran izni ister */
+    @Suppress("DEPRECATION")
+    private fun askVideoCapture() {
+        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startActivityForResult(mpm.createScreenCaptureIntent(), 101)
+    }
+
     @Suppress("DEPRECATION")
     private fun askCapture() {
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -1217,6 +1226,16 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 101) {
+            if (resultCode == RESULT_OK && data != null) {
+                val ok = VideoKaydedici.baslat(applicationContext, resultCode, data)
+                MacroService.instance?.videoKayitSonucu(ok)
+            } else {
+                MacroService.instance?.videoKayitSonucu(false)
+            }
+            moveTaskToBack(true)
+            return
+        }
         if (requestCode != 100) return
         if (resultCode != RESULT_OK || data == null) {
             toast("İzin verilmedi")

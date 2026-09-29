@@ -553,7 +553,10 @@ class MacroService : AccessibilityService() {
         }
     }
 
-    /** Panelden video kaydini ac/kapat. Ayri izin istemez: bottun mevcut ekran iznini kullanir. */
+    /**
+     * Panelden video kaydini ac/kapat. Botun ekran izninden BAGIMSIZ, kendi ayri izni ister
+     * (bir kereligine sistem penceresi cikar) — bottun goruntusune hic dokunmaz.
+     */
     private fun videoKayitToggle() {
         if (VideoKaydedici.kayitta) {
             VideoKaydedici.durdur(this)
@@ -561,15 +564,23 @@ class MacroService : AccessibilityService() {
             return
         }
         if (!oyundaMi()) { toast("Önce oyunu aç"); return }
-        if (CaptureService.instance?.canliProjeksiyon() == null) {
-            toast("Bot çalışıyor ama ekran izni henüz hazır değil. Birkaç saniye bekleyip tekrar dene")
-            return
+        toast("🎬 İzin isteniyor, bir an sürebilir…")
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .putExtra("video_kayit_iste", true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            toast("Video izni istenemedi, tekrar dene")
         }
-        val basladi = try { VideoKaydedici.baslat(this) } catch (e: Exception) { false }
-        if (basladi) {
-            toast("🎬 Video kaydı başladı (gerçek ekran çözünürlüğü, H.264/MP4)")
-        } else {
-            toast("Video kaydı başlatılamadı (beklenmeyen hata). Tekrar dene")
+    }
+
+    /** MainActivity izin sonucunu buraya bildirir */
+    fun videoKayitSonucu(basladi: Boolean) {
+        ui.post {
+            if (basladi) toast("🎬 Video kaydı başladı (gerçek ekran çözünürlüğü, H.264/MP4)")
+            else toast("Video kaydı başlatılamadı ya da izin verilmedi")
         }
     }
 
