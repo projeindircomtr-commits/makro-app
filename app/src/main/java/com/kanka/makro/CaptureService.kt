@@ -24,6 +24,15 @@ import android.view.Display
 /** HP/MP barini okumak icin ekrani yari cozunurlukte, seyrek kareyle yakalar. */
 class CaptureService : Service() {
 
+    companion object {
+        @Volatile var instance: CaptureService? = null
+    }
+
+    /** Video kaydi icin: bottun zaten aldigi ekran iznini (ayni MediaProjection) yeniden kullanir */
+    fun canliProjeksiyon(): MediaProjection? = projection
+
+    fun gercekBoyut(): Pair<Int, Int> = realSize()
+
     private var projection: MediaProjection? = null
     private var vDisplay: VirtualDisplay? = null
     private var reader: ImageReader? = null
@@ -36,6 +45,7 @@ class CaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        instance = this
         startForegroundCompat()
         if (projection != null || intent == null) return START_NOT_STICKY
 
@@ -60,6 +70,8 @@ class CaptureService : Service() {
             override fun onStop() {
                 release()
                 stopSelf()
+                // Sistem ekran paylasimini kesti (ornegin ekran kaydi basladi): makroya haber ver
+                MacroService.instance?.projeksiyonKesildi()
             }
 
             // Android 14+: yakalanan icerigin boyutu degisti
@@ -190,6 +202,8 @@ class CaptureService : Service() {
     }
 
     private fun release() {
+        instance = null
+        VideoKaydedici.projeksiyonKesildi()
         handler.removeCallbacks(yonKontrol)
         ScreenSampler.running = false
         ScreenSampler.clear()
