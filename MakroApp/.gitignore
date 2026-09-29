@@ -1,0 +1,11 @@
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+
+# Gizli anahtar asla repoya girmesin
+*.pem
+
+# Sunucu sifreleri repoya girmesin
+sunucu/config.php
