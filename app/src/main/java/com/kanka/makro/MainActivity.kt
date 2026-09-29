@@ -1189,8 +1189,7 @@ class MainActivity : Activity() {
         ) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 5)
         }
-        if (ScreenSampler.running || Config.kayitUyumlu(this)) {
-            // Kayit uyumlu modda ekran paylasimi gerekmez
+        if (ScreenSampler.running) {
             afterCapture(true)
             return
         }
