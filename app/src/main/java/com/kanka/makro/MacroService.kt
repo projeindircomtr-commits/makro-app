@@ -564,7 +564,12 @@ class MacroService : AccessibilityService() {
             return
         }
         if (!oyundaMi()) { toast("Önce oyunu aç"); return }
-        toast("🎬 İzin isteniyor, bir an sürebilir…")
+        // Kendi panelimiz/menulerimiz sistemin izin penceresinin USTUNE binip dokunuslari
+        // kapmasin diye izin istenirken tamamen gizlenir; sonuc gelince geri gosterilir.
+        removeOverlay()
+        closeEditor()
+        kartKapat()
+        panel?.visibility = View.GONE
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -572,6 +577,7 @@ class MacroService : AccessibilityService() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (e: Exception) {
+            panel?.visibility = View.VISIBLE
             toast("Video izni istenemedi, tekrar dene")
         }
     }
@@ -579,6 +585,7 @@ class MacroService : AccessibilityService() {
     /** MainActivity izin sonucunu buraya bildirir */
     fun videoKayitSonucu(basladi: Boolean) {
         ui.post {
+            if (oyundaMi()) panel?.visibility = View.VISIBLE
             if (basladi) toast("🎬 Video kaydı başladı (gerçek ekran çözünürlüğü, H.264/MP4)")
             else toast("Video kaydı başlatılamadı ya da izin verilmedi")
         }
