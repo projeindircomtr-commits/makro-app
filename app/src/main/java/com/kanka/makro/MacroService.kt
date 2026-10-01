@@ -371,7 +371,7 @@ class MacroService : AccessibilityService() {
             else "Pil sıcaklığı %.1f°C".format(sicak)
             bildirim(4200, "🌡 Bot durduruldu", "$neden. Soğuyunca tekrar başlat.")
             if (pazarCalisiyor) pazarDurdur()
-            if (running) stopMacro("$neden. Makro durdu")
+            if (running) stopMacro("$neden. Bot durdu")
         }
     }
 
@@ -827,7 +827,7 @@ class MacroService : AccessibilityService() {
 
     private fun showMainMenu() {
         if (running) {
-            toast("Menü için önce makroyu durdur (⏸)"); return
+            toast("Menü için önce botu durdur (⏸)"); return
         }
         if (!Lisans.gecerliSimdi()) {
             toast("Önce uygulamadan üye girişi yap")
@@ -1099,7 +1099,7 @@ class MacroService : AccessibilityService() {
     @SuppressLint("ClickableViewAccessibility")
     private fun openEditor() {
         if (running) {
-            toast("Önce makroyu durdur"); return
+            toast("Önce botu durdur"); return
         }
         removeOverlay()
         closeEditor()
@@ -1388,7 +1388,7 @@ class MacroService : AccessibilityService() {
             ScreenSampler.bekle(600)
             val yas = SystemClock.uptimeMillis() - ScreenSampler.lastFrameAt
             val bmp = ScreenSampler.tamKare()
-            val kayit = if (bmp != null) pngKaydet(bmp, "pedal_test_${System.currentTimeMillis() / 1000}.png") else false
+            val kayit = if (bmp != null) pngKaydet(bmp, "ekran_test_${System.currentTimeMillis() / 1000}.png") else false
             val (w, hh) = Preset.landscapeSize(this)
             val kare = if (bmp != null) "${bmp.width}x${bmp.height}" else "yok"
             val sonuc = if (o != null) "BULUNDU ölçek %.2f".format(o.s)
@@ -1462,7 +1462,7 @@ class MacroService : AccessibilityService() {
         }
         // Uyelik kapatildi/bitti
         if (!j.optBoolean("aktif", true)) {
-            ui.post { if (running) stopMacro("Üyelik aktif değil. Makro durdu") }
+            ui.post { if (running) stopMacro("Üyelik aktif değil. Bot durdu") }
         }
         // Yeni mesajlar
         val m = j.optJSONArray("mesajlar") ?: return
@@ -1473,7 +1473,7 @@ class MacroService : AccessibilityService() {
             val saat = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr"))
                 .format(java.util.Date(o.optLong("zaman") * 1000))
             val metin = o.optString("metin")
-            bildirim(o.optInt("id"), "📢 Projeindirpedal • $saat", metin)
+            bildirim(o.optInt("id"), "📢 Projeindir Bot • $saat", metin)
             ui.post { mesajGoster("📢 Mesaj • $saat", metin) }
         }
         if (enSon != son) pr.edit().putInt("son", enSon).apply()
@@ -2187,7 +2187,7 @@ class MacroService : AccessibilityService() {
 
     private fun showBarChooser() {
         if (running) {
-            toast("Önce makroyu durdur"); return
+            toast("Önce botu durdur"); return
         }
         showMenu(
             "Hangi bar? (bar DOLUYKEN kaydet)",
@@ -2201,7 +2201,7 @@ class MacroService : AccessibilityService() {
 
     private fun showLootChooser() {
         if (running) {
-            toast("Önce makroyu durdur"); return
+            toast("Önce botu durdur"); return
         }
         showMenu(
             "Buton ekranda GÖRÜNÜRKEN kaydet",
@@ -2227,7 +2227,7 @@ class MacroService : AccessibilityService() {
     @SuppressLint("ClickableViewAccessibility")
     private fun startRecord(mode: Mod) {
         if (running) {
-            toast("Önce makroyu durdur"); return
+            toast("Önce botu durdur"); return
         }
         if (mode != Mod.BUTON && !ScreenSampler.running) {
             toast("Önce uygulamadan 'Ekran okumayı başlat'a bas"); return
@@ -2476,7 +2476,7 @@ class MacroService : AccessibilityService() {
                 if (SystemClock.uptimeMillis() > deadline) {
                     pendingStart = false
                     statusTv?.text = "Hazır"
-                    toast("Ekran izni verilmedi, makro başlamadı")
+                    toast("Ekran izni verilmedi, bot başlamadı")
                     return
                 }
                 ui.postDelayed(this, 400)
@@ -2491,7 +2491,7 @@ class MacroService : AccessibilityService() {
             // Uyelik: 10 dakikada bir sunucudan tekrar kontrol
             val simdi = SystemClock.uptimeMillis()
             if (!Lisans.gecerliSimdi()) {
-                stopMacro("Üyelik doğrulanamadı ya da süresi doldu. Makro durdu")
+                stopMacro("Üyelik doğrulanamadı ya da süresi doldu. Bot durdu")
                 return
             }
             if (!lisansKontrolde && simdi - sonLisansKontrol > 10 * 60 * 1000L) {
@@ -2500,7 +2500,7 @@ class MacroService : AccessibilityService() {
                 Lisans.arkaPlanKontrol(this@MacroService) { r ->
                     lisansKontrolde = false
                     // Internet gecici koptuysa hemen durdurma; sadece sunucu "hayir" derse dur
-                    if (!r.ok && !r.ag && running) stopMacro("Üyelik: ${r.mesaj}. Makro durdu")
+                    if (!r.ok && !r.ag && running) stopMacro("Üyelik: ${r.mesaj}. Bot durdu")
                 }
             }
             val ne = when {
@@ -2704,7 +2704,7 @@ class MacroService : AccessibilityService() {
         bekleNeden = ""
         val now = SystemClock.uptimeMillis()
         if (now >= endAt) {
-            stopMacro("Süre bitti, makro durdu"); return
+            stopMacro("Süre bitti, bot durdu"); return
         }
         // Otomatik ekran tanima: once olcegi bul, sonra her seyi ona gore yerlestir
         if (otoMod && olcek == null) {
@@ -2821,7 +2821,7 @@ class MacroService : AccessibilityService() {
             if (f != null && findT(f, d) != null) {
                 dcSay++
                 if (dcSay >= 2) {
-                    stopMacro("Bağlantı koptu (Disconnect). Makro durdu")
+                    stopMacro("Bağlantı koptu (Disconnect). Bot durdu")
                     return true
                 }
             } else {
@@ -2834,7 +2834,7 @@ class MacroService : AccessibilityService() {
             if (c >= 0 && !isRed(c)) {
                 if (hpBosSince == 0L) hpBosSince = now
                 else if (now - hpBosSince > 3000) {
-                    stopMacro("Karakter ölmüş görünüyor. Makro durdu")
+                    stopMacro("Karakter ölmüş görünüyor. Bot durdu")
                     return true
                 }
             } else {
@@ -2851,7 +2851,7 @@ class MacroService : AccessibilityService() {
         if (isLow(hp)) {
             if (hpLowSince == 0L) hpLowSince = now
             else if (now - hpLowSince > cfg.hpStop * 1000L) {
-                stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Makro durdu")
+                stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
                 return true
             }
         } else {

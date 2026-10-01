@@ -100,7 +100,7 @@ class CaptureService : Service() {
             NotificationChannel("cap", "Ekran okuma", NotificationManager.IMPORTANCE_LOW)
         )
         val n = Notification.Builder(this, "cap")
-            .setContentTitle("Projeindirpedal")
+            .setContentTitle("Projeindir Bot")
             .setContentText("HP/MP okunuyor")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)

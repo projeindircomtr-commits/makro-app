@@ -163,7 +163,7 @@ class MainActivity : Activity() {
 
         // Baslik
         root.addView(TextView(this).apply {
-            text = "Projeindirpedal"
+            text = "Projeindir Bot"
             textSize = 32f
             typeface = SERIF_BOLD
             setTextColor(ACCENT)
@@ -300,7 +300,7 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(MUTED)
             setPadding(dp(4), 0, dp(4), dp(8))
-            text = "Projeindirpedal gri görünüyorsa: aşağıdaki butona bas → sağ üstte ⋮ → " +
+            text = "Projeindir Bot gri görünüyorsa: aşağıdaki butona bas → sağ üstte ⋮ → " +
                 "\"Kısıtlı ayarlara izin ver\". Sonra tekrar \"İzin ver\"."
         }
         setup.addView(restrictHint)
@@ -489,7 +489,7 @@ class MainActivity : Activity() {
         buildAdvanced(advBox)
 
         root.addView(TextView(this).apply {
-            text = "Projeindirpedal  •  Sürüm ${Lisans.surumKodu(this@MainActivity)}  •  Yapımcı: Muhammed Salman"
+            text = "Projeindir Bot  •  Sürüm ${Lisans.surumKodu(this@MainActivity)}  •  Yapımcı: Muhammed Salman"
             textSize = 12f
             setTextColor(MUTED)
             gravity = Gravity.CENTER
@@ -834,7 +834,7 @@ class MainActivity : Activity() {
     // ================= Kurulum adimlari =================
 
     private fun openAccessibility() {
-        toast("Listeden 'Projeindirpedal'ı bul ve aç")
+        toast("Listeden 'Projeindir Bot'u bul ve aç")
         try {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         } catch (e: Exception) {
@@ -867,7 +867,7 @@ class MainActivity : Activity() {
             startActivity(Intent().setComponent(
                 ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
             ))
-            toast("Listede 'Projeindirpedal'ı aç")
+            toast("Listede 'Projeindir Bot'u aç")
         } catch (e: Exception) {
             openAppDetails()
         }
@@ -899,7 +899,7 @@ class MainActivity : Activity() {
         if (!accEnabled() || MacroService.instance == null) {
             AlertDialog.Builder(this)
                 .setTitle("Önce izin gerekli")
-                .setMessage("Kurulum kartındaki 1. adımı yap: \"İzin ver\" → listeden Projeindirpedal → aç.")
+                .setMessage("Kurulum kartındaki 1. adımı yap: \"İzin ver\" → listeden Projeindir Bot → aç.")
                 .setPositiveButton("İzin ver") { _, _ -> openAccessibility() }
                 .setNegativeButton("Kapat", null)
                 .show()
@@ -933,7 +933,7 @@ class MainActivity : Activity() {
         MacroService.instance?.let {
             if (!it.isRunning()) it.startFromApp(4000)
         }
-        toast("Makro 4 saniye sonra başlayacak")
+        toast("Bot 4 saniye sonra başlayacak")
     }
 
     // ================= Gelismis bolum =================
