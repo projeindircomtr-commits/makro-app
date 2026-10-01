@@ -28,11 +28,6 @@ class CaptureService : Service() {
         @Volatile var instance: CaptureService? = null
     }
 
-    /** Video kaydi icin: bottun zaten aldigi ekran iznini (ayni MediaProjection) yeniden kullanir */
-    fun canliProjeksiyon(): MediaProjection? = projection
-
-    fun gercekBoyut(): Pair<Int, Int> = realSize()
-
     private var projection: MediaProjection? = null
     private var vDisplay: VirtualDisplay? = null
     private var reader: ImageReader? = null
