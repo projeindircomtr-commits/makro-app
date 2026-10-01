@@ -29,6 +29,19 @@ object ScreenSampler {
     private var seq = 0L
     private var cachedFrame: Frame? = null
     private var cachedSeq = -1L
+    // grabBuild icin yeniden kullanilabilir piksel tamponu: boyut ayni kaldikca (cogu zaman)
+    // her yeni karede tekrar IntArray ayirmaktan kacinir, GC baskisini azaltir.
+    private var reuseW = 0
+    private var reuseH = 0
+    private var reusePx: IntArray? = null
+
+    private fun tampon(w: Int, h: Int): IntArray {
+        val cur = reusePx
+        if (cur != null && reuseW == w && reuseH == h) return cur
+        val yeni = IntArray(w * h)
+        reusePx = yeni; reuseW = w; reuseH = h
+        return yeni
+    }
 
     /** Kayit uyumlu modda: erisilebilirlik ekran goruntusu (yari cozunurluk, yazilim bitmap) */
     private var latestBmp: Bitmap? = null
@@ -162,7 +175,7 @@ object ScreenSampler {
             if (latest == null && bm != null) {
                 val w = bm.width / GRID
                 val h = bm.height / GRID
-                val out = IntArray(w * h)
+                val out = tampon(w, h)
                 for (y in 0 until h) for (x in 0 until w) out[y * w + x] = bmpPiksel(x * GRID, y * GRID)
                 return Frame(w, h, out)
             }
@@ -175,7 +188,7 @@ object ScreenSampler {
                 val w = img.width / GRID
                 val h = img.height / GRID
                 val lim = buf.limit()
-                val out = IntArray(w * h)
+                val out = tampon(w, h)
                 for (y in 0 until h) {
                     val row = y * GRID * rs
                     val o = y * w

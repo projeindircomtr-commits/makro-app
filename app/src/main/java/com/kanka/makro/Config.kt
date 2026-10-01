@@ -208,6 +208,13 @@ class Config {
         fun bot(ctx: Context): String =
             genel(ctx).getString("bot", null) ?: if (genel(ctx).getBoolean("pk", false)) "pk" else "farm"
 
+        /**
+         * Ilk asama: arkadaslar sadece Farm Bot'u gorsun, PK ve Pazar gizli kalsin.
+         * Hazir olunca bunu false yap, derle, gonder: PK/Pazar herkese acilir.
+         * Kod silinmedi, sadece secim ekranlarinda gizleniyor.
+         */
+        const val ARKADAS_MODU = true
+
         fun pazarMi(ctx: Context): Boolean = bot(ctx) == "pazar"
 
         fun pazarSec(ctx: Context) {
@@ -366,6 +373,7 @@ class Config {
 
         fun label(type: String) = when (type) {
             "saldiri" -> "Kılıç"
+            "iptal" -> "İptal (X)"
             "minor" -> "Minor"
             "hedef" -> "Mob seç"
             "hp_pot" -> "HP pot"

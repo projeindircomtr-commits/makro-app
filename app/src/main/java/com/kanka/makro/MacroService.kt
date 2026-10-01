@@ -201,6 +201,10 @@ class MacroService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
         ui.postDelayed(sistemIzle, 30_000)
+        // Ilk asama koruma: mod onceden PK/Pazar'da kalmissa Farm'a zorla dondur
+        if (Config.ARKADAS_MODU && (Config.pkMi(this) || Config.pazarMi(this))) {
+            Config.modDegistir(this, false)
+        }
         Lisans.yukle(this)
         // Beklenmedik cokmeleri kaydet (panele raporlanir)
         val onceki = Thread.getDefaultUncaughtExceptionHandler()
@@ -304,7 +308,6 @@ class MacroService : AccessibilityService() {
     override fun onDestroy() {
         instance = null
         ui.removeCallbacksAndMessages(null)   // ana thread'de bekleyen post/postDelayed cagrilari (statusTick, mesaj kartlari vb.)
-        if (VideoKaydedici.kayitta) VideoKaydedici.durdur(this)
         alanView?.let { safeRemove(it) }
         alanView = null
         kartKapat()
@@ -550,44 +553,6 @@ class MacroService : AccessibilityService() {
                 toast(if (ic) "📐 Halka bulundu: alanın İÇİNDE ✓ (saldırırdı)" else "📐 Halka bulundu: alanın DIŞINDA ✗ (bırakırdı)")
             }
             alanCerceveGoster(halka)
-        }
-    }
-
-    /**
-     * Panelden video kaydini ac/kapat. Botun ekran izninden BAGIMSIZ, kendi ayri izni ister
-     * (bir kereligine sistem penceresi cikar) — bottun goruntusune hic dokunmaz.
-     */
-    private fun videoKayitToggle() {
-        if (VideoKaydedici.kayitta) {
-            VideoKaydedici.durdur(this)
-            toast("⏺ Video kaydedildi: Galeri → Videolar → Projeindirpedal")
-            return
-        }
-        if (!oyundaMi()) { toast("Önce oyunu aç"); return }
-        // Kendi panelimiz/menulerimiz sistemin izin penceresinin USTUNE binip dokunuslari
-        // kapmasin diye izin istenirken tamamen gizlenir; sonuc gelince geri gosterilir.
-        removeOverlay()
-        closeEditor()
-        kartKapat()
-        panel?.visibility = View.GONE
-        try {
-            startActivity(
-                Intent(this, MainActivity::class.java)
-                    .putExtra("video_kayit_iste", true)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (e: Exception) {
-            panel?.visibility = View.VISIBLE
-            toast("Video izni istenemedi, tekrar dene")
-        }
-    }
-
-    /** MainActivity izin sonucunu buraya bildirir */
-    fun videoKayitSonucu(basladi: Boolean) {
-        ui.post {
-            if (oyundaMi()) panel?.visibility = View.VISIBLE
-            if (basladi) toast("🎬 Video kaydı başladı (gerçek ekran çözünürlüğü, H.264/MP4)")
-            else toast("Video kaydı başlatılamadı ya da izin verilmedi")
         }
     }
 
@@ -878,8 +843,6 @@ class MacroService : AccessibilityService() {
                 "📦 Kutu butonu kaydet" to { showLootChooser() },
                 "🧪 Ekran testi" to { ekranTesti() },
                 "🌡 Sistem kaydı" to { sistemKaydiGoster() },
-                (if (VideoKaydedici.kayitta) "⏺ Video kaydı: AÇIK (${VideoKaydedici.sureSaniye()} sn) — durdur"
-                 else "🎬 Video kaydı başlat") to { videoKayitToggle() },
                 "🎥 Kamera testi" to { kameraTesti() },
                 "📐 Alan testi" to { alanTesti() },
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
@@ -1111,6 +1074,7 @@ class MacroService : AccessibilityService() {
 
     private fun etiket(p: Nokta): String = when (p.type) {
         "saldiri" -> "⚔"
+        "iptal" -> "❌"
         "hedef" -> "🎯"
         "hp_pot" -> "HP"
         "minor" -> "💚"
@@ -1124,6 +1088,7 @@ class MacroService : AccessibilityService() {
 
     private fun renk(p: Nokta): Int = when {
         p.type == "saldiri" -> 0xE0C0392B.toInt()
+        p.type == "iptal" -> 0xE0616161.toInt()
         p.type == "hedef" -> 0xE0D35400.toInt()
         p.type == "hp_pot" -> 0xE0B03030.toInt()
         p.type == "mp_pot" -> 0xE02E5BBA.toInt()
@@ -1231,7 +1196,8 @@ class MacroService : AccessibilityService() {
         "❤ HP pot" to { onPick("hp_pot") },
         "💧 MP pot" to { onPick("mp_pot") },
         "🎯 Mob seç" to { onPick("hedef") },
-        "⚔ Kılıç (PK)" to { onPick("saldiri") }
+        "⚔ Kılıç (PK)" to { onPick("saldiri") },
+        "❌ İptal (X)" to { onPick("iptal") }
     ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
 
     /**
@@ -1627,9 +1593,21 @@ class MacroService : AccessibilityService() {
         try {
             val iz = e.stackTrace.take(3).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }
             val metin = "$yer: ${e.javaClass.simpleName}: ${e.message ?: ""} @ $iz".take(480)
-            getSharedPreferences("hata", MODE_PRIVATE).edit()
-                .putString("son", metin).putLong("zaman", System.currentTimeMillis() / 1000)
-                .putBoolean("gonderildi", false).commit()
+            val zaman = System.currentTimeMillis() / 1000
+            val pr = getSharedPreferences("hata", MODE_PRIVATE)
+            // Sunucuya giden format (mesajKontrol'un okudugu "son"/"zaman"/"gonderildi") degismez
+            pr.edit().putString("son", metin).putLong("zaman", zaman).putBoolean("gonderildi", false).commit()
+            // Ayrica son 5 hatayi kaybetmeyen yerel bir gecmis tut (araliklarla tekrarlayan
+            // bir hatanin ilk tetikleyicisi "son" tarafindan ezilip kaybolmasin)
+            try {
+                val arr = org.json.JSONArray(pr.getString("gecmis", "[]"))
+                val ekle = org.json.JSONObject().put("t", zaman).put("m", metin)
+                val yeni = org.json.JSONArray()
+                for (i in maxOf(0, arr.length() - 4) until arr.length()) yeni.put(arr.get(i))
+                yeni.put(ekle)
+                pr.edit().putString("gecmis", yeni.toString()).apply()
+            } catch (x2: Exception) {
+            }
         } catch (x: Exception) {
         }
     }
@@ -2400,6 +2378,12 @@ class MacroService : AccessibilityService() {
 
     /** Oyun ici ana menu: Farm Bot / PK Bot / Pazar Bot */
     private fun modMenu() {
+        if (Config.ARKADAS_MODU) {
+            // Ilk asama: tek secenek var, menu acmaya gerek yok
+            modSec(false)
+            ayarKarti()
+            return
+        }
         val pk = Config.pkMi(this)
         showMenu("Bot seç", listOf(
             (if (!pk) "✓ " else "") + "🌾 Farm Bot" to {
@@ -2663,8 +2647,9 @@ class MacroService : AccessibilityService() {
     }
 
     private fun stopMacro(reason: String? = null) {
-        // Minor acik kaldiysa kapat (mana akip gitmesin)
-        if (minorAcik) {
+        // Minor acik kaldiysa kapat (mana akip gitmesin) - sadece oyun gercekten ondeyse dokun,
+        // yoksa (oyun kapandi/arka planda) baska bir uygulamaya yanlislikla dokunmus oluruz
+        if (minorAcik && oyundaMi()) {
             minorAcik = false
             cfg.points.firstOrNull { it.type == "minor" }?.let { m ->
                 try {
@@ -2699,8 +2684,8 @@ class MacroService : AccessibilityService() {
         if (!running) return
         try {
             stepIc()
-        } catch (e: Exception) {
-            // Makro olmesin: hatayi kaydet, 1 sn sonra devam et
+        } catch (e: Throwable) {
+            // Makro olmesin (OOM gibi Error'lar dahil): hatayi kaydet, 1 sn sonra devam et
             hataKaydet("adım", e)
             tapping = false
             if (running) stepPlanla( 1000)
@@ -3197,7 +3182,7 @@ class MacroService : AccessibilityService() {
                     menzilXAt = now
                     val ol = olcek
                     if (ol != null) {
-                        val x = Preset.sagAlt(ol, 2632, 926)
+                        val x = iptalNoktasi(ol)
                         return Nokta("İptal", "iptal", x[0], x[1])
                     }
                 }
@@ -3225,7 +3210,7 @@ class MacroService : AccessibilityService() {
                     menzilXAt = now
                     iptalAt = now
                     nextTarget = menzilBekleUntil
-                    val x = Preset.sagAlt(o0, 2632, 926)
+                    val x = iptalNoktasi(o0)
                     return Nokta("İptal", "iptal", x[0], x[1])
                 } else if (now - ilerlemeAt > 12_000) {
                     ilerlemeAt = now
@@ -3233,7 +3218,7 @@ class MacroService : AccessibilityService() {
                     val ol = olcek
                     if (ol != null) {
                         // Once hedefi iptal et (X), sonraki adimda yeni mob sec
-                        val x = Preset.sagAlt(ol, 2632, 926)
+                        val x = iptalNoktasi(ol)
                         iptalBekliyor = true
                         iptalAt = now
                         nextTarget = 0L
@@ -3262,7 +3247,7 @@ class MacroService : AccessibilityService() {
                         iptalAt = now
                         val ol = olcek
                         if (ol != null) {
-                            val x = Preset.sagAlt(ol, 2632, 926)
+                            val x = iptalNoktasi(ol)
                             return Nokta("İptal", "iptal", x[0], x[1])
                         }
                     }
@@ -3290,7 +3275,7 @@ class MacroService : AccessibilityService() {
                         }
                         nextTarget = now + rand(350, 500)
                         iptalAt = now
-                        val x = Preset.sagAlt(o, 2632, 926)
+                        val x = iptalNoktasi(o)
                         return Nokta("İptal", "iptal", x[0], x[1])
                     }
                 }
@@ -3372,6 +3357,12 @@ class MacroService : AccessibilityService() {
     // geciktirmez. Sabit nokta, referans ekranda (2712x1220) olculmustur: (398, 540).
     private var collectAnkorGX = -1
     private var collectAnkorGY = -1
+
+    /** X (iptal) noktasi: kullanici ogrettiyse onu kullan, yoksa hazir preset konumu */
+    private fun iptalNoktasi(o: Preset.Olcek): IntArray {
+        cfg.points.firstOrNull { it.type == "iptal" }?.let { return intArrayOf(it.x, it.y) }
+        return Preset.sagAlt(o, 2632, 926)
+    }
 
     private fun collectAnkorHazirla(o: Preset.Olcek) {
         val p = Preset.solUst(o, 398, 540)
@@ -3518,6 +3509,7 @@ class MacroService : AccessibilityService() {
             doluKutuX = lastOpenX
             doluKutuY = lastOpenY
             doluKutuAt = now
+            collectedSinceOpen = true   // bu Open icin islem bitti; tutarlilik (openBlocked icin)
             return closeHedef(co, pos)
         }
         collectedSinceOpen = true
