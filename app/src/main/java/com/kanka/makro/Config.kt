@@ -213,7 +213,11 @@ class Config {
          * Hazir olunca bunu false yap, derle, gonder: PK/Pazar herkese acilir.
          * Kod silinmedi, sadece secim ekranlarinda gizleniyor.
          */
-        const val ARKADAS_MODU = true
+        /**
+         * Bu hesap bu botu görebilir mi? Farm herkese açık; yönetici hepsini görür;
+         * diğerleri için admin panelinde seçilenler (sunucu imzalı) görünür.
+         */
+        fun botGorunur(kod: String): Boolean = Lisans.ozellikVar(kod)
 
         fun pazarMi(ctx: Context): Boolean = bot(ctx) == "pazar"
 

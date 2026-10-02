@@ -202,7 +202,7 @@ class MacroService : AccessibilityService() {
         instance = this
         ui.postDelayed(sistemIzle, 30_000)
         // Ilk asama koruma: mod onceden PK/Pazar'da kalmissa Farm'a zorla dondur
-        if (Config.ARKADAS_MODU && (Config.pkMi(this) || Config.pazarMi(this))) {
+        if (yetkisizModdaMi()) {
             Config.modDegistir(this, false)
         }
         Lisans.yukle(this)
@@ -2377,28 +2377,34 @@ class MacroService : AccessibilityService() {
     }
 
     /** Oyun ici ana menu: Farm Bot / PK Bot / Pazar Bot */
+    /** Hesabin gorme yetkisi olmayan bir modda (PK/Pazar) kalmis mi? */
+    private fun yetkisizModdaMi(): Boolean = Lisans.gecerliSimdi() &&
+        ((Config.pkMi(this) && !Config.botGorunur("pk")) || (Config.pazarMi(this) && !Config.botGorunur("pazar")))
+
     private fun modMenu() {
-        if (Config.ARKADAS_MODU) {
-            // Ilk asama: tek secenek var, menu acmaya gerek yok
+        val pkAcik = Config.botGorunur("pk")
+        val pazarAcik = Config.botGorunur("pazar")
+        if (!pkAcik && !pazarAcik) {
+            // Sadece Farm acik: secenek yok, menu acmaya gerek yok
             modSec(false)
             ayarKarti()
             return
         }
         val pk = Config.pkMi(this)
-        showMenu("Bot seç", listOf(
-            (if (!pk) "✓ " else "") + "🌾 Farm Bot" to {
-                modSec(false)
-                ui.postDelayed({ ayarKarti() }, 250)
-            },
-            (if (pk) "✓ " else "") + "⚔ PK Bot" to { pkKarakterMenu() },
-            (if (Config.pazarMi(this)) "✓ " else "") + "🏪 Pazar Bot" to {
-                if (running) stopMacro()
-                Config.pazarSec(this)
-                modBtn?.text = modYazi()
-                statusTv?.text = "🏪 Pazar hazır"
-                pazarKarti()
-            }
-        ))
+        val liste = ArrayList<Pair<String, () -> Unit>>()
+        liste.add((if (!pk && !Config.pazarMi(this)) "✓ " else "") + "🌾 Farm Bot" to {
+            modSec(false)
+            ui.postDelayed({ ayarKarti() }, 250)
+        })
+        if (pkAcik) liste.add((if (pk) "✓ " else "") + "⚔ PK Bot" to { pkKarakterMenu() })
+        if (pazarAcik) liste.add((if (Config.pazarMi(this)) "✓ " else "") + "🏪 Pazar Bot" to {
+            if (running) stopMacro()
+            Config.pazarSec(this)
+            modBtn?.text = modYazi()
+            statusTv?.text = "🏪 Pazar hazır"
+            pazarKarti()
+        })
+        showMenu("Bot seç", liste)
     }
 
     /** PK Bot: once karakter, sonra o karakterin ayarlari */
@@ -2526,6 +2532,12 @@ class MacroService : AccessibilityService() {
     private fun startMacro() {
         removeOverlay()
         closeEditor()
+        // Yonetici olmayan hesap onceki oturumdan PK/Pazar'da kaldiysa Farm'a don
+        if (yetkisizModdaMi()) {
+            Config.modDegistir(this, false)
+            cfg = Config.load(this)
+            modBtn?.text = modYazi()
+        }
         if (!oyundaMi()) {
             toast("Önce oyunu (MykoMobile) aç, sonra ▶")
             return

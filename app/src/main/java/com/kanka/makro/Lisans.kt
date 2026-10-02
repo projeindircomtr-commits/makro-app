@@ -37,6 +37,19 @@ object Lisans {
     @Volatile var guncelleUrl = ""
     @Volatile var guncelleMesaj = ""
 
+    /** Sunucu bu hesabi yonetici olarak IMZALADIYSA true (rol JSON'dan degil imzadan anlasilir) */
+    @Volatile var yonetici = false
+
+    /** Sunucunun (imzali) bu hesaba actigi bolumler; farm her zaman vardir */
+    @Volatile var ozellikler: Set<String> = setOf("farm")
+
+    /** Bu hesap bu bolumu gorebilir mi? Farm herkese, yonetici hepsine acik */
+    fun ozellikVar(kod: String): Boolean =
+        kod == "farm" || yoneticiMi() || (gecerliSimdi() && ozellikler.contains(kod))
+
+    /** Yonetici ve lisans su an gecerliyse true */
+    fun yoneticiMi(): Boolean = yonetici && gecerliSimdi()
+
     @Suppress("DEPRECATION")
     fun surumKodu(ctx: Context): Int = try {
         val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
@@ -92,6 +105,8 @@ object Lisans {
         okAt = 0L
         bitis = 0L
         isim = ""
+        yonetici = false
+        ozellikler = setOf("farm")
     }
 
     /** Son basarili kontrolu diske yazar (uygulama kapanip acilsa da tolerans surer) */
@@ -101,6 +116,8 @@ object Lisans {
             .putLong("sz", sunucuZaman)
             .putLong("bt", bitis)
             .putString("is", isim)
+            .putBoolean("yn", yonetici)
+            .putString("oz", ozellikler.joinToString(","))
             .apply()
     }
 
@@ -117,6 +134,9 @@ object Lisans {
         sunucuZaman = p.getLong("sz", 0L)
         bitis = p.getLong("bt", 0L)
         isim = p.getString("is", "") ?: ""
+        yonetici = p.getBoolean("yn", false)
+        ozellikler = (p.getString("oz", "farm") ?: "farm").split(",").map { it.trim() }
+            .filter { it.isNotEmpty() }.toSet().ifEmpty { setOf("farm") }
     }
 
     fun gecerliSimdi(): Boolean {
@@ -198,11 +218,34 @@ object Lisans {
 
             val pk = KeyFactory.getInstance("EC")
                 .generatePublic(X509EncodedKeySpec(Base64.decode(pubB64, Base64.DEFAULT)))
-            val sig = Signature.getInstance("SHA256withECDSA")
-            sig.initVerify(pk)
-            sig.update(metin.toByteArray(Charsets.UTF_8))
-            if (!sig.verify(Base64.decode(j.getString("imza"), Base64.DEFAULT))) {
-                return Sonuc(false, "Sunucu doğrulanamadı")
+            val imzaBytes = Base64.decode(j.getString("imza"), Base64.DEFAULT)
+            fun dogrula(m: String): Boolean {
+                val sig = Signature.getInstance("SHA256withECDSA")
+                sig.initVerify(pk)
+                sig.update(m.toByteArray(Charsets.UTF_8))
+                return sig.verify(imzaBytes)
+            }
+            // Once normal uye metni, olmazsa yonetici metni. Ikisi de tutmazsa cevap sahte.
+            val yoneticiImzali = when {
+                dogrula(metin) -> false
+                dogrula(metin + "|admin") -> true
+                else -> return Sonuc(false, "Sunucu doğrulanamadı")
+            }
+            // Gorunen bolumler: ikinci imza. Eksik ya da gecersizse sadece Farm (guvenli taraf)
+            var ozKume = setOf("farm")
+            val ozS = j.optString("ozellik", "")
+            val imza2S = j.optString("imza2", "")
+            if (ozS.isNotEmpty() && imza2S.isNotEmpty()) {
+                try {
+                    val sig2 = Signature.getInstance("SHA256withECDSA")
+                    sig2.initVerify(pk)
+                    sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
+                    if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
+                        ozKume = ozS.split(",").map { it.trim() }
+                            .filter { it == "farm" || it == "pk" || it == "pazar" }.toSet() + "farm"
+                    }
+                } catch (e: Exception) {
+                }
             }
             if (zaman >= bitisS) return Sonuc(false, "Üyelik süresi doldu")
 
@@ -212,6 +255,8 @@ object Lisans {
             sunucuZaman = zaman
             bitis = bitisS
             isim = isimS
+            yonetici = yoneticiImzali
+            ozellikler = ozKume
             kaydetSonDurum(ctx)
             Sonuc(true, "Giriş başarılı", isimS, bitisS)
         } catch (e: Exception) {

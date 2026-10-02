@@ -141,6 +141,7 @@ class MainActivity : Activity() {
 
     /** Giris yapilmadan gizli kalan bolumler */
     private val uyeBolumleri = ArrayList<View>()
+    private lateinit var modKartView: LinearLayout
     private var gelismisAcik = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -240,6 +241,7 @@ class MainActivity : Activity() {
 
         // --- Mod secimi: Farm / PK (her modun kendi ayarlari) ---
         val modKart = card(root)
+        modKartView = modKart
         uyeBolumleri.add(modKart)
         modKart.addView(cardTitle("Mod"))
         val modSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -288,7 +290,6 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
         })
-        if (Config.ARKADAS_MODU) modKart.visibility = View.GONE   // ilk asama: sececek bir sey yok, kart hic gosterilmez
 
         // --- Kurulum karti ---
         val setup = card(root)
@@ -550,6 +551,8 @@ class MainActivity : Activity() {
         // Uye degilse hicbir ayar/secenek gorunmesin
         val g = if (ok) View.VISIBLE else View.GONE
         for (v in uyeBolumleri) v.visibility = g
+        // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
+        modKartView.visibility = if (ok && Config.botGorunur("pk")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
         girisKilidi()

@@ -45,11 +45,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($is === 'ekle') {
             $k = preg_replace('/[^a-zA-Z0-9_.]/', '', $_POST['kullanici'] ?? '');
             $isim = trim(mb_substr($_POST['isim'] ?? '', 0, 60));
-            if ($k === '' || $gun < 1) $mesaj = 'Kullanıcı adı ve süre gerekli.';
+            // Sure secilmediyse yeni uye otomatik 3 gunluk baslar (sadece ekleme icin;
+            // "uzat" dali yine acik bir deger ister, yanlislikla gun eklenmesin)
+            if ($gun < 1) $gun = 3;
+            if ($k === '') $mesaj = 'Kullanıcı adı gerekli.';
             else {
                 $yeniSifre = trim($_POST['sifre'] ?? '') ?: rastgele_sifre();
-                $pdo->prepare('INSERT INTO makro_uyeler (kullanici, sifre_hash, isim, bitis, olusturma) VALUES (?,?,?,?,?)')
-                    ->execute([$k, password_hash($yeniSifre, PASSWORD_DEFAULT), $isim, time() + $gun * 86400, time()]);
+                $pdo->prepare('INSERT INTO makro_uyeler (kullanici, sifre_hash, isim, bitis, olusturma, ozellik) VALUES (?,?,?,?,?,?)')
+                    ->execute([$k, password_hash($yeniSifre, PASSWORD_DEFAULT), $isim, time() + $gun * 86400, time(), varsayilan_ozellik()]);
                 $mesaj = "✅ '$k' eklendi ($gun gün). Şifre: $yeniSifre";
             }
         } elseif ($is === 'uzat' && $gun > 0) {
@@ -59,6 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($is === 'cihaz') {
             $pdo->prepare('UPDATE makro_uyeler SET cihaz = NULL WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Cihaz sıfırlandı, yeni cihazdan giriş yapabilir.';
+        } elseif ($is === 'yonetici') {
+            $pdo->prepare('UPDATE makro_uyeler SET yonetici = 1 - yonetici WHERE id = ?')->execute([$id]);
+            $mesaj = '✅ Yönetici yetkisi değişti. Uygulama bir sonraki girişte/kontrolde günceller.';
         } elseif ($is === 'durum') {
             $pdo->prepare('UPDATE makro_uyeler SET aktif = 1 - aktif WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Durum değişti.';
@@ -84,6 +90,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ayar_yaz('apk_url', trim($_POST['apk_url'] ?? ''));
             ayar_yaz('surum_mesaj', trim(mb_substr($_POST['surum_mesaj'] ?? '', 0, 300)));
             $mesaj = '✅ Sürüm ayarı kaydedildi. Eski sürümler en geç 1 dakika içinde durur.';
+        } elseif ($is === 'ozellik_uye') {
+            $oz = ozellik_temizle(implode(',', (array)($_POST['oz'] ?? [])));
+            $pdo->prepare('UPDATE makro_uyeler SET ozellik = ? WHERE id = ?')->execute([$oz, $id]);
+            $mesaj = "✅ Üyenin bölümleri: $oz";
+        } elseif ($is === 'ozellik_hepsi' || $is === 'ozellik_varsayilan') {
+            $oz = ozellik_temizle(implode(',', (array)($_POST['oz'] ?? [])));
+            if ($is === 'ozellik_hepsi') {
+                $pdo->exec('UPDATE makro_uyeler SET ozellik = ' . $pdo->quote($oz));
+                $mesaj = "✅ Tüm üyelere uygulandı: $oz";
+            } else {
+                ayar_yaz('varsayilan_ozellik', $oz);
+                $mesaj = "✅ Yeni üyeler artık şununla başlar: $oz";
+            }
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Silindi.';
@@ -154,6 +173,18 @@ a{color:#e0b04a}
 <button class="tam" style="background:#8a6d1f;padding:13px">Kaydet</button>
 </form></div>
 
+<div class="k"><b>🎛 Bölümler (kim ne görsün)</b>
+<?php $vo = explode(',', varsayilan_ozellik()); ?>
+<p class="gri" style="margin:4px 0">Yönetici hesabı her şeyi görür, Farm herkese açıktır. Yeni üyeler şu an: <b><?= e(implode(', ', $vo)) ?></b></p>
+<form method="post">
+<input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" checked disabled> Farm</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $vo, true) ? 'checked' : '' ?>> PK</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $vo, true) ? 'checked' : '' ?>> Pazar</label>
+<button class="tam" name="is" value="ozellik_varsayilan" style="background:#2e9e5b;padding:13px">Yeni üyeler için varsayılan yap</button>
+<button class="tam" name="is" value="ozellik_hepsi" style="background:#8a6d1f;padding:13px" onclick="return confirm('Tüm üyelerin bölümleri değişsin mi?')">Tüm üyelere uygula</button>
+</form></div>
+
 <div class="k"><b>Yeni üye</b>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ekle">
@@ -161,8 +192,8 @@ a{color:#e0b04a}
 <input class="tam" name="isim" placeholder="İsim (isteğe bağlı)">
 <input class="tam" name="sifre" placeholder="Şifre (boş bırak: otomatik)">
 <select class="tam" name="gun">
-<option value="3">3 gün</option><option value="7">7 gün</option><option value="15">15 gün</option>
-<option value="30" selected>1 ay</option><option value="90">3 ay</option><option value="3650">Süresiz (10 yıl)</option>
+<option value="3" selected>3 gün</option><option value="7">7 gün</option><option value="15">15 gün</option>
+<option value="30">1 ay</option><option value="90">3 ay</option><option value="3650">Süresiz (10 yıl)</option>
 </select>
 <button class="tam" style="background:#2e9e5b;padding:13px">Ekle</button>
 </form></div>
@@ -173,7 +204,7 @@ a{color:#e0b04a}
         : ($kalan > 0 ? '<span class="yesil">' . e(kalan_yazi((int)$u['bitis'])) . '</span>' : '<span class="kirmizi">Süresi doldu</span>');
 ?>
 <div class="k">
-<b><?= e($u['kullanici']) ?></b> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?><br>
+<b><?= e($u['kullanici']) ?></b> <?= !empty($u['yonetici']) ? '<span class="yesil">★ Yönetici</span>' : '' ?> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?><br>
 <?= $durum ?> <span class="gri">• bitiş <?= date('d.m.Y H:i', (int)$u['bitis']) ?></span><br>
 <span class="gri">Sürüm: <?= !empty($u['surum']) ? (int)$u['surum'] : '-' ?> • Cihaz: <?= $u['cihaz'] ? e($u['cihaz']) : 'henüz bağlanmadı' ?> • Son giriş: <?= $u['son_giris'] ? date('d.m H:i', (int)$u['son_giris']) : '-' ?></span><br>
 <?php if (!empty($u['son_hata'])): ?>
@@ -183,6 +214,13 @@ a{color:#e0b04a}
 <?php endif; ?>
 <?= form('uzat', (int)$u['id'], '+ Süre ekle', '#2e9e5b', true) ?>
 <?= form('durum', (int)$u['id'], (int)$u['aktif'] ? 'Kapat' : 'Aç', '#8a6d1f') ?>
+<?= form('yonetici', (int)$u['id'], !empty($u['yonetici']) ? 'Yöneticiliği kaldır' : 'Yönetici yap', '#6b4fa0', false, 'Yönetici yetkisi değişsin mi?') ?>
+<?php $uo = explode(',', ozellik_temizle((string)($u['ozellik'] ?? ''))); ?>
+<form method="post" class="in" style="margin:6px 0"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+<span class="gri">Bölümler:</span> Farm
+<label><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $uo, true) ? 'checked' : '' ?>> PK</label>
+<label><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $uo, true) ? 'checked' : '' ?>> Pazar</label>
+<button style="background:#2d3846">Kaydet</button></form>
 <?= form('cihaz', (int)$u['id'], 'Cihaz sıfırla', '#2d3846', false, 'Cihaz bağlantısı sıfırlansın mı?') ?>
 <?= form('sifre', (int)$u['id'], 'Yeni şifre', '#2d3846', false, 'Yeni şifre oluşturulsun mu?') ?>
 <?= form('sil', (int)$u['id'], 'Sil', '#b33a3a', false, 'Bu üye silinsin mi?') ?>

@@ -59,13 +59,24 @@ try {
     $isim = str_replace('|', '', $u['isim'] ?: $u['kullanici']);
     $bitis = (int)$u['bitis'];
     $metin = "v1|1|$k|$c|$bitis|$isim|$n|$simdi";
+    // Yonetici: imzalanan metne "|admin" eklenir. Normal uyelerin metni/cevabi eskisiyle ayni kalir,
+    // boylece eski surum uygulamalar bozulmaz. Uygulama rolu JSON'dan degil imzadan anlar.
+    $yonetici = (int)($u['yonetici'] ?? 0) === 1;
+    if ($yonetici) $metin .= '|admin';
     $ozel = openssl_pkey_get_private(file_get_contents(GIZLI . '/ozel.pem'));
     if (!$ozel || !openssl_sign($metin, $imza, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası', true);
+    // Gorunen bolumler (farm/pk/pazar): ikinci imza. Eski uygulamalar bunu yok sayar, girisleri bozulmaz.
+    $ozellik = ozellik_temizle((string)($u['ozellik'] ?? ''));
+    $metin2 = "v2|$k|$c|$n|$simdi|$ozellik";
+    if (!openssl_sign($metin2, $imza2, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası', true);
 
-    echo json_encode([
+    $cevap = [
         'ok' => 1, 'isim' => $isim, 'bitis' => $bitis, 'zaman' => $simdi, 'token' => $token,
-        'imza' => base64_encode($imza)
-    ], JSON_UNESCAPED_UNICODE);
+        'imza' => base64_encode($imza),
+        'ozellik' => $ozellik, 'imza2' => base64_encode($imza2)
+    ];
+    if ($yonetici) $cevap['yonetici'] = 1;   // sadece bilgi; guvenilen kaynak imzadir
+    echo json_encode($cevap, JSON_UNESCAPED_UNICODE);
 } catch (Throwable $ex) {
     hata('Sunucu hatası', true);
 }

@@ -37,13 +37,15 @@ function kalan_yazi(int $bitis): string {
 
 /** Mesaj ve surum ozelligi icin gereken tablo/sutunlari bir kere ekler */
 function sema_guncelle(): void {
-    $kilit = GIZLI . '/sema4.lock';
+    $kilit = GIZLI . '/sema6.lock';
     if (file_exists($kilit)) return;
     $pdo = db();
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN token VARCHAR(64) NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN surum INT NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN son_hata VARCHAR(500) NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN son_hata_zaman INT NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN yonetici TINYINT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN ozellik VARCHAR(40) NULL"); } catch (Throwable $e) {}
     $pdo->exec("CREATE TABLE IF NOT EXISTS makro_mesajlar (
         id INT AUTO_INCREMENT PRIMARY KEY,
         uye_id INT NULL,
@@ -56,6 +58,22 @@ function sema_guncelle(): void {
         deger TEXT NOT NULL
     ) CHARACTER SET utf8mb4");
     file_put_contents($kilit, date('c'));
+}
+
+const OZELLIKLER = ['farm', 'pk', 'pazar'];
+
+/** "farm,pk" gibi metni temizler: sadece bilinen bolumler kalir, farm her zaman vardir */
+function ozellik_temizle(string $s): string {
+    $ist = array_map('trim', explode(',', strtolower($s)));
+    $ist[] = 'farm';
+    $son = [];
+    foreach (OZELLIKLER as $o) { if (in_array($o, $ist, true)) $son[] = $o; }
+    return implode(',', $son);
+}
+
+/** Yeni eklenen uyelerin baslayacagi bolumler (admin panelinden secilir) */
+function varsayilan_ozellik(): string {
+    return ozellik_temizle(ayar_al('varsayilan_ozellik', 'farm'));
 }
 
 function ayar_al(string $k, string $vars = ''): string {
