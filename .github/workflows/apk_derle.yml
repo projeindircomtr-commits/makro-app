@@ -34,13 +34,16 @@ jobs:
           YUKLE_ANAHTAR: ${{ secrets.YUKLE_ANAHTAR }}
         run: |
           set -e
-          VC=$(grep -hoE 'versionCode[[:space:]]*=?[[:space:]]*[0-9]+' app/build.gradle* | grep -oE '[0-9]+$' | head -1)
-          if [ -z "$VC" ]; then echo "versionCode bulunamadi (app/build.gradle)"; exit 1; fi
+          APK=app/build/outputs/apk/release/app-release.apk
+          # Surum numarasi derlenmis APK'nin icinden okunur
+          AAPT="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt"
+          VC=$("$AAPT" dump badging "$APK" | grep -oP "versionCode='\K[0-9]+")
+          if [ -z "$VC" ]; then echo "versionCode APK'dan okunamadi"; exit 1; fi
           if [ -z "$YUKLE_ANAHTAR" ]; then echo "YUKLE_ANAHTAR secret'i yok"; exit 1; fi
           echo "Yuklenen surum: $VC"
           curl --fail-with-body -sS --max-time 300 -X POST \
             "https://projeindir.com.tr/makro/yukle.php" \
             -F "anahtar=$YUKLE_ANAHTAR" \
             -F "surum=$VC" \
-            -F "apk=@app/build/outputs/apk/release/app-release.apk;type=application/vnd.android.package-archive"
+            -F "apk=@$APK;type=application/vnd.android.package-archive"
           echo
