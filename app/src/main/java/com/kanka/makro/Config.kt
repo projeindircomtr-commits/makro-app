@@ -264,7 +264,39 @@ class Config {
 
         fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
 
-        private fun anahtar(ctx: Context) = if (pkMi(ctx)) "cfg_pk_" + sinif(ctx) else "cfg"
+        private fun anahtar(ctx: Context) = when {
+            pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
+            koMu(ctx) -> "cfg_ko"
+            else -> "cfg"
+        }
+
+        // ---------- Oyun: MykoMobile / KO Mobile ----------
+        /** "myko" ya da "ko". KO sadece Farm'da; PK/Pazar MykoMobile icin. */
+        fun oyun(ctx: Context): String {
+            val o = genel(ctx).getString("oyun", "myko") ?: "myko"
+            return if (o == "ko" && !botGorunur("ko")) "myko" else o
+        }
+
+        fun koMu(ctx: Context): Boolean = oyun(ctx) == "ko" && !pkMi(ctx) && !pazarMi(ctx)
+
+        fun oyunAd(ctx: Context): String = if (koMu(ctx)) "KO Mobile" else "MykoMobile"
+
+        fun oyunSec(ctx: Context, o: String) {
+            genel(ctx).edit().putString("oyun", o).commit()
+            if (o == "ko") modDegistir(ctx, false)   // KO'da sadece Farm
+        }
+
+        /** Kullanicinin elle sectigi KO Mobile paketi (otomatik bulunamazsa) */
+        fun koPaket(ctx: Context): String = genel(ctx).getString("koPaket", "") ?: ""
+
+        fun koPaketYaz(ctx: Context, p: String) {
+            genel(ctx).edit().putString("koPaket", p).commit()
+        }
+
+        /** Secili oyunun hazir ayarini yukle */
+        fun hazirAyar(ctx: Context) {
+            if (koMu(ctx)) KoOyun.apply(ctx) else Preset.apply(ctx)
+        }
 
         /**
          * Modu (ve PK'da karakteri) degistirir. Bir karaktere ilk geciste

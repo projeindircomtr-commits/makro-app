@@ -142,6 +142,9 @@ class MainActivity : Activity() {
     /** Giris yapilmadan gizli kalan bolumler */
     private val uyeBolumleri = ArrayList<View>()
     private lateinit var modKartView: LinearLayout
+    private lateinit var oyunKartView: LinearLayout
+    private lateinit var oyunMykoBtn: Button
+    private lateinit var oyunKoBtn: Button
     private var gelismisAcik = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -153,8 +156,8 @@ class MainActivity : Activity() {
         window.statusBarColor = BG
         Lisans.yukle(this)
 
-        // Ilk acilista MykoMobile ayarlari hazir gelsin
-        if (Config.load(this).points.isEmpty()) Preset.apply(this)
+        // Ilk acilista secili oyunun ayarlari hazir gelsin
+        if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -290,6 +293,36 @@ class MainActivity : Activity() {
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
         })
+
+        // --- Oyun secimi: MykoMobile / KO Mobile (KO simdilik sadece yonetici) ---
+        val oyunKart = card(root)
+        oyunKartView = oyunKart
+        uyeBolumleri.add(oyunKart)
+        oyunKart.addView(cardTitle("Oyun"))
+        val oyunSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun oyunBtn(t: String, kod: String) = Button(this).apply {
+            text = t
+            textSize = 16f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(12))
+            setOnClickListener { oyunSec(kod) }
+        }
+        oyunMykoBtn = oyunBtn("MykoMobile", "myko")
+        oyunKoBtn = oyunBtn("KO Mobile", "ko")
+        oyunSatir.addView(oyunMykoBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        oyunSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        oyunSatir.addView(oyunKoBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        oyunKart.addView(oyunSatir)
+        oyunKart.addView(TextView(this).apply {
+            text = "Her oyunun tuşları ve ayarları ayrı saklanır. KO Mobile şimdilik sadece Farm, " +
+                "dokunuşlar arası en az 0,7 sn (seri basma yok)."
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(dp(4), dp(8), 0, 0)
+        })
+        oyunKart.addView(smallButton("📱 KO Mobile uygulamasını seç") { koPaketSec() })
 
         // --- Kurulum karti ---
         val setup = card(root)
@@ -553,6 +586,7 @@ class MainActivity : Activity() {
         for (v in uyeBolumleri) v.visibility = g
         // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
         modKartView.visibility = if (ok && Config.botGorunur("pk")) View.VISIBLE else View.GONE
+        oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
         girisKilidi()
@@ -738,7 +772,7 @@ class MainActivity : Activity() {
             if (idx >= 0 && idx + 1 < p.childCount) p.getChildAt(idx + 1).visibility = restrictHint.visibility
         }
         setStep(step2, btn2, "Arka planda kapanmasın", batteryOk())
-        setStep(step3, btn3, "Oyun yüklü (MykoMobile)", findGame() != null)
+        setStep(step3, btn3, "Oyun yüklü (${Config.oyunAd(this)})", findGame() != null)
     }
 
     private fun refresh() {
@@ -755,12 +789,18 @@ class MainActivity : Activity() {
         speedFast.background = rounded(if (mod == 1) ACCENT else kapali, 10)
         speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
+        val ko = Config.koMu(this)
+        oyunMykoBtn.background = rounded(if (!ko) ACCENT else LACI, 14)
+        oyunKoBtn.background = rounded(if (ko) ACCENT else LACI, 14)
+        oyunMykoBtn.setTextColor(if (!ko) 0xFF12161C.toInt() else Color.WHITE)
+        oyunKoBtn.setTextColor(if (ko) 0xFF12161C.toInt() else Color.WHITE)
         val pk = Config.pkMi(this)
         modFarmBtn.background = rounded(if (!pk) ACCENT else LACI, 14)
         modPkBtn.background = rounded(if (pk) ACCENT else LACI, 14)
         modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
         modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
-        ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this) else "Ayarlar • Farm"
+        ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this)
+        else if (ko) "Ayarlar • Farm • KO Mobile" else "Ayarlar • Farm"
         sinifSatir.visibility = if (pk) View.VISIBLE else View.GONE
         val sn = Config.sinif(this)
         for ((kod, b) in sinifBtnler) {
@@ -787,6 +827,43 @@ class MainActivity : Activity() {
         else c.mpYuzde = (c.mpYuzde + d).coerceIn(5, 95)
         c.save(this)
         refresh()
+    }
+
+    private fun oyunSec(kod: String) {
+        if (Config.oyun(this) == kod && (kod != "ko" || Config.koMu(this))) return
+        saveAll()
+        Config.oyunSec(this, kod)
+        if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
+        MacroService.instance?.oyunDegisti()
+        toast(Config.oyunAd(this) + " seçildi")
+        oyunKoBtn.postDelayed({ refresh() }, 150)
+    }
+
+    /** KO Mobile otomatik bulunamazsa: yuklu uygulamalardan elle sec */
+    @Suppress("DEPRECATION")
+    private fun koPaketSec() {
+        val pm = packageManager
+        val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val liste = try {
+            pm.queryIntentActivities(q, 0)
+                .filter { it.activityInfo.packageName != packageName }
+                .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (liste.isEmpty()) { toast("Uygulama listesi alınamadı"); return }
+        AlertDialog.Builder(this)
+            .setTitle("KO Mobile hangisi?")
+            .setItems(liste.map { it.first }.toTypedArray()) { _, i ->
+                Config.koPaketYaz(this, liste[i].second)
+                MacroService.instance?.oyunDegisti()
+                toast("${liste[i].first} seçildi")
+                refresh()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
     }
 
     private fun modSec(pk: Boolean, sinif: String? = null) {
@@ -881,9 +958,16 @@ class MainActivity : Activity() {
         return try {
             val pm = packageManager
             val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            if (Config.koMu(this)) {
+                val secili = Config.koPaket(this)
+                if (secili.isNotEmpty()) return pm.getLaunchIntentForPackage(secili)
+            }
+            val ko = Config.koMu(this)
             val hit = pm.queryIntentActivities(q, 0).firstOrNull {
-                it.activityInfo.packageName.contains("myko", true) ||
-                    it.loadLabel(pm).toString().contains("myko", true)
+                val pk = it.activityInfo.packageName
+                val ad = it.loadLabel(pm).toString()
+                if (ko) pk.contains("komobile", true) || ad.contains("ko mobile", true) || ad.contains("komobile", true)
+                else pk.contains("myko", true) || ad.contains("myko", true)
             } ?: return null
             pm.getLaunchIntentForPackage(hit.activityInfo.packageName)
         } catch (e: Exception) {
@@ -908,7 +992,7 @@ class MainActivity : Activity() {
                 .show()
             return
         }
-        if (Config.load(this).points.isEmpty()) Preset.apply(this)
+        if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
         if (!ScreenSampler.running) {
             launchAfterCapture = true
             toast("Açılan pencerede \"Tüm ekran\"ı seç ve başlat")
@@ -922,7 +1006,7 @@ class MainActivity : Activity() {
         val game = findGame()
         if (game == null) {
             AlertDialog.Builder(this)
-                .setMessage("MykoMobile bulunamadı. Oyunu kendin aç, karakterin oyuna girince sol üstteki panelde ▶'a bas.")
+                .setMessage("${Config.oyunAd(this)} bulunamadı. Oyunu kendin aç, karakterin oyuna girince sol üstteki panelde ▶'a bas.")
                 .setPositiveButton("Tamam", null)
                 .show()
             return
@@ -945,11 +1029,11 @@ class MainActivity : Activity() {
         // Hazir ayar
         val pre = card(box)
         pre.addView(cardTitle("Hazır ayar"))
-        pre.addView(smallButton("⚡ MykoMobile ayarlarını yeniden yükle") {
+        pre.addView(smallButton("⚡ Hazır ayarları yeniden yükle") {
             AlertDialog.Builder(this)
-                .setMessage("Tüm tuşlar, barlar ve kutu butonları MykoMobile için yeniden ayarlansın mı?")
+                .setMessage("Tüm tuşlar, barlar ve kutu butonları ${Config.oyunAd(this)} için yeniden ayarlansın mı?")
                 .setPositiveButton("Yükle") { _, _ ->
-                    saveAll(); Preset.apply(this); refresh(); toast("Yüklendi")
+                    saveAll(); Config.hazirAyar(this); refresh(); toast("Yüklendi")
                 }
                 .setNegativeButton("Vazgeç", null)
                 .show()

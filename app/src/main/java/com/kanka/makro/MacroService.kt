@@ -128,6 +128,8 @@ class MacroService : AccessibilityService() {
     private var iptalBekliyor = false
     // PK modu
     @Volatile private var pkAktif = false
+    @Volatile private var koAktif = false   // KO Mobile Farm
+    private var koSonKutu = 0L
     private var pkSira = 0
     // Minor ac-kapa durumu (1. basis acar ve mana yer, 2. basis kapatir)
     @Volatile private var minorAcik = false
@@ -246,18 +248,27 @@ class MacroService : AccessibilityService() {
 
     /** MykoMobile'in paket adi (yuklu uygulamalardan bulunur, bir kez) */
     private var oyunPaketAdi: String? = null
-    private var oyunPaketArandi = false
+    private var oyunPaketArandi = ""   // hangi oyun icin arandi ("" = hic)
 
+    /** Secili oyunun paket adi (yuklu uygulamalardan bulunur, oyun basina bir kez) */
     @Suppress("DEPRECATION")
     private fun oyunPaketiBul(): String? {
-        if (oyunPaketArandi) return oyunPaketAdi
-        oyunPaketArandi = true
+        val oyun = if (Config.koMu(this)) "ko" else "myko"
+        if (oyunPaketArandi == oyun) return oyunPaketAdi
+        oyunPaketArandi = oyun
+        if (oyun == "ko") {
+            val secili = Config.koPaket(this)
+            if (secili.isNotEmpty()) { oyunPaketAdi = secili; return secili }
+        }
         oyunPaketAdi = try {
             val pm = packageManager
             val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             pm.queryIntentActivities(q, 0).firstOrNull {
-                it.activityInfo.packageName.contains("myko", true) ||
-                    it.loadLabel(pm).toString().contains("myko", true)
+                val pk = it.activityInfo.packageName
+                val ad = it.loadLabel(pm).toString()
+                if (oyun == "ko") pk.contains("komobile", true) || ad.contains("ko mobile", true) ||
+                    ad.contains("komobile", true)
+                else pk.contains("myko", true) || ad.contains("myko", true)
             }?.activityInfo?.packageName
         } catch (e: Exception) {
             null
@@ -265,12 +276,26 @@ class MacroService : AccessibilityService() {
         return oyunPaketAdi
     }
 
+    /** Uygulamadan oyun degisince: ayarlari ve oyun paketini yeniden yukle */
+    fun oyunDegisti() {
+        ui.post {
+            if (running) stopMacro()
+            oyunPaketArandi = ""
+            oyunPaketi = ""
+            cfg = Config.load(this)
+            modBtn?.text = modYazi()
+            statusTv?.text = Config.oyunAd(this) + " hazır"
+            oyunGorunurluk()
+        }
+    }
+
     private fun oyundaMi(): Boolean {
         val p = sonPaket
         if (p.isEmpty()) return true   // henuz bilgi yok: gizleme
         val oyun = oyunPaketiBul()
-        return (oyun != null && p == oyun) || p.contains("myko", true) ||
-            (oyunPaketi.isNotEmpty() && p == oyunPaketi)
+        if (oyun != null && p == oyun) return true
+        if (oyunPaketi.isNotEmpty() && p == oyunPaketi) return true
+        return if (Config.koMu(this)) p.contains("komobile", true) else p.contains("myko", true)
     }
 
     /**
@@ -1616,7 +1641,7 @@ class MacroService : AccessibilityService() {
     private fun dokunmaEngeli(now: Long): String? {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return "🌙"
-        if (!oyundaMi()) return "⏸"   // sadece MykoMobile ekrandayken dokun
+        if (!oyundaMi()) return "⏸"   // sadece secili oyun ekrandayken dokun
         if (ScreenSampler.running && now - ScreenSampler.lastFrameAt > 3000) return "📷"
         return null
     }
@@ -2373,6 +2398,7 @@ class MacroService : AccessibilityService() {
     private fun modYazi() = when {
         Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
         Config.pkMi(this) -> "⚔ PK Bot • ${Config.sinifAd(this)} ▾"
+        Config.koMu(this) -> "🌾 Farm Bot • KO ▾"
         else -> "🌾 Farm Bot ▾"
     }
 
@@ -2539,7 +2565,7 @@ class MacroService : AccessibilityService() {
             modBtn?.text = modYazi()
         }
         if (!oyundaMi()) {
-            toast("Önce oyunu (MykoMobile) aç, sonra ▶")
+            toast("Önce oyunu (${Config.oyunAd(this)}) aç, sonra ▶")
             return
         }
         // 🏪 Pazar Bot: ekran okuma gerekli, sonra pazar dongusu
@@ -2571,11 +2597,11 @@ class MacroService : AccessibilityService() {
             return
         }
         cfg = Config.load(this)
-        // Hic ayar yoksa MykoMobile hazir ayarini otomatik yukle
+        // Hic ayar yoksa secili oyunun hazir ayarini otomatik yukle
         if (cfg.points.isEmpty()) {
-            Preset.apply(this)
+            Config.hazirAyar(this)
             cfg = Config.load(this)
-            toast("MykoMobile ayarları otomatik yüklendi")
+            toast("${Config.oyunAd(this)} ayarları otomatik yüklendi")
         }
         val wantsScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
             cfg.openT != null || cfg.collectT != null
@@ -2584,6 +2610,13 @@ class MacroService : AccessibilityService() {
             return
         }
         pkAktif = Config.pkMi(this)
+        koAktif = Config.koMu(this)
+        koSonKutu = 0L
+        if (koAktif) {
+            // Yonetici sarti: KO'da seri basma yok (hiz ayari ne olursa olsun)
+            cfg.minDelay = cfg.minDelay.coerceAtLeast(700)
+            cfg.maxDelay = cfg.maxDelay.coerceAtLeast(cfg.minDelay + 600)
+        }
         alanBitti = false
         alanArdArda = 0
         alanBekleUntil = 0L
@@ -2605,7 +2638,7 @@ class MacroService : AccessibilityService() {
         }
         updateScreenSize()
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
-        otoMod = cfg.otoArayuz
+        otoMod = cfg.otoArayuz && !koAktif   // KO: MykoMobile otomatik tanimasi kullanilmaz
         olcek = null
         sonTarama = 0L
         dcSay = 0
@@ -2623,7 +2656,7 @@ class MacroService : AccessibilityService() {
         kilitBekleUntil = 0L
         hpBar = IntArray(3)
         mpBar = IntArray(3)
-        dcT = if (cfg.otoArayuz) null
+        dcT = if (cfg.otoArayuz || koAktif) null
         else Preset.loadTemplateF(this, "disconnect.png", Preset.landscapeSize(this).first / 2712f, 20, 0.5f, 0.5f)
         hpSol = intArrayOf(-1, -1)
         taramaHata = 0
@@ -2762,7 +2795,8 @@ class MacroService : AccessibilityService() {
         val pots = (potActions(now) + listOfNotNull(minorAction(now)))
             .map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
         val hedefler = pickTargets(now)
-        val list = pots + hedefler
+        // KO: her adimda tek dokunus (oncelik: pot > kutu > mob/saldiri/skill), ayni anda coklu basma yok
+        val list = if (koAktif) (pots + hedefler).take(1) else pots + hedefler
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
             stepPlanla( if (lootPhase != Loot.BOS) 60L else 200L)
@@ -2771,7 +2805,7 @@ class MacroService : AccessibilityService() {
         tapping = true
         tapMulti(list) {
             tapping = false
-            val hizli = hedefler.any { it.fast } || lootPhase != Loot.BOS
+            val hizli = !koAktif && (hedefler.any { it.fast } || lootPhase != Loot.BOS)
             if (running) stepPlanla( if (hizli) rand(40, 90) else nextDelay())
         }
     }
@@ -2804,7 +2838,7 @@ class MacroService : AccessibilityService() {
                     tapping = true
                     tap(t.x, t.y, t.r) {
                         tapping = false
-                        if (running) stepPlanla( rand(40, 90))
+                        if (running) stepPlanla(if (koAktif) nextDelay() else rand(40, 90))
                     }
                 }
             }
@@ -2812,6 +2846,13 @@ class MacroService : AccessibilityService() {
     }
 
     private fun isLow(cp: RenkNokta): Boolean {
+        if (koAktif) {
+            // KO: barin yaklasik dolulugu, uygulamadaki HP/MP % ayarina gore
+            val mp = cp === cfg.mp
+            val d = KoOyun.doluluk(screenW, screenH, mp)
+            if (d < 0f) return false   // bar gorunmuyor: pot basma
+            return d < (if (mp) cfg.mpYuzde else cfg.hpYuzde) / 100f
+        }
         val c = ScreenSampler.readPixel(cp.x, cp.y)
         if (c < 0) return false
         if (otoMod && olcek != null) {
@@ -3435,7 +3476,21 @@ class MacroService : AccessibilityService() {
      *  COLLECT_BEKLE -> sadece Collect All ara (Open'a basma), cikinca bas
      *  SONRAKI_KUTU  -> kisa sure yeni kutu var mi bak (seri toplama), yoksa saldiriya don
      */
+    /** KO Mobile: tek butonlu kutu toplama (koyu daire + altin sandik) */
+    private fun koLootAction(now: Long): Hedef? {
+        if (!cfg.lootOn || !ScreenSampler.running || now < lootPauseUntil) return null
+        if (now < nextLootScan) return null
+        nextLootScan = now + rand(140, 220)
+        if (now - koSonKutu < 900) return null   // ayni kutuya ust uste basma
+        if (!KoOyun.kutuVar(screenW, screenH)) return null
+        koSonKutu = now
+        toplanan++
+        val p = KoOyun.kutuNokta(screenW, screenH)
+        return Hedef(p[0], p[1], cfg.radius.toFloat())
+    }
+
     private fun lootAction(now: Long): Hedef? {
+        if (koAktif) return if (pkAktif) null else koLootAction(now)
         val op = cfg.openT
         val hasCollect = cfg.collectT != null || cfg.collectT2 != null
         if (op == null && !hasCollect) return null
