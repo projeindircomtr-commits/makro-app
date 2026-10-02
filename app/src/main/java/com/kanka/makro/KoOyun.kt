@@ -133,4 +133,10 @@ object KoOyun {
     }
 
     fun kutuNokta(w: Int, h: Int) = floatArrayOf(KUTU_X * w, KUTU_Y * h)
+
+    /** Ust ortadaki secili mob ismi (ornek "Small Bulcan"): mob kilidi bu alani okur */
+    fun isimAlani(w: Int, h: Int) = intArrayOf(sx(w, 1060), sy(h, 6), sx(w, 1520), sy(h, 44))
+
+    /** Hedef secilince cikan kirmizi X (hedefi birak) */
+    fun iptalNokta(w: Int, h: Int) = intArrayOf(sx(w, 2524), sy(h, 965))
 }
