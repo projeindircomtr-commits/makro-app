@@ -119,6 +119,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $mesaj = 'Henüz otomatik yüklenmiş bir sürüm yok.';
             }
+        } elseif ($is === 'github_cek') {
+            $mesaj = github_cek();
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Silindi.';
@@ -182,7 +184,8 @@ a{color:#e0b04a}
 <?php $oY = (int)ayar_al('en_yeni_surum', '0'); $kl = apk_klasor_al(); ?>
 <p class="gri" style="margin:4px 0">Son yüklenen sürüm: <b><?= $oY ?: '-' ?></b><?= $oY ? ' • ' . e(date('d.m.Y H:i', (int)ayar_al('yeni_surum_zaman', '0'))) : '' ?><br>
 Link: <b><?= e('https://' . ($_SERVER['HTTP_HOST'] ?? '') . '/' . $kl . '/ProjeindirBot.apk') ?></b><br>
-GitHub derlemesi (commit mesajında [yayinla] varsa) APK'yı bu klasöre koyar. Eski sürümleri durdurmak için "zorunlu yap"a bas.</p>
+Commit mesajında [yayinla] olan derleme GitHub'da yayınlanır. "GitHub'dan çek"e basınca APK bu klasöre alınır. Eski sürümleri durdurmak için "zorunlu yap"a bas.</p>
+<?= form('github_cek', 0, "⬇ GitHub'dan yeni sürümü çek", '#2b6cb0') ?>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="apk_klasor">
 <input class="tam" name="apk_klasor" value="<?= e($kl) ?>" placeholder="Klasör (site köküne göre, ör. makro/indir)">

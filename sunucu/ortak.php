@@ -107,3 +107,88 @@ function surum_engeli(int $surum): ?array {
         'min' => $min,
     ];
 }
+
+/**
+ * GitHub'daki en son Release'i kontrol eder; yeni surum varsa APK'yi indirip
+ * panelde secili klasore koyar. Admin panelindeki butonla calistirilir.
+ * Sonucu panelde gosterilecek mesaj olarak dondurur.
+ */
+function github_cek(): string {
+    $repo = 'projeindircomtr-commits/makro-app';
+    $apkAdi = 'ProjeindirBot.apk';
+    @set_time_limit(300);
+
+    $istek = function (string $url, ?string $dosya = null) {
+        $ch = curl_init($url);
+        $fp = null;
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_CONNECTTIMEOUT => 20,
+            CURLOPT_TIMEOUT => 240,
+            CURLOPT_USERAGENT => 'ProjeindirBot-Panel',
+            CURLOPT_HTTPHEADER => ['Accept: application/vnd.github+json'],
+        ]);
+        if ($dosya !== null) {
+            $fp = fopen($dosya, 'wb');
+            if (!$fp) return [false, 0, 'dosya acilamadi'];
+            curl_setopt($ch, CURLOPT_FILE, $fp);
+        } else {
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        }
+        $s = curl_exec($ch);
+        $kod = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $hata = curl_error($ch);
+        curl_close($ch);
+        if ($fp) fclose($fp);
+        return [$s, $kod, $hata];
+    };
+
+    try {
+        [$json, $kod, $hata] = $istek("https://api.github.com/repos/$repo/releases/latest");
+        if ($json === false || $kod !== 200) {
+            return $kod === 404 ? "GitHub'da henüz yayınlanmış sürüm yok. Commit mesajına [yayinla] ekleyip derlemenin bitmesini bekle."
+                                : "GitHub'a ulaşılamadı (kod $kod) $hata";
+        }
+        $r = json_decode((string)$json, true);
+        if (!is_array($r) || !preg_match('~^v(\d+)$~', (string)($r['tag_name'] ?? ''), $m)) {
+            return 'GitHub cevabı okunamadı.';
+        }
+        $surum = (int)$m[1];
+        $mevcut = (int)ayar_al('en_yeni_surum', '0');
+        if ($surum <= $mevcut) return "Zaten güncel (sürüm $mevcut). GitHub'daki en son: $surum.";
+
+        $url = null;
+        foreach (($r['assets'] ?? []) as $a) {
+            if (($a['name'] ?? '') === $apkAdi) { $url = (string)$a['browser_download_url']; break; }
+        }
+        if ($url === null) return "Sürüm $surum içinde $apkAdi bulunamadı.";
+
+        $rel = apk_klasor_al();
+        $klasor = dirname(__DIR__) . '/' . $rel;
+        if (!is_dir($klasor)) {
+            if (!mkdir($klasor, 0755, true)) return 'Klasör oluşturulamadı.';
+            file_put_contents($klasor . '/index.html', '');
+        }
+        $hedef = $klasor . '/' . $apkAdi;
+        $gec = $hedef . '.tmp';
+        [$ok, $kod, $hata] = $istek($url, $gec);
+        if ($ok === false || $kod !== 200) { @unlink($gec); return "APK indirilemedi (kod $kod) $hata"; }
+
+        $boyut = (int)filesize($gec);
+        $f = fopen($gec, 'rb'); $imza = $f ? fread($f, 4) : ''; if ($f) fclose($f);
+        if ($boyut < 50000 || $boyut > 60 * 1024 * 1024 || $imza !== "PK\x03\x04") {
+            @unlink($gec);
+            return "İndirilen dosya geçersiz ($boyut bayt).";
+        }
+        @chmod($gec, 0644);
+        if (!rename($gec, $hedef)) { @unlink($gec); return 'Dosya yerine konamadı.'; }
+
+        ayar_yaz('apk_url', 'https://' . ($_SERVER['HTTP_HOST'] ?? 'projeindir.com.tr') . '/' . $rel . '/' . $apkAdi);
+        ayar_yaz('en_yeni_surum', (string)$surum);
+        ayar_yaz('yeni_surum_zaman', (string)time());
+        return "✅ Sürüm $surum siteye alındı (" . round($boyut / 1048576, 1) . " MB). Eskileri durdurmak için \"zorunlu yap\"a bas.";
+    } catch (Throwable $e) {
+        return 'Hata: ' . $e->getMessage();
+    }
+}
