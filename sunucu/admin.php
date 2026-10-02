@@ -35,6 +35,7 @@ $pdo = db();
 sema_guncelle();
 $mesaj = '';
 $yeniSifre = null;
+$yeniAnahtar = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) exit('Oturum hatası, sayfayı yenile.');
@@ -103,6 +104,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ayar_yaz('varsayilan_ozellik', $oz);
                 $mesaj = "✅ Yeni üyeler artık şununla başlar: $oz";
             }
+        } elseif ($is === 'apk_klasor') {
+            ayar_yaz('apk_klasor', trim($_POST['apk_klasor'] ?? '', " \t\n\r\0\x0B/"));
+            $mesaj = '✅ APK klasörü: ' . apk_klasor_al();
+        } elseif ($is === 'anahtar_uret') {
+            $yeniAnahtar = bin2hex(random_bytes(24));
+            ayar_yaz('yukle_anahtar_hash', hash('sha256', $yeniAnahtar));
+            $mesaj = '✅ Yükleme anahtarı üretildi. Aşağıda sadece şimdi görünür, kopyala.';
+        } elseif ($is === 'zorunlu_yap') {
+            $y = (int)ayar_al('en_yeni_surum', '0');
+            if ($y > 0) {
+                ayar_yaz('min_surum', (string)$y);
+                $mesaj = "✅ En düşük sürüm $y oldu. Eski sürümler en geç 1 dakika içinde durur.";
+            } else {
+                $mesaj = 'Henüz otomatik yüklenmiş bir sürüm yok.';
+            }
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Silindi.';
@@ -160,6 +176,24 @@ a{color:#e0b04a}
 <?= e($m['metin']) ?> <?= form('mesaj_sil', (int)$m['id'], 'Sil', '#b33a3a') ?>
 </div>
 <?php endforeach; endif; ?>
+</div>
+
+<div class="k"><b>🚀 Otomatik APK yükleme</b>
+<?php $oY = (int)ayar_al('en_yeni_surum', '0'); $kl = apk_klasor_al(); ?>
+<p class="gri" style="margin:4px 0">Son yüklenen sürüm: <b><?= $oY ?: '-' ?></b><?= $oY ? ' • ' . e(date('d.m.Y H:i', (int)ayar_al('yeni_surum_zaman', '0'))) : '' ?><br>
+Link: <b><?= e('https://' . ($_SERVER['HTTP_HOST'] ?? '') . '/' . $kl . '/ProjeindirBot.apk') ?></b><br>
+GitHub derlemesi (commit mesajında [yayinla] varsa) APK'yı bu klasöre koyar. Eski sürümleri durdurmak için "zorunlu yap"a bas.</p>
+<form method="post">
+<input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="apk_klasor">
+<input class="tam" name="apk_klasor" value="<?= e($kl) ?>" placeholder="Klasör (site köküne göre, ör. makro/indir)">
+<button class="tam" style="background:#8a6d1f;padding:13px">Klasörü kaydet</button>
+</form>
+<?php if ($yeniAnahtar): ?>
+<div style="background:#1f3a2a;border-left:3px solid #39b26b;padding:8px;margin:6px 0;word-break:break-all;font-size:14px">
+Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?></b></div>
+<?php endif; ?>
+<?= form('anahtar_uret', 0, ayar_al('yukle_anahtar_hash', '') !== '' ? 'Yeni anahtar üret (eskisi geçersiz olur)' : 'Yükleme anahtarı üret', '#6b4fa0', false, 'Yeni anahtar üretilsin mi? Eskisi çalışmaz.') ?>
+<?= form('zorunlu_yap', 0, 'Bu sürümü zorunlu yap', '#2e9e5b', false, 'Eski sürümler durur ve güncelleme ister. Emin misin?') ?>
 </div>
 
 <div class="k"><b>⬆ Sürüm</b>

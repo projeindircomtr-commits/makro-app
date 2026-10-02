@@ -87,6 +87,15 @@ function ayar_yaz(string $k, string $v): void {
     db()->prepare('REPLACE INTO makro_ayar (anahtar, deger) VALUES (?, ?)')->execute([$k, $v]);
 }
 
+/** APK'nin yuklenecegi klasor (site kokune gore, ornek: makro/indir). Gecersizse varsayilan */
+function apk_klasor_al(): string {
+    $k = trim(ayar_al('apk_klasor', 'makro/indir'), " \t\n\r\0\x0B/");
+    if (!preg_match('~^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$~', $k) || in_array('gizli', explode('/', strtolower($k)), true)) {
+        return 'makro/indir';
+    }
+    return $k;
+}
+
 /** Uygulama surumu yetersizse guncelleme bilgisini dondurur, yoksa null */
 function surum_engeli(int $surum): ?array {
     $min = (int)ayar_al('min_surum', '0');
