@@ -33,6 +33,9 @@ if (empty($_SESSION['admin'])) {
 
 $pdo = db();
 sema_guncelle();
+// Eski dogrudan APK linkini indirme sayfasina cevir, klasoru koru (bir kere calisir)
+if (substr(ayar_al('apk_url', ''), -strlen('/' . APK_ADI)) === '/' . APK_ADI) ayar_yaz('apk_url', indirme_sayfasi_url());
+apk_klasor_koru(dirname(__DIR__) . '/' . apk_klasor_al());
 $mesaj = '';
 $yeniSifre = null;
 $yeniAnahtar = null;
@@ -183,7 +186,7 @@ a{color:#e0b04a}
 <div class="k"><b>🚀 Otomatik APK yükleme</b>
 <?php $oY = (int)ayar_al('en_yeni_surum', '0'); $kl = apk_klasor_al(); ?>
 <p class="gri" style="margin:4px 0">Son yüklenen sürüm: <b><?= $oY ?: '-' ?></b><?= $oY ? ' • ' . e(date('d.m.Y H:i', (int)ayar_al('yeni_surum_zaman', '0'))) : '' ?><br>
-Link: <b><?= e('https://' . ($_SERVER['HTTP_HOST'] ?? '') . '/' . $kl . '/ProjeindirBot.apk') ?></b><br>
+İndirme sayfası: <b><?= e(indirme_sayfasi_url()) ?></b> (dosyanın gerçek yeri gizli: <?= e($kl) ?>)<br>
 Commit mesajında [yayinla] olan derleme GitHub'da yayınlanır. "GitHub'dan çek"e basınca APK bu klasöre alınır. Eski sürümleri durdurmak için "zorunlu yap"a bas.</p>
 <?= form('github_cek', 0, "⬇ GitHub'dan yeni sürümü çek", '#2b6cb0') ?>
 <form method="post">

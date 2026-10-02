@@ -184,11 +184,30 @@ function github_cek(): string {
         @chmod($gec, 0644);
         if (!rename($gec, $hedef)) { @unlink($gec); return 'Dosya yerine konamadı.'; }
 
-        ayar_yaz('apk_url', 'https://' . ($_SERVER['HTTP_HOST'] ?? 'projeindir.com.tr') . '/' . $rel . '/' . $apkAdi);
+        apk_klasor_koru($klasor);
+        ayar_yaz('apk_url', indirme_sayfasi_url());
         ayar_yaz('en_yeni_surum', (string)$surum);
         ayar_yaz('yeni_surum_zaman', (string)time());
         return "✅ Sürüm $surum siteye alındı (" . round($boyut / 1048576, 1) . " MB). Eskileri durdurmak için \"zorunlu yap\"a bas.";
     } catch (Throwable $e) {
         return 'Hata: ' . $e->getMessage();
     }
+}
+
+// ================= Indirme sayfasi (projeindir.com.tr/bot/) =================
+const APK_ADI = 'ProjeindirBot.apk';
+
+/** Uyelerin gordugu indirme sayfasinin adresi (APK'nin dogrudan linki gizli kalir) */
+function indirme_sayfasi_url(): string {
+    return 'https://' . ($_SERVER['HTTP_HOST'] ?? 'projeindir.com.tr') . '/bot/';
+}
+
+/** APK klasorune dogrudan erisimi kapatir; dosya sadece indirme sayfasindan verilir */
+function apk_klasor_koru(string $klasor): void {
+    if (!is_dir($klasor)) return;
+    $h = $klasor . '/.htaccess';
+    if (!is_file($h)) {
+        file_put_contents($h, "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+    }
+    if (!is_file($klasor . '/index.html')) file_put_contents($klasor . '/index.html', '');
 }

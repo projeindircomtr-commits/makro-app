@@ -59,7 +59,8 @@ try {
     if (!rename($gec, $hedef)) { @unlink($gec); son(500, ['ok' => 0, 'mesaj' => 'Dosya yerine konamadi']); }
 
     // 5) Yayinla: link ve surum admin paneline otomatik yazilir
-    $url = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'projeindir.com.tr') . '/' . $rel . '/ProjeindirBot.apk';
+    apk_klasor_koru($klasor);
+    $url = indirme_sayfasi_url();
     ayar_yaz('apk_url', $url);
     ayar_yaz('en_yeni_surum', (string)$surum);
     ayar_yaz('yeni_surum_zaman', (string)time());
