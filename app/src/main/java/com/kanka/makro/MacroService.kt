@@ -859,17 +859,24 @@ class MacroService : AccessibilityService() {
             openApp()
             return
         }
+        // KURAL: Uyeler sadece Ayarlar, Tuslari duzenle, Mob kilitle/kaldir ve Uygulamayi ac'i gorur.
+        // Bar/kutu kaydi ve tum test/kayit ekranlari SADECE YONETICI. Yeni menu ogesi eklerken
+        // teknik/test olanlari yoneticiListesi'ne koy.
+        val yonetici = Lisans.yoneticiMi()
+        val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
+            "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
+            "📦 Kutu butonu kaydet" to { showLootChooser() },
+            "🧪 Ekran testi" to { ekranTesti() },
+            "🌡 Sistem kaydı" to { sistemKaydiGoster() },
+            "🎥 Kamera testi" to { kameraTesti() },
+            "📐 Alan testi" to { alanTesti() }
+        ) else emptyList()
         showMenu(
             "Menü",
-            listOf(
+            listOf<Pair<String, () -> Unit>>(
                 "⚙ Ayarlar" to { ayarKarti() },
-                "🛠 Tuşları düzenle" to { openEditor() },
-                "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
-                "📦 Kutu butonu kaydet" to { showLootChooser() },
-                "🧪 Ekran testi" to { ekranTesti() },
-                "🌡 Sistem kaydı" to { sistemKaydiGoster() },
-                "🎥 Kamera testi" to { kameraTesti() },
-                "📐 Alan testi" to { alanTesti() },
+                "🛠 Tuşları düzenle" to { openEditor() }
+            ) + yoneticiListesi + listOf<Pair<String, () -> Unit>>(
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
@@ -2637,6 +2644,7 @@ class MacroService : AccessibilityService() {
             toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
         }
         updateScreenSize()
+        if (koAktif) isimRect = KoOyun.isimAlani(screenW, screenH)
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
         otoMod = cfg.otoArayuz && !koAktif   // KO: MykoMobile otomatik tanimasi kullanilmaz
         olcek = null
@@ -3082,11 +3090,16 @@ class MacroService : AccessibilityService() {
         }
         toast("Mob ismi okunuyor…")
         h.post {
-            val o = olcek ?: try { Preset.olcekBul(this) } catch (e: Exception) { null }
-            if (o == null) {
-                toast("Oyun ekranı tanınamadı"); return@post
+            val a = if (Config.koMu(this)) {
+                val (lw, lh) = Preset.landscapeSize(this)
+                KoOyun.isimAlani(lw, lh)
+            } else {
+                val o = olcek ?: try { Preset.olcekBul(this) } catch (e: Exception) { null }
+                if (o == null) {
+                    toast("Oyun ekranı tanınamadı"); return@post
+                }
+                isimAlani(o)
             }
-            val a = isimAlani(o)
             val r = ScreenSampler.bolge(a[0], a[1], a[2], a[3])
             if (r == null) {
                 toast("Ekran görüntüsü alınamadı"); return@post
@@ -3157,6 +3170,15 @@ class MacroService : AccessibilityService() {
         if (pkAktif && Config.sinif(this) != "asas") return null   // Minor sadece Asas'ta
         if (!cfg.minorAktif) return null
         val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
+        if (koAktif) {
+            // KO: Minor tek basista iyilestirir (ac/kapa yok). Can ayardaki %'nin altindaysa,
+            // tusun bekleme suresi (en az 1,5 sn) dolunca bas.
+            val hp = KoOyun.doluluk(screenW, screenH, false)
+            if (hp < 0f || hp >= cfg.minorYuzde / 100f) return null
+            if (now - minorSon < maxOf((m.cd * 1000).toLong(), 1500L)) return null
+            minorSon = now
+            return m
+        }
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
         if (now - minorSon < 150) return null
@@ -3250,7 +3272,7 @@ class MacroService : AccessibilityService() {
                     ilerlemeAt = now
                     ilkVurus = true
                     menzilArdArda = 0
-                } else if (!ilkVurus && cfg.menzilAktif && o0 != null &&
+                } else if (!ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
                     now - hedefBaslangic > cfg.menzilSn * 1000L
                 ) {
                     // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak
@@ -3263,15 +3285,15 @@ class MacroService : AccessibilityService() {
                     menzilXAt = now
                     iptalAt = now
                     nextTarget = menzilBekleUntil
-                    val x = iptalNoktasi(o0)
+                    val x = if (o0 != null) iptalNoktasi(o0) else koIptal()
                     return Nokta("İptal", "iptal", x[0], x[1])
                 } else if (now - ilerlemeAt > 12_000) {
                     ilerlemeAt = now
                     sonYuzde = 1f
                     val ol = olcek
-                    if (ol != null) {
+                    if (ol != null || koAktif) {
                         // Once hedefi iptal et (X), sonraki adimda yeni mob sec
-                        val x = iptalNoktasi(ol)
+                        val x = if (ol != null) iptalNoktasi(ol) else koIptal()
                         iptalBekliyor = true
                         iptalAt = now
                         nextTarget = 0L
@@ -3299,8 +3321,8 @@ class MacroService : AccessibilityService() {
                         nextTarget = now + rand(350, 500)
                         iptalAt = now
                         val ol = olcek
-                        if (ol != null) {
-                            val x = iptalNoktasi(ol)
+                        if (ol != null || koAktif) {
+                            val x = if (ol != null) iptalNoktasi(ol) else koIptal()
                             return Nokta("İptal", "iptal", x[0], x[1])
                         }
                     }
@@ -3312,7 +3334,7 @@ class MacroService : AccessibilityService() {
             if (alive && cfg.alanAktif && !alanBitti && now - hedefBaslangic < 700) return null
             // Mob kilidi
             val o = olcek
-            if (cfg.kilitler.isNotEmpty() && o != null) {
+            if (cfg.kilitler.isNotEmpty() && (o != null || koAktif)) {
                 // Bekleme modu: etrafta kilitli mob yok, skill/saldiri/secim tamamen durur
                 if (now < kilitBekleUntil) return null
                 if (alive) {
@@ -3328,7 +3350,7 @@ class MacroService : AccessibilityService() {
                         }
                         nextTarget = now + rand(350, 500)
                         iptalAt = now
-                        val x = iptalNoktasi(o)
+                        val x = if (o != null) iptalNoktasi(o) else koIptal()
                         return Nokta("İptal", "iptal", x[0], x[1])
                     }
                 }
@@ -3412,6 +3434,12 @@ class MacroService : AccessibilityService() {
     private var collectAnkorGY = -1
 
     /** X (iptal) noktasi: kullanici ogrettiyse onu kullan, yoksa hazir preset konumu */
+    /** KO: kullanicinin kaydettigi Iptal tusu, yoksa hazir kirmizi X */
+    private fun koIptal(): IntArray {
+        cfg.points.firstOrNull { it.type == "iptal" }?.let { return intArrayOf(it.x, it.y) }
+        return KoOyun.iptalNokta(screenW, screenH)
+    }
+
     private fun iptalNoktasi(o: Preset.Olcek): IntArray {
         cfg.points.firstOrNull { it.type == "iptal" }?.let { return intArrayOf(it.x, it.y) }
         return Preset.sagAlt(o, 2632, 926)
