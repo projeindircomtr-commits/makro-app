@@ -133,7 +133,7 @@ object KoOyun {
     @Volatile private var hpBul: IntArray? = null   // x1, x2, y
     @Volatile private var mpBul: IntArray? = null
 
-    fun sifirla() { hpBul = null; mpBul = null }
+    fun sifirla() { hpBul = null; mpBul = null; hedefSatir = -1; for (g in gecmis) g.fill(-1f) }
 
     /** Bir satirdaki en uzun renkli seridi bul (yazi bosluklarini birlestirerek): x1, x2 ya da null */
     private fun enUzunSerit(y: Int, xBas: Int, xSon: Int, adim: Int, bosluk: Int, test: (Int) -> Boolean): IntArray? {
@@ -172,7 +172,7 @@ object KoOyun {
             y += 2
         }
         if (hp == null) return
-        hpBul = hp
+        hpBul = birlestir(hpBul, hp, w, h)
         var mp: IntArray? = null
         y = hp[2] + 2
         while (y < hp[2] + (h * 0.07f).toInt()) {
@@ -182,37 +182,99 @@ object KoOyun {
             }
             y += 2
         }
-        if (mp != null) mpBul = mp
+        if (mp != null) mpBul = birlestir(mpBul, mp, w, h)
+    }
+
+    /** Ayni bar ise (yeri ayni) uzun olan boyu koru: can dusukken bulunca bar kisa sanilmasin */
+    private fun birlestir(eski: IntArray?, yeni: IntArray, w: Int, h: Int): IntArray {
+        if (eski == null) return yeni
+        val ayni = Math.abs(eski[2] - yeni[2]) <= maxOf(3, (h * 0.012f).toInt()) &&
+            Math.abs(eski[0] - yeni[0]) <= maxOf(3, (w * 0.012f).toInt())
+        return if (ayni) intArrayOf(minOf(eski[0], yeni[0]), maxOf(eski[1], yeni[1]), eski[2]) else yeni
     }
 
     /** Bulunmus barin dolulugu; bar hic yoksa -1. Bar uzarsa (can dolunca) sag ucu gunceller. */
+    /**
+     * Bulunmus barin dolulugu (0..1); bar yoksa -1.
+     * - 5 satir okunur; en az 2 satirin onayladigi en sag nokta alinir (tek piksel efekt/yazi bozamaz)
+     * - Once kaba tarama, sonra sinirda 1 piksel ince tarama (net yuzde)
+     * - Can dolunca bar uzarsa sag ucu gunceller
+     */
     private fun bulunanDoluluk(b: IntArray, w: Int, mp: Boolean): Float {
         val x1 = b[0]; var x2 = b[1]; val y = b[2]
         val ara = (x2 - x1).coerceAtLeast(1)
-        val adim = maxOf(1, ara / 60)
-        var son = -1
-        for (dy in intArrayOf(-1, 0, 1)) {
+        val kaba = maxOf(1, ara / 60)
+        val bitis = minOf(x2 + (w * 0.02f).toInt(), (w * 0.5f).toInt())
+        val sonlar = ArrayList<Int>(5)
+        for (dy in intArrayOf(-2, -1, 0, 1, 2)) {
+            var son = -1
             var x = x1
-            val bitis = minOf(x1 + ara + (w * 0.02f).toInt(), (w * 0.5f).toInt())
             while (x <= bitis) {
                 val c = ScreenSampler.readPixel(x, y + dy)
-                if (c >= 0 && (if (mp) mavi(c) else kirmizi(c))) son = maxOf(son, x)
-                x += adim
+                if (c >= 0 && (if (mp) mavi(c) else kirmizi(c))) son = x
+                x += kaba
+            }
+            if (son >= 0) {
+                var xx = son + 1
+                while (xx < son + kaba && xx <= bitis) {
+                    val c = ScreenSampler.readPixel(xx, y + dy)
+                    if (c >= 0 && (if (mp) mavi(c) else kirmizi(c))) son = xx
+                    xx++
+                }
+                sonlar.add(son)
             }
         }
-        if (son < 0) return -1f
-        if (son > x2) { x2 = son; b[1] = son }
+        if (sonlar.isEmpty()) return -1f
+        sonlar.sortDescending()
+        val son = if (sonlar.size >= 2) sonlar[1] else sonlar[0]
+        if (son > x2 && sonlar.size >= 2) { x2 = son; b[1] = son }
         return ((son - x1).toFloat() / (x2 - x1).coerceAtLeast(1)).coerceIn(0f, 1f)
     }
 
+    // Son 3 okuma (zaman suzgeci): kisa titremeleri yutar, ani dususu aninda gecirir
+    private val gecmis = arrayOf(FloatArray(3) { -1f }, FloatArray(3) { -1f })
+    private val gecmisAt = LongArray(2)
+    private val sonDeger = floatArrayOf(-1f, -1f)
+
     /** Barin yaklasik dolulugu (0..1); bar hic gorunmuyorsa -1 */
     fun doluluk(w: Int, h: Int, mp: Boolean): Float {
+        val k = if (mp) 1 else 0
+        val simdi = System.currentTimeMillis()
+        // Ayni an icinde birden cok soruluyorsa (pot, minor, guvenlik) ayni degeri ver
+        if (simdi - gecmisAt[k] < 40) return sonDeger[k]
+        gecmisAt[k] = simdi
         val bulunan = if (mp) mpBul else hpBul
-        if (bulunan != null) {
-            val d = bulunanDoluluk(bulunan, w, mp)
-            if (d >= 0f) return d
-        }
-        return sabitDoluluk(w, h, mp)
+        var ham = -1f
+        if (bulunan != null) ham = bulunanDoluluk(bulunan, w, mp)
+        if (ham < 0f) ham = sabitDoluluk(w, h, mp)
+        if (ham < 0f) { sonDeger[k] = -1f; return -1f }
+        val g = gecmis[k]
+        g[2] = g[1]; g[1] = g[0]; g[0] = ham
+        val gecerli = g.filter { it >= 0f }.sorted()
+        val orta = gecerli[gecerli.size / 2]
+        // Ani dusus (darbe): beklemeden gercek degeri kullan
+        val sonuc = if (ham < orta - 0.12f) ham else orta
+        sonDeger[k] = sonuc
+        return sonuc
+    }
+
+    // ---- Bar yerini kaydet/yukle: bot can dusukken baslasa da bar boyu dogru kalsin ----
+    private fun pref(ctx: Context) = ctx.getSharedPreferences("ko_bar", Context.MODE_PRIVATE)
+
+    fun barYukle(ctx: Context, w: Int, h: Int) {
+        val p = pref(ctx)
+        fun oku(ad: String) = p.getString(ad + "_" + w + "x" + h, null)
+            ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.size == 3 }?.toIntArray()
+        oku("hp")?.let { hpBul = it }
+        oku("mp")?.let { mpBul = it }
+        for (g in gecmis) g.fill(-1f)
+    }
+
+    fun barKaydet(ctx: Context, w: Int, h: Int) {
+        val e = pref(ctx).edit()
+        hpBul?.let { e.putString("hp_" + w + "x" + h, it.joinToString(",")) }
+        mpBul?.let { e.putString("mp_" + w + "x" + h, it.joinToString(",")) }
+        e.apply()
     }
 
     /** Eski yontem: Farm ekran goruntusundeki sabit yer */
@@ -252,8 +314,17 @@ object KoOyun {
      * kesintisiz kirmizi serit arar (arayuz boyutu farkli olabilir). Isim yazilari harf
      * aralari yuzunden serit sayilmaz.
      */
+    @Volatile private var hedefSatir = -1      // hedef barinin bulundugu satir (hizli kontrol)
+    @Volatile private var hedefTamAt = 0L
+
     fun hedefVar(w: Int, h: Int): Boolean {
         val x1 = (w * 0.28f).toInt(); val x2 = (w * 0.72f).toInt()
+        // Once bilinen satira bak (ucuz); yoksa tam aramayi en fazla 0.4 sn'de bir yap
+        val ys = hedefSatir
+        if (ys >= 0 && satirdaSerit(ys, x1, x2, w)) return true
+        val simdi = System.currentTimeMillis()
+        if (simdi - hedefTamAt < 400) return false
+        hedefTamAt = simdi
         val adim = maxOf(2, w / 400)
         val gerek = maxOf(8, (w * 0.025f / adim).toInt())
         var y = (h * 0.012f).toInt()
@@ -265,11 +336,24 @@ object KoOyun {
             while (x <= x2) {
                 val c = ScreenSampler.readPixel(x, y)
                 if (c >= 0 && kirmizi(c)) {
-                    if (++seri >= gerek) return true
+                    if (++seri >= gerek) { hedefSatir = y; return true }
                 } else seri = 0
                 x += adim
             }
             y += yAdim
+        }
+        return false
+    }
+
+    private fun satirdaSerit(y: Int, x1: Int, x2: Int, w: Int): Boolean {
+        val adim = maxOf(2, w / 400)
+        val gerek = maxOf(8, (w * 0.025f / adim).toInt())
+        var seri = 0
+        var x = x1
+        while (x <= x2) {
+            val c = ScreenSampler.readPixel(x, y)
+            if (c >= 0 && kirmizi(c)) { if (++seri >= gerek) return true } else seri = 0
+            x += adim
         }
         return false
     }

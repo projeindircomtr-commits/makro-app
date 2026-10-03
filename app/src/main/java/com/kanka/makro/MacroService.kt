@@ -130,6 +130,7 @@ class MacroService : AccessibilityService() {
     @Volatile private var pkAktif = false
     @Volatile private var koAktif = false   // KO Mobile Farm
     private var koBarAt = 0L                // KO: barlar en son ne zaman arandi
+    private val KO_IKSIR_ARA = 1800L         // KO: iki iksir arasi ortak bekleme (oyunda 1.8 sn geri sayim)
     private var koSonKutu = 0L
     private var pkSira = 0
     private var pkSonSkill = 0L    // PK: son skill basilma ani (skill arasi icin)
@@ -2701,7 +2702,9 @@ class MacroService : AccessibilityService() {
         if (koAktif) {
             isimRect = KoOyun.isimAlani(screenW, screenH)
             KoOyun.sifirla()
+            KoOyun.barYukle(this, screenW, screenH)   // onceki seferde olculen bar boyu
             KoOyun.barlariBul(screenW, screenH)
+            KoOyun.barKaydet(this, screenW, screenH)
             koBarAt = System.currentTimeMillis()
         }
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
@@ -2759,6 +2762,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun stopMacro(reason: String? = null) {
+        if (koAktif) try { KoOyun.barKaydet(this, screenW, screenH) } catch (_: Exception) {}
         // Minor acik kaldiysa kapat (mana akip gitmesin) - sadece oyun gercekten ondeyse dokun,
         // yoksa (oyun kapandi/arka planda) baska bir uygulamaya yanlislikla dokunmus oluruz
         if (minorAcik && oyundaMi()) {
@@ -2871,7 +2875,7 @@ class MacroService : AccessibilityService() {
         }
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
-            stepPlanla( if (lootPhase != Loot.BOS) 60L else 200L)
+            stepPlanla( if (lootPhase != Loot.BOS) 60L else if (pkAktif) 70L else 200L)
             return
         }
         tapping = true
@@ -3003,7 +3007,37 @@ class MacroService : AccessibilityService() {
     }
 
     /** Gereken potlar (HP, MP ya da ikisi) - beklemeden, saldiriyla birlikte basilir */
+    /**
+     * KO iksirleri: HP ve MP ortak bekleme kullanir (ayni anda icilmez). Ikisi de dusukse
+     * sirayla (HP, MP, HP...) icilir; can cok dusukse HP her zaman once. Minor bundan bagimsiz.
+     */
+    private var koSonIksirHp = false
+    private fun koPotlar(now: Long): List<Nokta> {
+        if (now - maxOf(lastHpPot, lastMpPot) < KO_IKSIR_ARA) return emptyList()
+        if (KoOyun.doluluk(screenW, screenH, false) < 0f && now - koBarAt > 3000) {
+            koBarAt = now
+            KoOyun.barlariBul(screenW, screenH)   // bar okunamadi: yeniden ara
+        }
+        val hpD = if (cfg.hp != null) KoOyun.doluluk(screenW, screenH, false) else -1f
+        val mpD = if (cfg.mp != null) KoOyun.doluluk(screenW, screenH, true) else -1f
+        val hpDusuk = hpD >= 0f && hpD < cfg.hpYuzde / 100f
+        val mpDusuk = mpD >= 0f && mpD < cfg.mpYuzde / 100f
+        val hpKritik = hpDusuk && hpD < cfg.hpYuzde / 100f * 0.6f
+        val hpSec = when {
+            hpDusuk && mpDusuk -> hpKritik || !koSonIksirHp
+            hpDusuk -> true
+            mpDusuk -> false
+            else -> return emptyList()
+        }
+        val n = cfg.points.firstOrNull { it.type == if (hpSec) "hp_pot" else "mp_pot" } ?: return emptyList()
+        basilanPot++
+        if (hpSec) lastHpPot = now else lastMpPot = now
+        koSonIksirHp = hpSec
+        return listOf(n)
+    }
+
     private fun potActions(now: Long): List<Nokta> {
+        if (koAktif) return koPotlar(now)
         val out = ArrayList<Nokta>(2)
         val hp = cfg.hp
         val potBekle = if (pkAktif) 450 else cfg.potCd
@@ -3712,7 +3746,7 @@ class MacroService : AccessibilityService() {
     private fun basmaSuresi(): Long = if (cfg.maxDelay <= 150) rand(35, 70) else rand(55, 140)
 
     private fun nextDelay(): Long {
-        if (pkAktif) return if (koAktif) rand(280, 420) else rand(40, 90)
+        if (pkAktif) return if (koAktif) rand(150, 240) else rand(40, 90)
         val lo = cfg.minDelay.coerceAtLeast(50)
         val hi = cfg.maxDelay.coerceAtLeast(lo + 1)
         // Iki rastgele sayinin ortalamasi: ortaya yakin, dogal dagilim
