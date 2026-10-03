@@ -131,6 +131,18 @@ class MacroService : AccessibilityService() {
     @Volatile private var koAktif = false   // KO Mobile Farm
     private var koSonKutu = 0L
     private var pkSira = 0
+    private var pkSonSkill = 0L    // PK: son skill basilma ani (skill arasi icin)
+    private var pkSonKilic = 0L    // PK: kilica en son basilma ani
+
+    // ---- PK otomatik ogrenme: skill ikonu basilinca kararir (bekleme), hazir olunca aydinlanir ----
+    private var otoBekleyen = -1          // basilan ve tutup tutmadigi kontrol edilecek skill
+    private var otoBasAt = 0L
+    private var otoTaban = 0f             // basmadan onceki ikon parlakligi
+    private var otoBasarili = 0           // ust uste tutan skill sayisi
+    private var otoTutmadi = 0            // ust uste tutmayan skill sayisi
+    private val otoDonus = HashMap<Int, Pair<Long, Float>>()  // tuttu: basma ani + taban, hazir olmasi izleniyor
+    private var otoKayitAt = 0L
+    private var otoDegisti = false
     // Minor ac-kapa durumu (1. basis acar ve mana yer, 2. basis kapatir)
     @Volatile private var minorAcik = false
     private var minorSon = 0L
@@ -1030,6 +1042,15 @@ class MacroService : AccessibilityService() {
             satir("⏳ Uzak mob sonrası bekleme", { "${Config.load(this).menzilBekleSn} sn" },
                 { kaydet { it.menzilBekleSn = (it.menzilBekleSn - 1).coerceIn(1, 15) } },
                 { kaydet { it.menzilBekleSn = (it.menzilBekleSn + 1).coerceIn(1, 15) } })
+        }
+        if (Config.pkMi(this)) {
+            // Oyunun iki skill arasindaki ortak beklemesi: bu biter bitmez siradaki skill basilir
+            satir("🤖 Otomatik ayar", { if (Config.load(this).skillOto) "Açık" else "Kapalı" },
+                { kaydet { it.skillOto = false } },
+                { kaydet { it.skillOto = true } })
+            satir("⚔ Skill arası", { "%.1f sn".format(Config.load(this).skillAraMs / 1000f) },
+                { kaydet { it.skillAraMs = (it.skillAraMs - 100).coerceIn(0, 5000) } },
+                { kaydet { it.skillAraMs = (it.skillAraMs + 100).coerceIn(0, 5000) } })
         }
         satir("⏱ Süre", { "${Config.load(this).minutes} dk" },
             { kaydet { it.minutes = (it.minutes - 10).coerceIn(10, 600) } },
@@ -2638,6 +2659,9 @@ class MacroService : AccessibilityService() {
         menzilBekleUntil = 0L
         menzilArdArda = 0
         pkSira = 0
+        pkSonSkill = 0L
+        pkSonKilic = 0L
+        otoBekleyen = -1; otoBasarili = 0; otoTutmadi = 0; otoDonus.clear(); otoDegisti = false
         minorAcik = false
         minorSon = 0L
         if (pkAktif && cfg.points.none { it.type == "saldiri" }) {
@@ -3233,20 +3257,113 @@ class MacroService : AccessibilityService() {
             }
             return null
         }
+        // Skiller: her skillin kendi suresi (sn) + iki skill arasi ortak bekleme (Skill arasi).
+        // Ortak bekleme biter bitmez, sirayla ilk hazir skill basilir; hazir olan yoksa kilic.
+        // Pot ve minor bundan bagimsiz, ayni adimda ayrica basilir.
         val skills = pts.indices.filter { pts[it].type == "skill" && pts[it].on }
-        if (skills.isEmpty()) return kilic
-        for (deneme in skills.indices) {
-            val i = skills[pkSira % skills.size]
-            val kalan = (skillReady[i] ?: 0L) - now
-            if (kalan <= 0) {
-                skillReady[i] = now + (pts[i].cd * 1000).toLong() + rand(0, 80)
-                pkSira = (pkSira + 1) % skills.size
-                return pts[i]
+        if (cfg.skillOto) otoOgren(now)
+        if (skills.isNotEmpty() && otoBekleyen < 0 && now - pkSonSkill >= cfg.skillAraMs) {
+            for (deneme in skills.indices) {
+                val sira = (pkSira + deneme) % skills.size
+                val i = skills[sira]
+                if ((skillReady[i] ?: 0L) <= now) {
+                    skillReady[i] = now + (pts[i].cd * 1000).toLong()
+                    pkSonSkill = now
+                    pkSira = (sira + 1) % skills.size
+                    if (cfg.skillOto) {
+                        val l = ikonParlaklik(pts[i])
+                        if (l > 0f) { otoBekleyen = i; otoBasAt = now; otoTaban = l }
+                    }
+                    return pts[i]
+                }
             }
-            if (kalan <= 600) return null       // az kaldi: sirayi koru, bekle
-            pkSira = (pkSira + 1) % skills.size // uzun bekleyecek: atla
+        }
+        // Kilic surekli: skill zamani degilse araliklarla kilica bas
+        if (kilic != null && now - pkSonKilic >= rand(450, 650)) {
+            pkSonKilic = now
+            return kilic
         }
         return null
+    }
+
+    /** Skill ikonunun ortalama parlakligi (merkezdeki geri sayim yazisi haric halka). 0 = okunamadi */
+    private fun ikonParlaklik(n: Nokta): Float {
+        if (!ScreenSampler.running) return 0f
+        val r = maxOf(screenW, screenH) * 0.012f
+        var top = 0f; var say = 0
+        for (k in 0 until 12) {
+            val a = 2.0 * Math.PI * k / 12
+            val c = ScreenSampler.readPixel((n.x + r * Math.cos(a)).toInt(), (n.y + r * Math.sin(a)).toInt())
+            if (c < 0) continue
+            top += (((c shr 16) and 0xff) * 299 + ((c shr 8) and 0xff) * 587 + (c and 0xff) * 114) / 1000f
+            say++
+        }
+        return if (say >= 6) maxOf(top / say, 1f) else 0f
+    }
+
+    /**
+     * PK otomatik ayar:
+     * - Basilan skillin ikonu ~0.35 sn icinde kararmadiysa skill tutmamistir (ortak bekleme bitmemis):
+     *   Skill arasi artar, skill hemen tekrar denenir.
+     * - Ust uste tutuyorsa Skill arasi azar azar kisalir; boylece oyunun gercek degerine oturur.
+     * - Tutan skillin ikonu tekrar aydinlaninca gecen sure o skillin "sn" degeri olarak ogrenilir.
+     */
+    private fun otoOgren(now: Long) {
+        val pts = cfg.points
+        if (otoBekleyen >= 0 && now - otoBasAt >= 350) {
+            val i = otoBekleyen
+            otoBekleyen = -1
+            if (i < pts.size) {
+                val l = ikonParlaklik(pts[i])
+                if (l > 0f && l < otoTaban * 0.75f) {
+                    otoTutmadi = 0
+                    otoDonus[i] = otoBasAt to otoTaban
+                    if (++otoBasarili >= 5 && cfg.skillAraMs > 300) {
+                        otoBasarili = 0
+                        cfg.skillAraMs = (cfg.skillAraMs - 50).coerceAtLeast(300); otoDegisti = true
+                    }
+                } else if (l > 0f) {
+                    otoBasarili = 0
+                    skillReady[i] = now          // tutmadi: ilk firsatta tekrar
+                    if (++otoTutmadi >= 2) {
+                        otoTutmadi = 0
+                        cfg.skillAraMs = (cfg.skillAraMs + 100).coerceAtMost(3000); otoDegisti = true
+                    }
+                }
+            }
+        }
+        // Tutan skillerin ikonu aydinlandi mi: skill suresini ogren
+        val iter = otoDonus.entries.iterator()
+        while (iter.hasNext()) {
+            val e = iter.next()
+            val i = e.key
+            val v = e.value
+            val (basAt, taban) = v
+            if (i >= pts.size || now - basAt > 120_000) { iter.remove(); continue }
+            if (now - basAt < 600) continue
+            val l = ikonParlaklik(pts[i])
+            if (l > 0f && l >= taban * 0.9f) {
+                iter.remove()
+                val sn = Math.round((now - basAt) / 100f) / 10f
+                if (Math.abs(sn - pts[i].cd) >= 0.3f) {
+                    pts[i].cd = sn
+                    skillReady[i] = now
+                    otoDegisti = true
+                }
+            }
+        }
+        // Ogrenilenleri ara ara kaydet (uygulamada ve ayarlarda gorunsun)
+        if (otoDegisti && now - otoKayitAt > 10_000) {
+            otoKayitAt = now; otoDegisti = false
+            try {
+                val c = Config.load(this)
+                c.skillAraMs = cfg.skillAraMs
+                if (c.points.size == pts.size) for (k in pts.indices) if (pts[k].type == "skill") c.points[k].cd = pts[k].cd
+                c.save(this)
+            } catch (e: Exception) {
+                hataKaydet("oto", e)
+            }
+        }
     }
 
     private fun pick(now: Long): Nokta? {

@@ -131,6 +131,8 @@ class Config {
 
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
+    var skillAraMs = 1000     // PK: iki skill arasi oyunun ortak beklemesi (ms)
+    var skillOto = true       // PK: skill arasi ve skill surelerini ekrandan ogrenip ayarla
     var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
     // Alan siniri (Farm): secili mobun secim halkasi karakter etrafindaki dikdortgenin disindaysa birak
@@ -183,7 +185,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("skillOto", skillOto).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -380,6 +382,8 @@ class Config {
                 c.menzilAktif = if (o.has("menzilAktif")) o.optBoolean("menzilAktif", false) else eskiSn > 0
                 c.menzilSn = (if (eskiSn <= 0) 3 else eskiSn).coerceIn(1, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
+                c.skillAraMs = o.optInt("skillAraMs", 1000).coerceIn(0, 5000)
+                c.skillOto = o.optBoolean("skillOto", true)
                 c.minorAktif = o.optBoolean("minorAktif", true)
                 c.menzilBekleSn = o.optInt("menzilBekleSn", 4).coerceIn(1, 15)
                 c.alanAktif = o.optBoolean("alanAktif", false)
