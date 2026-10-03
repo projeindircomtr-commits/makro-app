@@ -2404,7 +2404,7 @@ class MacroService : AccessibilityService() {
 
     private fun modYazi() = when {
         Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
-        Config.pkMi(this) -> "⚔ PK Bot • ${Config.sinifAd(this)} ▾"
+        Config.pkMi(this) -> "⚔ PK Bot • " + (if (Config.oyun(this) == "ko") "KO • " else "") + "${Config.sinifAd(this)} ▾"
         Config.koMu(this) -> "🌾 Farm Bot • KO ▾"
         else -> "🌾 Farm Bot ▾"
     }
@@ -2804,7 +2804,12 @@ class MacroService : AccessibilityService() {
             .map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
         val hedefler = pickTargets(now)
         // KO: her adimda tek dokunus (oncelik: pot > kutu > mob/saldiri/skill), ayni anda coklu basma yok
-        val list = if (koAktif) (pots + hedefler).take(1) else pots + hedefler
+        val list = when {
+            // KO PK: savunma (HP pot + minor + MP pot) ayni anda basilabilir, yanina en fazla bir skill
+            koAktif && pkAktif -> pots + hedefler.take(1)
+            koAktif -> (pots + hedefler).take(1)
+            else -> pots + hedefler
+        }
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
             stepPlanla( if (lootPhase != Loot.BOS) 60L else 200L)
@@ -2944,7 +2949,10 @@ class MacroService : AccessibilityService() {
             }
         }
         val mp = cfg.mp
-        if (mp != null && now - lastMpPot > potBekle && isLow(mp)) {
+        // KO: HP ve MP iksiri ortak bekleme suresi kullanir, ayni anda icilmez. HP onceliklidir:
+        // HP potu yeni basildiysa MP bu adimda beklesin (minor ve skill bundan etkilenmez).
+        val koIksirBekle = koAktif && now - lastHpPot < 900
+        if (mp != null && !koIksirBekle && now - lastMpPot > potBekle && isLow(mp)) {
             cfg.points.firstOrNull { it.type == "mp_pot" }?.let {
                 basilanPot++
                 lastMpPot = now
@@ -3171,13 +3179,18 @@ class MacroService : AccessibilityService() {
         if (!cfg.minorAktif) return null
         val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
         if (koAktif) {
-            // KO: Minor tek basista iyilestirir (ac/kapa yok). Can ayardaki %'nin altindaysa,
-            // tusun bekleme suresi (en az 1,5 sn) dolunca bas.
+            // KO: Minor ac/kapa calisir (bir basis acar, bir basis kapatir).
+            // Can ayardaki %'nin altina inince ac, %97'ye cikinca kapat.
+            if (now - minorSon < 400) return null
             val hp = KoOyun.doluluk(screenW, screenH, false)
-            if (hp < 0f || hp >= cfg.minorYuzde / 100f) return null
-            if (now - minorSon < maxOf((m.cd * 1000).toLong(), 1500L)) return null
-            minorSon = now
-            return m
+            if (hp < 0f) return null
+            if (!minorAcik && hp < cfg.minorYuzde / 100f) {
+                minorAcik = true; minorSon = now; return m
+            }
+            if (minorAcik && hp >= 0.97f) {
+                minorAcik = false; minorSon = now; return m
+            }
+            return null
         }
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
@@ -3619,7 +3632,7 @@ class MacroService : AccessibilityService() {
     private fun basmaSuresi(): Long = if (cfg.maxDelay <= 150) rand(35, 70) else rand(55, 140)
 
     private fun nextDelay(): Long {
-        if (pkAktif) return rand(40, 90)
+        if (pkAktif) return if (koAktif) rand(280, 420) else rand(40, 90)
         val lo = cfg.minDelay.coerceAtLeast(50)
         val hi = cfg.maxDelay.coerceAtLeast(lo + 1)
         // Iki rastgele sayinin ortalamasi: ortaya yakin, dogal dagilim
