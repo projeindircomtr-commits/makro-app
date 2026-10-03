@@ -1198,7 +1198,38 @@ class MacroService : AccessibilityService() {
                     setColor(renk(p))
                     setStroke(dp(2), Color.WHITE)
                 }
-                setOnClickListener { if (overlay != null) removeOverlay() else editorPointMenu(i) }
+            }
+            // Dokun: menu  •  Surukle: tusu saga/sola/yukari/asagi kaydir (birakinca kaydedilir)
+            var dx0 = 0f; var dy0 = 0f; var lm0 = 0; var tm0 = 0; var surukle = false
+            val esik = dp(8)
+            m.setOnTouchListener { v, e ->
+                val lpm = v.layoutParams as FrameLayout.LayoutParams
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dx0 = e.rawX; dy0 = e.rawY; lm0 = lpm.leftMargin; tm0 = lpm.topMargin; surukle = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val ddx = e.rawX - dx0; val ddy = e.rawY - dy0
+                        if (!surukle && ddx * ddx + ddy * ddy > esik * esik) surukle = true
+                        if (surukle) {
+                            lpm.leftMargin = (lm0 + ddx).toInt().coerceIn(0, maxOf(0, screenW - size))
+                            lpm.topMargin = (tm0 + ddy).toInt().coerceIn(0, maxOf(0, screenH - size))
+                            v.layoutParams = lpm
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (surukle) {
+                            val c = Config.load(this)
+                            if (i < c.points.size) {
+                                c.points[i].x = lpm.leftMargin + size / 2
+                                c.points[i].y = lpm.topMargin + size / 2
+                                c.tuslarOto = false
+                                c.save(this)
+                            }
+                        } else if (overlay != null) removeOverlay() else editorPointMenu(i)
+                    }
+                }
+                true
             }
             root.addView(m, FrameLayout.LayoutParams(size, size).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -1215,7 +1246,7 @@ class MacroService : AccessibilityService() {
             setPadding(dp(10), dp(4), dp(6), dp(4))
         }
         bar.addView(TextView(this).apply {
-            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir"
+            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır"
             setTextColor(Color.WHITE)
             textSize = 13f
             setPadding(0, 0, dp(10), 0)
