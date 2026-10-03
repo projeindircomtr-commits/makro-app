@@ -131,8 +131,7 @@ class Config {
 
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
-    var skillAraMs = 1000     // PK: iki skill arasi oyunun ortak beklemesi (ms)
-    var skillOto = true       // PK: skill arasi ve skill surelerini ekrandan ogrenip ayarla
+    var skillAraMs = 800      // PK: iki skill arasi oyunun ortak beklemesi (ms); videoda olculen ~0.8 sn
     var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
     // Alan siniri (Farm): secili mobun secim halkasi karakter etrafindaki dikdortgenin disindaysa birak
@@ -185,7 +184,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("skillOto", skillOto).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -303,7 +302,11 @@ class Config {
 
         /** Secili oyunun hazir ayarini yukle */
         fun hazirAyar(ctx: Context) {
-            if (koMu(ctx)) KoOyun.apply(ctx) else Preset.apply(ctx)
+            when {
+                koMu(ctx) && pkMi(ctx) && sinif(ctx) == "asas" -> KoOyun.applyPkAsas(ctx)
+                koMu(ctx) -> KoOyun.apply(ctx)
+                else -> Preset.apply(ctx)
+            }
         }
 
         /**
@@ -316,7 +319,8 @@ class Config {
                 // KO'nun PK tuslari ayri saklanir; ilk seferde KO Farm tuslarindan baslar
                 val ko = oyun(ctx) == "ko"
                 val k = (if (ko) "cfg_ko_pk_" else "cfg_pk_") + sinif(ctx)
-                if (prefs(ctx).getString(k, null) == null) {
+                // KO PK Asas'in kendi hazir ayari var: kopyalama, bos kalsin, ilk acilista yuklensin
+                if (prefs(ctx).getString(k, null) == null && !(ko && sinif(ctx) == "asas")) {
                     val kaynak = if (ko) prefs(ctx).getString("cfg_ko", null)
                     else prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
                     kaynak?.let { js ->
@@ -382,8 +386,7 @@ class Config {
                 c.menzilAktif = if (o.has("menzilAktif")) o.optBoolean("menzilAktif", false) else eskiSn > 0
                 c.menzilSn = (if (eskiSn <= 0) 3 else eskiSn).coerceIn(1, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
-                c.skillAraMs = o.optInt("skillAraMs", 1000).coerceIn(0, 5000)
-                c.skillOto = o.optBoolean("skillOto", true)
+                c.skillAraMs = o.optInt("skillAraMs", 800).coerceIn(0, 5000)
                 c.minorAktif = o.optBoolean("minorAktif", true)
                 c.menzilBekleSn = o.optInt("menzilBekleSn", 4).coerceIn(1, 15)
                 c.alanAktif = o.optBoolean("alanAktif", false)

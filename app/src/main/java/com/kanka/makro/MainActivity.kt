@@ -316,8 +316,8 @@ class MainActivity : Activity() {
         oyunSatir.addView(oyunKoBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         oyunKart.addView(oyunSatir)
         oyunKart.addView(TextView(this).apply {
-            text = "Her oyunun tuşları ve ayarları ayrı saklanır. KO Mobile şimdilik sadece Farm, " +
-                "dokunuşlar arası en az 0,7 sn (seri basma yok)."
+            text = "Her oyunun tuşları ve ayarları ayrı saklanır. KO Mobile: Farm ve PK. " +
+                "Farm'da dokunuşlar arası en az 0,7 sn."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)

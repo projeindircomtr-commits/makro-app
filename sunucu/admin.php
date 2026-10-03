@@ -49,16 +49,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($is === 'ekle') {
             $k = preg_replace('/[^a-zA-Z0-9_.]/', '', $_POST['kullanici'] ?? '');
             $isim = trim(mb_substr($_POST['isim'] ?? '', 0, 60));
-            // Sure secilmediyse yeni uye otomatik 3 gunluk baslar (sadece ekleme icin;
-            // "uzat" dali yine acik bir deger ister, yanlislikla gun eklenmesin)
-            if ($gun < 1) $gun = 3;
+            // Yeni uye varsayilan 0 gun: satin alana kadar kullanamaz, sonra "uzat" ile acilir
             if ($k === '') $mesaj = 'Kullanıcı adı gerekli.';
             else {
                 $yeniSifre = trim($_POST['sifre'] ?? '') ?: rastgele_sifre();
                 $pdo->prepare('INSERT INTO makro_uyeler (kullanici, sifre_hash, isim, bitis, olusturma, ozellik) VALUES (?,?,?,?,?,?)')
                     ->execute([$k, password_hash($yeniSifre, PASSWORD_DEFAULT), $isim, time() + $gun * 86400, time(), varsayilan_ozellik()]);
-                $mesaj = "✅ '$k' eklendi ($gun gün). Şifre: $yeniSifre";
+                $mesaj = $gun > 0 ? "✅ '$k' eklendi ($gun gün). Şifre: $yeniSifre"
+                    : "✅ '$k' eklendi (süre 0, satın alınca süre ekle). Şifre: $yeniSifre";
             }
+        } elseif ($is === 'sure_sifirla') {
+            // Tek uyenin suresini bitir (yoneticiye dokunmaz)
+            $pdo->prepare('UPDATE makro_uyeler SET bitis = ? WHERE id = ? AND yonetici = 0')->execute([time(), $id]);
+            $mesaj = '✅ Süre sıfırlandı. Uygulama bir sonraki kontrolde durur.';
+        } elseif ($is === 'sure_hepsi_sifirla') {
+            // Tum uyelerin suresini bitir, yoneticiler haric
+            $n = $pdo->prepare('UPDATE makro_uyeler SET bitis = ? WHERE yonetici = 0');
+            $n->execute([time()]);
+            $mesaj = '✅ ' . $n->rowCount() . ' üyenin süresi sıfırlandı (yöneticiler hariç).';
         } elseif ($is === 'uzat' && $gun > 0) {
             $pdo->prepare('UPDATE makro_uyeler SET bitis = GREATEST(bitis, ?) + ? WHERE id = ?')
                 ->execute([time(), $gun * 86400, $id]);
@@ -225,6 +233,11 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <button class="tam" name="is" value="ozellik_hepsi" style="background:#8a6d1f;padding:13px" onclick="return confirm('Tüm üyelerin bölümleri değişsin mi?')">Tüm üyelere uygula</button>
 </form></div>
 
+<div class="k"><b>Süreleri sıfırla</b>
+<p class="gri" style="margin:4px 0">Yöneticiler hariç tüm üyelerin süresini bitirir. Satın alana "Süre ekle" ile tekrar açarsın.</p>
+<?= form('sure_hepsi_sifirla', 0, 'Tüm üyelerin süresini 0 yap', '#b03a3a', false, 'Yöneticiler hariç TÜM üyelerin süresi bitecek. Emin misin?') ?>
+</div>
+
 <div class="k"><b>Yeni üye</b>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ekle">
@@ -232,7 +245,8 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <input class="tam" name="isim" placeholder="İsim (isteğe bağlı)">
 <input class="tam" name="sifre" placeholder="Şifre (boş bırak: otomatik)">
 <select class="tam" name="gun">
-<option value="3" selected>3 gün</option><option value="7">7 gün</option><option value="15">15 gün</option>
+<option value="0" selected>0 gün (satın alana kadar kapalı)</option>
+<option value="3">3 gün</option><option value="7">7 gün</option><option value="15">15 gün</option>
 <option value="30">1 ay</option><option value="90">3 ay</option><option value="3650">Süresiz (10 yıl)</option>
 </select>
 <button class="tam" style="background:#2e9e5b;padding:13px">Ekle</button>
@@ -255,6 +269,7 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <?= form('uzat', (int)$u['id'], '+ Süre ekle', '#2e9e5b', true) ?>
 <?= form('durum', (int)$u['id'], (int)$u['aktif'] ? 'Kapat' : 'Aç', '#8a6d1f') ?>
 <?= form('yonetici', (int)$u['id'], !empty($u['yonetici']) ? 'Yöneticiliği kaldır' : 'Yönetici yap', '#6b4fa0', false, 'Yönetici yetkisi değişsin mi?') ?>
+<?php if (empty($u['yonetici']) && (int)$u['bitis'] > time()): ?><?= form('sure_sifirla', (int)$u['id'], 'Süreyi 0 yap', '#b03a3a', false, 'Bu üyenin süresi bitsin mi?') ?><?php endif; ?>
 <?php $uo = explode(',', ozellik_temizle((string)($u['ozellik'] ?? ''))); ?>
 <form method="post" class="in" style="margin:6px 0"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
 <span class="gri">Bölümler:</span> Farm

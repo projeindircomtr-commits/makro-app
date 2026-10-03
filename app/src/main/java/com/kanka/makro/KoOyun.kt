@@ -56,6 +56,16 @@ object KoOyun {
         c.points.add(n("Skill 3", "skill", SLOTLAR[4], 1.5f))
         c.points.add(n("Skill 4", "skill", SLOTLAR[2], 60f, false))
 
+        barlar(c, w, h)
+        c.hpYuzde = 50
+        c.mpYuzde = 30
+        c.minDelay = 700      // yonetici sarti: seri basma yok
+        c.maxDelay = 1300
+        c.save(ctx)
+    }
+
+    /** HP/MP/hedef bari ve KO'ya ozel sabit ayarlar (Farm ve PK ortak) */
+    private fun barlar(c: Config, w: Int, h: Int) {
         // Yer tutucu: KO'da barlar dolulukla okunur (KoOyun.doluluk), renk kullanilmaz
         c.hp = RenkNokta(sx(w, 352), sy(h, 18), 0xD02B22)
         c.mp = RenkNokta(sx(w, 316), sy(h, 47), 0x3946AA)
@@ -70,10 +80,42 @@ object KoOyun {
         c.collectT2 = null
         c.otoArayuz = false
         c.tuslarOto = false
-        c.hpYuzde = 50
+    }
+
+    /**
+     * KO PK • Asas hazir ayari: kullanicinin videosundaki skill duzeni ve olculen sureler.
+     * Video 848x390; skill paneli sag kenara gore yerlesir, bu yuzden x sagdan, y yukseklik
+     * oranindan hesaplanir. Farkli telefonda yerler kayabilir: Tuslari duzenle ile surukleyerek oturtulur.
+     */
+    fun applyPkAsas(ctx: Context) {
+        val (w, h) = Preset.landscapeSize(ctx)
+        val k = h / 390f
+        fun v(ad: String, tip: String, xv: Int, yv: Int, cd: Float = 0f, on: Boolean = true) =
+            Nokta(ad, tip, (w - (848 - xv) * k).roundToInt(), (yv * k).roundToInt(), cd, on)
+
+        val c = Config.load(ctx)
+        c.points.clear()
+        c.points.add(v("Kılıç", "saldiri", 785, 295))
+        c.points.add(v("HP pot", "hp_pot", 565, 327))
+        c.points.add(v("MP pot", "mp_pot", 613, 327))
+        c.points.add(v("Minor", "minor", 668, 327))
+        // Skill sirasi (bot bu sirayla doner, hazir olani basar)
+        c.points.add(v("Blinding", "skill", 718, 273, 60f))
+        c.points.add(v("Mor dalga", "skill", 606, 273, 11f))
+        c.points.add(v("Mor ok", "skill", 656, 273, 10f))
+        c.points.add(v("Mor ok 2", "skill", 548, 225, 10.5f))
+        c.points.add(v("Kırmızı 1", "skill", 597, 225, 5f))
+        c.points.add(v("Kırmızı 2", "skill", 649, 225, 5f))
+        c.points.add(v("Kırmızı 3", "skill", 698, 225, 5f))
+        c.points.add(v("Kırmızı 4", "skill", 748, 225, 5f))
+        c.points.add(v("Hançer", "skill", 800, 225, 5f))
+        c.points.add(v("Mavi koşu", "skill", 555, 273, 10f, false))
+        barlar(c, w, h)
+        c.skillAraMs = 800
+        c.hpYuzde = 60
         c.mpYuzde = 30
-        c.minDelay = 700      // yonetici sarti: seri basma yok
-        c.maxDelay = 1300
+        c.minorYuzde = 80
+        c.minorAktif = true
         c.save(ctx)
     }
 
