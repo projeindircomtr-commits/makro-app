@@ -264,26 +264,32 @@ class Config {
 
         fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
 
+        /** Oyundaki panel icin kisa, emoji'siz sinif adi */
+        fun sinifKisa(ctx: Context): String = when (sinif(ctx)) {
+            "mage" -> "Mage"; "warrior" -> "Warrior"; "priest" -> "Priest"; else -> "Asas"
+        }
+
         private fun anahtar(ctx: Context) = when {
-            pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
+            koMu(ctx) && pkMi(ctx) -> "cfg_ko_pk_" + sinif(ctx)
             koMu(ctx) -> "cfg_ko"
+            pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
             else -> "cfg"
         }
 
         // ---------- Oyun: MykoMobile / KO Mobile ----------
-        /** "myko" ya da "ko". KO sadece Farm'da; PK/Pazar MykoMobile icin. */
+        /** "myko" ya da "ko". KO: Farm ve PK; Pazar sadece MykoMobile icin. */
         fun oyun(ctx: Context): String {
             val o = genel(ctx).getString("oyun", "myko") ?: "myko"
             return if (o == "ko" && !botGorunur("ko")) "myko" else o
         }
 
-        fun koMu(ctx: Context): Boolean = oyun(ctx) == "ko" && !pkMi(ctx) && !pazarMi(ctx)
+        fun koMu(ctx: Context): Boolean = oyun(ctx) == "ko" && !pazarMi(ctx)
 
         fun oyunAd(ctx: Context): String = if (koMu(ctx)) "KO Mobile" else "MykoMobile"
 
         fun oyunSec(ctx: Context, o: String) {
             genel(ctx).edit().putString("oyun", o).commit()
-            if (o == "ko") modDegistir(ctx, false)   // KO'da sadece Farm
+            if (o == "ko" && pazarMi(ctx)) modDegistir(ctx, false)   // KO'da Pazar yok
         }
 
         /** Kullanicinin elle sectigi KO Mobile paketi (otomatik bulunamazsa) */
@@ -305,9 +311,12 @@ class Config {
         fun modDegistir(ctx: Context, pk: Boolean, yeniSinif: String? = null) {
             if (yeniSinif != null) genel(ctx).edit().putString("pkSinif", yeniSinif).commit()
             if (pk) {
-                val k = "cfg_pk_" + sinif(ctx)
+                // KO'nun PK tuslari ayri saklanir; ilk seferde KO Farm tuslarindan baslar
+                val ko = oyun(ctx) == "ko"
+                val k = (if (ko) "cfg_ko_pk_" else "cfg_pk_") + sinif(ctx)
                 if (prefs(ctx).getString(k, null) == null) {
-                    val kaynak = prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
+                    val kaynak = if (ko) prefs(ctx).getString("cfg_ko", null)
+                    else prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
                     kaynak?.let { js ->
                         // Minor sadece Asas'ta var: diger karakterlere tasima
                         val yaz = if (sinif(ctx) == "asas") js

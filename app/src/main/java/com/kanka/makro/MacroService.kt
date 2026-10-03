@@ -772,6 +772,13 @@ class MacroService : AccessibilityService() {
 
         val mb = btn(modYazi()) { modMenu() }.apply { setTextColor(0xFFE0B04A.toInt()) }
         modBtn = mb
+        // Panel her modda ayni incelikte kalsin: tek satir, ekstra font boslugu yok
+        for (v in listOf(drag, play, mb, st)) {
+            v.setSingleLine(true)
+            v.includeFontPadding = false
+            v.ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        st.maxWidth = dp(220)
         root.addView(drag)
         root.addView(play)
         root.addView(mb)
@@ -2404,7 +2411,8 @@ class MacroService : AccessibilityService() {
 
     private fun modYazi() = when {
         Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
-        Config.pkMi(this) -> "⚔ PK Bot • " + (if (Config.oyun(this) == "ko") "KO • " else "") + "${Config.sinifAd(this)} ▾"
+        // Panelde kisa ve tek satir: emoji'li uzun sinif adi paneli buyutuyordu
+        Config.pkMi(this) -> "⚔ PK • " + (if (Config.oyun(this) == "ko") "KO • " else "") + Config.sinifKisa(this) + " ▾"
         Config.koMu(this) -> "🌾 Farm Bot • KO ▾"
         else -> "🌾 Farm Bot ▾"
     }
