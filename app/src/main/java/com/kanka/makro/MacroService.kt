@@ -129,6 +129,7 @@ class MacroService : AccessibilityService() {
     // PK modu
     @Volatile private var pkAktif = false
     @Volatile private var koAktif = false   // KO Mobile Farm
+    private var koBarAt = 0L                // KO: barlar en son ne zaman arandi
     private var koSonKutu = 0L
     private var pkSira = 0
     private var pkSonSkill = 0L    // PK: son skill basilma ani (skill arasi icin)
@@ -2697,7 +2698,12 @@ class MacroService : AccessibilityService() {
             toast("Uyarı: ekran okuma kapalı. HP/MP, hedef barı ve kutu çalışmayacak")
         }
         updateScreenSize()
-        if (koAktif) isimRect = KoOyun.isimAlani(screenW, screenH)
+        if (koAktif) {
+            isimRect = KoOyun.isimAlani(screenW, screenH)
+            KoOyun.sifirla()
+            KoOyun.barlariBul(screenW, screenH)
+            koBarAt = System.currentTimeMillis()
+        }
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
         otoMod = cfg.otoArayuz && !koAktif   // KO: MykoMobile otomatik tanimasi kullanilmaz
         olcek = null
@@ -2915,7 +2921,14 @@ class MacroService : AccessibilityService() {
         if (koAktif) {
             // KO: barin yaklasik dolulugu, uygulamadaki HP/MP % ayarina gore
             val mp = cp === cfg.mp
-            val d = KoOyun.doluluk(screenW, screenH, mp)
+            var d = KoOyun.doluluk(screenW, screenH, mp)
+            val simdi = System.currentTimeMillis()
+            if (d < 0f && simdi - koBarAt > 3000) {
+                // Bar okunamadi: ekranda yeniden ara (en fazla 3 sn'de bir)
+                koBarAt = simdi
+                KoOyun.barlariBul(screenW, screenH)
+                d = KoOyun.doluluk(screenW, screenH, mp)
+            }
             if (d < 0f) return false   // bar gorunmuyor: pot basma
             return d < (if (mp) cfg.mpYuzde else cfg.hpYuzde) / 100f
         }
@@ -3208,6 +3221,12 @@ class MacroService : AccessibilityService() {
 
     /** Hedef barinin herhangi bir yerinde kirmizi var mi? */
     private fun targetAlive(bar: RenkNokta): Boolean {
+        // KO: once Farm'daki sabit yer; orada yoksa ekranin ust ortasinda ara
+        if (koAktif) return sabitHedef(bar) || KoOyun.hedefVar(screenW, screenH)
+        return sabitHedef(bar)
+    }
+
+    private fun sabitHedef(bar: RenkNokta): Boolean {
         val x1 = tgtStrip[0]
         val x2 = tgtStrip[1]
         val y = tgtStrip[2]

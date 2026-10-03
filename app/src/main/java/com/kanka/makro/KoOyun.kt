@@ -129,8 +129,94 @@ object KoOyun {
         return b >= 110 && b > r * 1.6f && b > g * 1.2f
     }
 
+    // ---- Barlari ekranda kendisi bulma (karakter/telefon/arayuz boyutu farkli olabilir) ----
+    @Volatile private var hpBul: IntArray? = null   // x1, x2, y
+    @Volatile private var mpBul: IntArray? = null
+
+    fun sifirla() { hpBul = null; mpBul = null }
+
+    /** Bir satirdaki en uzun renkli seridi bul (yazi bosluklarini birlestirerek): x1, x2 ya da null */
+    private fun enUzunSerit(y: Int, xBas: Int, xSon: Int, adim: Int, bosluk: Int, test: (Int) -> Boolean): IntArray? {
+        var enX1 = -1; var enX2 = -1
+        var x1 = -1; var son = -1
+        var x = xBas
+        while (x <= xSon) {
+            val c = ScreenSampler.readPixel(x, y)
+            if (c >= 0 && test(c)) {
+                if (x1 < 0 || x - son > bosluk) x1 = x
+                son = x
+                if (son - x1 > enX2 - enX1) { enX1 = x1; enX2 = son }
+            }
+            x += adim
+        }
+        return if (enX1 >= 0) intArrayOf(enX1, enX2) else null
+    }
+
+    /**
+     * Sol ustte HP (kirmizi) ve hemen altinda MP (mavi) barini arar.
+     * Bot baslarken ve bar okunamadiginda calisir; bulunca yerini hatirlar.
+     */
+    fun barlariBul(w: Int, h: Int) {
+        if (!ScreenSampler.running) return
+        val xSon = (w * 0.42f).toInt()
+        val adim = maxOf(2, w / 900)
+        val bosluk = (w * 0.012f).toInt()
+        val enAz = (w * 0.04f).toInt()
+        var hp: IntArray? = null
+        var y = 1
+        while (y < (h * 0.10f).toInt()) {
+            val s = enUzunSerit(y, 0, xSon, adim, bosluk) { kirmizi(it) }
+            if (s != null && s[1] - s[0] >= enAz && (hp == null || s[1] - s[0] > hp[1] - hp[0] + adim)) {
+                hp = intArrayOf(s[0], s[1], y)
+            }
+            y += 2
+        }
+        if (hp == null) return
+        hpBul = hp
+        var mp: IntArray? = null
+        y = hp[2] + 2
+        while (y < hp[2] + (h * 0.07f).toInt()) {
+            val s = enUzunSerit(y, maxOf(0, hp[0] - bosluk), xSon, adim, bosluk) { mavi(it) }
+            if (s != null && s[1] - s[0] >= enAz && (mp == null || s[1] - s[0] > mp[1] - mp[0] + adim)) {
+                mp = intArrayOf(s[0], s[1], y)
+            }
+            y += 2
+        }
+        if (mp != null) mpBul = mp
+    }
+
+    /** Bulunmus barin dolulugu; bar hic yoksa -1. Bar uzarsa (can dolunca) sag ucu gunceller. */
+    private fun bulunanDoluluk(b: IntArray, w: Int, mp: Boolean): Float {
+        val x1 = b[0]; var x2 = b[1]; val y = b[2]
+        val ara = (x2 - x1).coerceAtLeast(1)
+        val adim = maxOf(1, ara / 60)
+        var son = -1
+        for (dy in intArrayOf(-1, 0, 1)) {
+            var x = x1
+            val bitis = minOf(x1 + ara + (w * 0.02f).toInt(), (w * 0.5f).toInt())
+            while (x <= bitis) {
+                val c = ScreenSampler.readPixel(x, y + dy)
+                if (c >= 0 && (if (mp) mavi(c) else kirmizi(c))) son = maxOf(son, x)
+                x += adim
+            }
+        }
+        if (son < 0) return -1f
+        if (son > x2) { x2 = son; b[1] = son }
+        return ((son - x1).toFloat() / (x2 - x1).coerceAtLeast(1)).coerceIn(0f, 1f)
+    }
+
     /** Barin yaklasik dolulugu (0..1); bar hic gorunmuyorsa -1 */
     fun doluluk(w: Int, h: Int, mp: Boolean): Float {
+        val bulunan = if (mp) mpBul else hpBul
+        if (bulunan != null) {
+            val d = bulunanDoluluk(bulunan, w, mp)
+            if (d >= 0f) return d
+        }
+        return sabitDoluluk(w, h, mp)
+    }
+
+    /** Eski yontem: Farm ekran goruntusundeki sabit yer */
+    private fun sabitDoluluk(w: Int, h: Int, mp: Boolean): Float {
         val x1 = sx(w, BAR_X1); val x2 = sx(w, BAR_X2)
         val ys = if (mp) MP_Y else HP_Y
         val n = 40
@@ -159,6 +245,33 @@ object KoOyun {
             if (c >= 0 && test(c)) say++
         }
         return say
+    }
+
+    /**
+     * Ust ortada secili hedefin kirmizi can bari: sabit yerde bulunamazsa genis alanda
+     * kesintisiz kirmizi serit arar (arayuz boyutu farkli olabilir). Isim yazilari harf
+     * aralari yuzunden serit sayilmaz.
+     */
+    fun hedefVar(w: Int, h: Int): Boolean {
+        val x1 = (w * 0.28f).toInt(); val x2 = (w * 0.72f).toInt()
+        val adim = maxOf(2, w / 400)
+        val gerek = maxOf(8, (w * 0.025f / adim).toInt())
+        var y = (h * 0.012f).toInt()
+        val yBitis = (h * 0.11f).toInt()
+        val yAdim = maxOf(2, (h * 0.005f).toInt())
+        while (y <= yBitis) {
+            var seri = 0
+            var x = x1
+            while (x <= x2) {
+                val c = ScreenSampler.readPixel(x, y)
+                if (c >= 0 && kirmizi(c)) {
+                    if (++seri >= gerek) return true
+                } else seri = 0
+                x += adim
+            }
+            y += yAdim
+        }
+        return false
     }
 
     /** Kutu toplama butonu ekranda ve aktif mi? */
