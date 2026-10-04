@@ -60,7 +60,7 @@ function sema_guncelle(): void {
     file_put_contents($kilit, date('c'));
 }
 
-const OZELLIKLER = ['farm', 'pk', 'pazar'];
+const OZELLIKLER = ['farm', 'pk', 'pazar', 'genie'];
 
 /** "farm,pk" gibi metni temizler: sadece bilinen bolumler kalir, farm her zaman vardir */
 function ozellik_temizle(string $s): string {

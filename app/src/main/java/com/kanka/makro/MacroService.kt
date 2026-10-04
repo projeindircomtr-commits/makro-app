@@ -957,6 +957,38 @@ class MacroService : AccessibilityService() {
             box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
 
+        // Genie hizlandirma bolumu (ac/kapa + kilic araligi)
+        fun genieBolumu() {
+            val genieBtn = menuBtn("") {}
+            fun genieYaz() {
+                val on = Config.load(this).genieModu
+                genieBtn.text = if (on) "🧞 Genie hızlandırma: AÇIK" else "🧞 Genie hızlandırma: KAPALI"
+            }
+            genieYaz()
+            genieBtn.setOnClickListener {
+                kaydet { it.genieModu = !it.genieModu }
+                cfg.genieModu = Config.load(this).genieModu
+                genieYaz()
+                toast(if (Config.load(this).genieModu) "Genie modu: sadece kılıç seri, diğer her şey kapalı"
+                      else "Genie modu kapalı: bot normal çalışır")
+                ayarKarti()   // menu Genie / normal gorunume gecsin
+            }
+            box.addView(genieBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            satir("🗡 Genie kılıç aralığı", { "${Config.load(this).genieKilicMs} ms" },
+                { kaydet { it.genieKilicMs = (it.genieKilicMs - 50).coerceIn(50, 2000) } },
+                { kaydet { it.genieKilicMs = (it.genieKilicMs + 50).coerceIn(50, 2000) } })
+            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+        }
+        val genieIzin = !Config.pkMi(this) && Lisans.ozellikVar("genie")
+        // Genie acikken menude sadece Genie ayarlari gorunur
+        if (genieIzin && c.genieModu) {
+            genieBolumu()
+            box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            ortadaGoster(box, dp(440))
+            return
+        }
+
         satir("❤ HP potu", { "%" + Config.load(this).hpYuzde },
             { kaydet { it.hpYuzde = (it.hpYuzde - 5).coerceIn(10, 95) } },
             { kaydet { it.hpYuzde = (it.hpYuzde + 5).coerceIn(10, 95) } })
@@ -1092,6 +1124,9 @@ class MacroService : AccessibilityService() {
         box.addView(hizSatir)
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
 
+        // Genie hizlandirma: sadece Farm'da ve panelden yetki verilen uyelerde
+        if (genieIzin) genieBolumu()
+
         // Oncelik sirasi: neye once basilsin
         box.addView(menuBtn("📋 Öncelik sırası (neye önce basılsın)") { oncelikMenu() },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -1137,6 +1172,7 @@ class MacroService : AccessibilityService() {
         "iptal" -> "❌"
         "hedef" -> "🎯"
         "hp_pot" -> "HP"
+        "kutu" -> "📦"
         "minor" -> "💚"
         "mp_pot" -> "MP"
         "heal" -> "💗\n%${p.yuzde}"
@@ -1293,8 +1329,35 @@ class MacroService : AccessibilityService() {
         "⚔ Kılıç (PK)" to { onPick("saldiri") },
         "❌ İptal (X)" to { onPick("iptal") },
         "💗 Can skilli (Heal)" to { onPick("heal") },
+        "📦 Kutu butonu (KO)" to { onPick("kutu") },
         "🛡 Buff (süreyle)" to { onPick("buff") }
     ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
+
+    // ---- Genie hizlandirma ----
+    private var genieKilicAt = 0L
+
+    /** Genie modu: ayar acik + Farm modu + panelde "Genie hizlandir" yetkisi (yonetici her zaman) */
+    private fun genieAktif(): Boolean = cfg.genieModu && !pkAktif && Lisans.ozellikVar("genie")
+
+    /** Oyunun Genie'si acikken: Genie mob secer, yurur, skilleri kullanir; bot sadece kilica seri basar. */
+    private fun genieAdim(now: Long) {
+        // Sadece kilic: ekran okuma, skill/pot/minor/kutu/mob secme ve otomatik cevaplama yok.
+        // Seri vurus KO ve MykoMobile yonetimlerinin izniyle; aralik oyuncunun ayari.
+        val kilic = cfg.points.firstOrNull { it.type == "saldiri" && it.on }
+        if (kilic == null) {
+            toast("Genie modu için Kılıç tuşunu kaydet (⋯ → Tuşları düzenle)")
+            stepPlanla(3000); return
+        }
+        val bekle = cfg.genieKilicMs.toLong() - (now - genieKilicAt)
+        if (bekle > 0) { stepPlanla(bekle.coerceAtMost(500)); return }
+        genieKilicAt = now
+        val r = cfg.radius.toFloat()
+        tapping = true
+        tapMulti(listOf(Hedef(kilic.x.toFloat(), kilic.y.toFloat(), r))) {
+            tapping = false
+            if (running) stepPlanla(10L)
+        }
+    }
 
     /** Oncelik sirasi: bir ogeye dokununca bir ust siraya cikar; liste yeniden acilir */
     private fun oncelikMenu() {
@@ -2917,6 +2980,8 @@ class MacroService : AccessibilityService() {
         if (now >= endAt) {
             stopMacro("Süre bitti, bot durdu"); return
         }
+        // Genie hizlandirma: ekran okuma yok, pot/minor/kutu/mob secme yok; sadece skill + seri kilic
+        if (genieAktif()) { genieAdim(now); return }
         // Otomatik ekran tanima: once olcegi bul, sonra her seyi ona gore yerlestir
         if (otoMod && olcek == null) {
             if (now - sonTarama >= 1500) {
@@ -3006,8 +3071,8 @@ class MacroService : AccessibilityService() {
         override fun run() {
             if (!running) return
             try {
-                // Sadece MykoMobile + Farm modu (tum uyeler; MykoMobile yonetiminin izniyle)
-                if (!koAktif && !pkAktif && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
+                if (!koAktif && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
                     pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
                     val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
@@ -3173,7 +3238,7 @@ class MacroService : AccessibilityService() {
         override fun run() {
             if (!running) return
             try {
-                gozcuIc()
+                if (!genieAktif()) gozcuIc()   // Genie modunda kutu toplama yok
             } catch (e: Exception) {
                 hataKaydet("kutu", e)
             }
@@ -3933,8 +3998,20 @@ class MacroService : AccessibilityService() {
             ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, m)
                 ?.let { return t to it }
         }
+        // Bulunamadi: tablet / farkli ekranda pencere baska yerde acilabilir. Tum ekranda ara
+        // (en fazla 0.4 sn'de bir); bulunca yerini ogren, sonraki seferler yine hizli olsun.
+        val simdi = System.currentTimeMillis()
+        if (simdi - collectGenisAt < 400) return null
+        collectGenisAt = simdi
+        for (t in listOfNotNull(cfg.collectT, cfg.collectT2)) {
+            findT(f, t)?.let { pos ->
+                collectAnkorGX = pos[0]; collectAnkorGY = pos[1]
+                return t to pos
+            }
+        }
         return null
     }
+    private var collectGenisAt = 0L
 
     /** Ayni Open'a, kutu toplanmadan tekrar basma */
     private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {
@@ -3961,10 +4038,12 @@ class MacroService : AccessibilityService() {
         if (now < nextLootScan) return null
         nextLootScan = now + rand(140, 220)
         if (now - koSonKutu < 900) return null   // ayni kutuya ust uste basma
-        if (!KoOyun.kutuVar(screenW, screenH)) return null
+        // Oyuncu kutu butonunun yerini kaydettiyse orasi (tablet/farkli ekran), yoksa telefon olcusu
+        val kayitli = cfg.points.firstOrNull { it.type == "kutu" }?.let { floatArrayOf(it.x.toFloat(), it.y.toFloat()) }
+        if (!KoOyun.kutuVar(screenW, screenH, kayitli)) return null
         koSonKutu = now
         toplanan++
-        val p = KoOyun.kutuNokta(screenW, screenH)
+        val p = kayitli ?: KoOyun.kutuNokta(screenW, screenH)
         return Hedef(p[0], p[1], cfg.radius.toFloat())
     }
 

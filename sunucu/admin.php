@@ -229,6 +229,7 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" checked disabled> Farm</label>
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $vo, true) ? 'checked' : '' ?>> PK</label>
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $vo, true) ? 'checked' : '' ?>> Pazar</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="genie" <?= in_array('genie', $vo, true) ? 'checked' : '' ?>> Genie hızlandır</label>
 <button class="tam" name="is" value="ozellik_varsayilan" style="background:#2e9e5b;padding:13px">Yeni üyeler için varsayılan yap</button>
 <button class="tam" name="is" value="ozellik_hepsi" style="background:#8a6d1f;padding:13px" onclick="return confirm('Tüm üyelerin bölümleri değişsin mi?')">Tüm üyelere uygula</button>
 </form></div>
@@ -275,6 +276,7 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <span class="gri">Bölümler:</span> Farm
 <label><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $uo, true) ? 'checked' : '' ?>> PK</label>
 <label><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $uo, true) ? 'checked' : '' ?>> Pazar</label>
+<label><input type="checkbox" name="oz[]" value="genie" <?= in_array('genie', $uo, true) ? 'checked' : '' ?>> Genie hızlandır</label>
 <button style="background:#2d3846">Kaydet</button></form>
 <?= form('cihaz', (int)$u['id'], 'Cihaz sıfırla', '#2d3846', false, 'Cihaz bağlantısı sıfırlansın mı?') ?>
 <?= form('sifre', (int)$u['id'], 'Yeni şifre', '#2d3846', false, 'Yeni şifre oluşturulsun mu?') ?>

@@ -242,7 +242,7 @@ object Lisans {
                     sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
                     if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
                         ozKume = ozS.split(",").map { it.trim() }
-                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" }.toSet() + "farm"
+                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" }.toSet() + "farm"
                     }
                 } catch (e: Exception) {
                 }

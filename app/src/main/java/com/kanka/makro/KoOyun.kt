@@ -33,8 +33,9 @@ object KoOyun {
     // Kutu toplama butonu: koyu daire + ortada altin sandik
     private const val KUTU_X = 0.2686f
     private const val KUTU_Y = 0.591f
-    private const val KOYU_R = 0.0225f
-    private const val ALTIN_R = 0.008f
+    // Yukseklige oran (2576x1159 olcumu: 0.0225*2576/1159 ve 0.008*2576/1159)
+    private const val KOYU_RH = 0.0500f
+    private const val ALTIN_RH = 0.0178f
 
     private fun sx(w: Int, v: Int) = (v / RW * w).roundToInt()
     private fun sy(h: Int, v: Int) = (v / RH * h).roundToInt()
@@ -340,8 +341,12 @@ object KoOyun {
         return (son + 1).toFloat() / n
     }
 
-    private fun halka(w: Int, h: Int, r: Float, test: (Int) -> Boolean): Int {
-        val cx = KUTU_X * w; val cy = KUTU_Y * h; val rp = r * w
+    /**
+     * Kutu butonunun halkasi. Yaricap ekran YUKSEKLIGINE gore (oyun arayuzu yukseklige gore
+     * olceklenir): telefonda eski degerle ayni, tablette (4:3, 16:10) de dogru boyut.
+     */
+    private fun halka(cx: Float, cy: Float, h: Int, rH: Float, test: (Int) -> Boolean): Int {
+        val rp = rH * h
         var say = 0
         for (i in 0 until 24) {
             val a = 2.0 * Math.PI * i / 24
@@ -401,12 +406,13 @@ object KoOyun {
     }
 
     /** Kutu toplama butonu ekranda ve aktif mi? */
-    fun kutuVar(w: Int, h: Int): Boolean {
-        val koyu = halka(w, h, KOYU_R) { c ->
+    fun kutuVar(w: Int, h: Int, yer: FloatArray? = null): Boolean {
+        val p = yer ?: kutuNokta(w, h)
+        val koyu = halka(p[0], p[1], h, KOYU_RH) { c ->
             ((c shr 16) and 0xff) < 90 && ((c shr 8) and 0xff) < 90 && (c and 0xff) < 90
         }
         if (koyu < 14) return false
-        val altin = halka(w, h, ALTIN_R) { c ->
+        val altin = halka(p[0], p[1], h, ALTIN_RH) { c ->
             val r = (c shr 16) and 0xff
             r > 150 && r - (c and 0xff) > 60
         }
