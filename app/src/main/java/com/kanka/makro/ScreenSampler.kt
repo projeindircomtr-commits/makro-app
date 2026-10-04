@@ -152,6 +152,45 @@ object ScreenSampler {
         }
     }
 
+    /** Ekranin bir bolgesini (ekran koordinati) yakalama cozunurlugunde Bitmap olarak kopyalar */
+    fun kirp(x1: Int, y1: Int, x2: Int, y2: Int): Bitmap? {
+        synchronized(lock) {
+            val sx1 = (x1 * SCALE).toInt(); val sy1 = (y1 * SCALE).toInt()
+            val sx2 = (x2 * SCALE).toInt(); val sy2 = (y2 * SCALE).toInt()
+            val bm = latestBmp
+            if (latest == null && bm != null) {
+                val px = bmpPx ?: return null
+                val a = sx1.coerceIn(0, bm.width - 1); val b = sy1.coerceIn(0, bm.height - 1)
+                val w = (sx2.coerceIn(0, bm.width) - a).coerceAtLeast(1)
+                val h = (sy2.coerceIn(0, bm.height) - b).coerceAtLeast(1)
+                val out = IntArray(w * h)
+                for (yy in 0 until h) System.arraycopy(px, (b + yy) * bm.width + a, out, yy * w, w)
+                for (i in out.indices) out[i] = out[i] or (0xFF shl 24)
+                return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+            }
+            val img = latest ?: return null
+            return try {
+                val plane = img.planes[0]
+                val buf = plane.buffer
+                val rs = plane.rowStride; val ps = plane.pixelStride
+                val a = sx1.coerceIn(0, img.width - 1); val b = sy1.coerceIn(0, img.height - 1)
+                val w = (sx2.coerceIn(0, img.width) - a).coerceAtLeast(1)
+                val h = (sy2.coerceIn(0, img.height) - b).coerceAtLeast(1)
+                val out = IntArray(w * h)
+                for (yy in 0 until h) for (xx in 0 until w) {
+                    val i = (b + yy) * rs + (a + xx) * ps
+                    if (i + 2 < buf.limit()) {
+                        out[yy * w + xx] = (0xFF shl 24) or ((buf.get(i).toInt() and 0xff) shl 16) or
+                            ((buf.get(i + 1).toInt() and 0xff) shl 8) or (buf.get(i + 2).toInt() and 0xff)
+                    }
+                }
+                Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
     /** Arama izgarasi: yakalanan karenin her GRID pikselinden biri (ekranin 1/4'u) */
     const val GRID = 2
 

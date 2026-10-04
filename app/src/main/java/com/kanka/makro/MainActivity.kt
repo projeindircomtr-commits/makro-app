@@ -83,7 +83,8 @@ class MainActivity : Activity() {
             Alan("Hedef barı varken: tekrar deneme (ms)", { it.tgtFast }, { c, v -> c.tgtFast = v }, 200, 10000)
         ),
         "Pot ve skill" to listOf(
-            Alan("Aynı pot için en az bekleme (ms)", { it.potCd }, { c, v -> c.potCd = v }, 300, 30000),
+            Alan("Pot bekleme (ms) • KO'da HP/MP ortak iksir arası", { it.potCd }, { c, v -> c.potCd = v }, 300, 30000),
+                        Alan("Minor açılsın: can şunun altına inince (%)", { it.minorYuzde }, { c, v -> c.minorYuzde = v }, 20, 99),
             Alan("Skill'e eklenen gecikme: en az (ms)", { it.skMin }, { c, v -> c.skMin = v }, 0, 10000),
             Alan("Skill'e eklenen gecikme: en çok (ms)", { it.skMax }, { c, v -> c.skMax = v }, 0, 20000)
         ),
@@ -1029,9 +1030,9 @@ class MainActivity : Activity() {
         // Hazir ayar
         val pre = card(box)
         pre.addView(cardTitle("Hazır ayar"))
-        pre.addView(smallButton("⚡ Hazır ayarları yeniden yükle") {
+        pre.addView(smallButton("⚡ Ekran ayarlarını yeniden yükle") {
             AlertDialog.Builder(this)
-                .setMessage("Tüm tuşlar, barlar ve kutu butonları ${Config.oyunAd(this)} için yeniden ayarlansın mı?")
+                .setMessage("Barlar, kutu butonu ve süreler ${Config.oyunAd(this)} için yeniden ayarlansın mı? Kaydettiğin tuşlar silinmez.")
                 .setPositiveButton("Yükle") { _, _ ->
                     saveAll(); Config.hazirAyar(this); refresh(); toast("Yüklendi")
                 }

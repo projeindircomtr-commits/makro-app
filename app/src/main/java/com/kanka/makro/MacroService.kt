@@ -130,7 +130,6 @@ class MacroService : AccessibilityService() {
     @Volatile private var pkAktif = false
     @Volatile private var koAktif = false   // KO Mobile Farm
     private var koBarAt = 0L                // KO: barlar en son ne zaman arandi
-    private val KO_IKSIR_ARA = 1800L         // KO: iki iksir arasi ortak bekleme (oyunda 1.8 sn geri sayim)
     private var koSonKutu = 0L
     private var pkSira = 0
     private var pkSonSkill = 0L    // PK: son skill basilma ani (skill arasi icin)
@@ -1031,13 +1030,16 @@ class MacroService : AccessibilityService() {
                 { kaydet { it.alanCy = (it.alanCy + 2).coerceIn(20, 80) }; alanCerceveGoster() })
 
             // --- Mesafe siniri (sure: bu surede vurulmaya baslanmazsa birak) ---
-            anahtar("🏃 Mesafe sınırı", { it.menzilAktif }, { c, v -> c.menzilAktif = v })
-            satir("⏱ Mesafe süresi", { "${Config.load(this).menzilSn} sn" },
-                { kaydet { it.menzilSn = (it.menzilSn - 1).coerceIn(1, 15) } },
-                { kaydet { it.menzilSn = (it.menzilSn + 1).coerceIn(1, 15) } })
+            // Mesafe siniri kaldirildi: skiller mesafe gozetmeksizin basilir (tum oyun ve modlar)
             satir("⏳ Uzak mob sonrası bekleme", { "${Config.load(this).menzilBekleSn} sn" },
                 { kaydet { it.menzilBekleSn = (it.menzilBekleSn - 1).coerceIn(1, 15) } },
                 { kaydet { it.menzilBekleSn = (it.menzilBekleSn + 1).coerceIn(1, 15) } })
+        }
+        if (Config.koMu(this) || Config.pkMi(this)) {
+            // HP ve MP iksiri ortak bekleme kullanir (oyunda pota basinca geri sayim)
+            satir("🧪 İksir arası (HP/MP)", { "%.1f sn".format(Config.load(this).potCd / 1000f) },
+                { kaydet { it.potCd = (it.potCd - 100).coerceIn(300, 5000) } },
+                { kaydet { it.potCd = (it.potCd + 100).coerceIn(300, 5000) } })
         }
         if (Config.pkMi(this)) {
             // Oyunun iki skill arasindaki ortak beklemesi: bu biter bitmez siradaki skill basilir
@@ -1090,6 +1092,11 @@ class MacroService : AccessibilityService() {
         box.addView(hizSatir)
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
 
+        // Oncelik sirasi: neye once basilsin
+        box.addView(menuBtn("📋 Öncelik sırası (neye önce basılsın)") { oncelikMenu() },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
+
         // Kutu toplama ac/kapa
         val kutuBtn = menuBtn("") {}
         fun kutuYaz() {
@@ -1132,6 +1139,8 @@ class MacroService : AccessibilityService() {
         "hp_pot" -> "HP"
         "minor" -> "💚"
         "mp_pot" -> "MP"
+        "heal" -> "💗\n%${p.yuzde}"
+        "buff" -> "🛡\n${if (p.cd == p.cd.toLong().toFloat()) "${p.cd.toLong()}" else "${p.cd}"}s"
         else -> {
             val no = p.name.removePrefix("Skill ").trim()
             val sure = if (p.cd <= 0f) "∞" else (if (p.cd == p.cd.toLong().toFloat()) "${p.cd.toLong()}s" else "${p.cd}s")
@@ -1248,7 +1257,8 @@ class MacroService : AccessibilityService() {
             setPadding(dp(10), dp(4), dp(6), dp(4))
         }
         bar.addView(TextView(this).apply {
-            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır"
+            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
+                (Config.sinifOnerisi(this)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
             textSize = 13f
             setPadding(0, 0, dp(10), 0)
@@ -1281,8 +1291,43 @@ class MacroService : AccessibilityService() {
         "💧 MP pot" to { onPick("mp_pot") },
         "🎯 Mob seç" to { onPick("hedef") },
         "⚔ Kılıç (PK)" to { onPick("saldiri") },
-        "❌ İptal (X)" to { onPick("iptal") }
+        "❌ İptal (X)" to { onPick("iptal") },
+        "💗 Can skilli (Heal)" to { onPick("heal") },
+        "🛡 Buff (süreyle)" to { onPick("buff") }
     ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
+
+    /** Oncelik sirasi: bir ogeye dokununca bir ust siraya cikar; liste yeniden acilir */
+    private fun oncelikMenu() {
+        val c = Config.load(this)
+        val l = Config.oncelikListe(c.oncelik)
+        showMenu("Öncelik (dokun = yukarı al)",
+            l.mapIndexed { i, k ->
+                "${i + 1}. ${Config.ONCELIK_AD[k]}" to {
+                    if (i > 0) {
+                        val cf = Config.load(this)
+                        val ll = Config.oncelikListe(cf.oncelik)
+                        ll.removeAt(i); ll.add(i - 1, k)
+                        cf.oncelik = ll.joinToString(",")
+                        cf.mpOncelik = ll.indexOf("mp") < ll.indexOf("hp")
+                        cf.save(this)
+                        cfg.oncelik = cf.oncelik
+                        cfg.mpOncelik = cf.mpOncelik
+                    }
+                    oncelikMenu()
+                }
+            } + listOf("↺ Varsayılana dön" to {
+                val cf = Config.load(this)
+                cf.oncelik = Config.ONCELIK_VARSAYILAN; cf.mpOncelik = false; cf.save(this)
+                cfg.oncelik = cf.oncelik; cfg.mpOncelik = false
+                oncelikMenu()
+            }, "✓ Tamam" to { ayarKarti() }))
+    }
+
+    /** Heal icin can yuzdesi secici */
+    private fun yuzdeMenu(onPick: (Int) -> Unit) {
+        showMenu("Can yüzde kaçın altına inince?",
+            listOf(20, 30, 40, 50, 60, 70, 80, 90).map { y -> "%$y" to { onPick(y) } })
+    }
 
     /**
      * Sure secici (oyun icinde): istedigin saniyeyi - / + ile ayarla, hazir secenekler de var.
@@ -1346,7 +1391,25 @@ class MacroService : AccessibilityService() {
     /** Bos yere dokunuldu: yeni tus ekle */
     private fun editorAdd(x: Int, y: Int) {
         showMenu("Bu slot ne olsun?", turListesi { type ->
-            if (type == "minor") {
+            if (type == "heal") {
+                cdMenu(3f) { cd ->
+                    yuzdeMenu { yz ->
+                        val cf = Config.load(this)
+                        cf.points.add(Nokta("Heal", "heal", x, y, cd, true, yz))
+                        cf.tuslarOto = false
+                        cf.save(this)
+                        editorRefresh()
+                    }
+                }
+            } else if (type == "buff") {
+                cdMenu(60f) { cd ->
+                    val cf = Config.load(this)
+                    cf.points.add(Nokta("Buff", "buff", x, y, cd, true))
+                    cf.tuslarOto = false
+                    cf.save(this)
+                    editorRefresh()
+                }
+            } else if (type == "minor") {
                 cdMenu { cd ->
                     val cf = Config.load(this)
                     cf.points.removeAll { it.type == "minor" }
@@ -1381,6 +1444,27 @@ class MacroService : AccessibilityService() {
         if (i >= cf.points.size) return
         val p = cf.points[i]
         val items = ArrayList<Pair<String, () -> Unit>>()
+        if (p.type == "heal" || p.type == "buff") {
+            items.add("⏱ Süre (${p.cd} sn)" to {
+                cdMenu(p.cd) { cd ->
+                    val c = Config.load(this)
+                    if (i < c.points.size) { c.points[i].cd = cd; c.save(this) }
+                    editorRefresh()
+                }
+            })
+            if (p.type == "heal") items.add("❤ Can yüzdesi (%${p.yuzde})" to {
+                yuzdeMenu { yz ->
+                    val c = Config.load(this)
+                    if (i < c.points.size) { c.points[i].yuzde = yz; c.save(this) }
+                    editorRefresh()
+                }
+            })
+            items.add((if (p.on) "⏸ Kapat" else "▶ Aç") to {
+                val c = Config.load(this)
+                if (i < c.points.size) { c.points[i].on = !c.points[i].on; c.save(this) }
+                editorRefresh()
+            })
+        }
         if (p.type == "skill") {
             val skiller = cf.points.indices.filter { cf.points[it].type == "skill" }
             val sira = skiller.indexOf(i)
@@ -2657,11 +2741,18 @@ class MacroService : AccessibilityService() {
             return
         }
         cfg = Config.load(this)
-        // Hic ayar yoksa secili oyunun hazir ayarini otomatik yukle
+        // Tuslar oyuncunun kendisinden: hic tus yoksa ekran ayarini yukle, tus duzenleyiciyi ac
         if (cfg.points.isEmpty()) {
             Config.hazirAyar(this)
             cfg = Config.load(this)
-            toast("${Config.oyunAd(this)} ayarları otomatik yüklendi")
+            toast("Önce tuşlarını kaydet: saldırı, mob seç, HP/MP pot ve skillerin yerine dokun")
+            openEditor()
+            return
+        }
+        if (!Config.pkMi(this) && cfg.points.none { it.type == "hedef" || it.type == "saldiri" }) {
+            toast("Farm için en az bir Mob seç ya da Saldırı tuşu kaydet (⋯ → Tuşları düzenle)")
+            openEditor()
+            return
         }
         val wantsScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
             cfg.openT != null || cfg.collectT != null
@@ -2685,6 +2776,7 @@ class MacroService : AccessibilityService() {
         pkSira = 0
         pkSonSkill = 0L
         pkSonKilic = 0L
+        destekHazir.clear()
         minorAcik = false
         minorSon = 0L
         if (pkAktif && cfg.points.none { it.type == "saldiri" }) {
@@ -2757,6 +2849,7 @@ class MacroService : AccessibilityService() {
         playBtn?.text = "⏸"
         stepPlanla( 700)
         h.postDelayed(kutuGozcu, 900)
+        h.postDelayed(botKontrolGozcu, 3000)
         ui.removeCallbacks(statusTick)
         ui.post(statusTick)
     }
@@ -2810,6 +2903,8 @@ class MacroService : AccessibilityService() {
 
     private fun stepIc() {
         if (!running) return
+        // Bot kontrol penceresi isleniyor: o sirada oyuna dokunma
+        if (kontrolde) { stepPlanla(300); return }
         // Oyun arkadaysa / ekran kapaliysa / goruntu yoksa DOKUNMA
         val engel = dokunmaEngeli(SystemClock.uptimeMillis())
         if (engel != null) {
@@ -2863,15 +2958,27 @@ class MacroService : AccessibilityService() {
         // Pot, kutu (Open/Collect) ve skill/saldiri BIRLIKTE, ayni anda basilir (iki el gibi):
         // biri digerini bekletmez, digeri de onu bekletmez.
         val r = cfg.radius.toFloat()
-        val pots = (potActions(now) + listOfNotNull(minorAction(now)))
-            .map { Hedef(it.x.toFloat(), it.y.toFloat(), r) }
-        val hedefler = pickTargets(now)
-        // KO: her adimda tek dokunus (oncelik: pot > kutu > mob/saldiri/skill), ayni anda coklu basma yok
+        // Her aday bir oncelik kategorisiyle: kullanicinin Oncelik sirasina gore dizilir
+        fun kat(n: Nokta) = when (n.type) {
+            "hp_pot" -> "hp"; "mp_pot" -> "mp"; "minor" -> "minor"; "heal" -> "heal"; "buff" -> "buff"; else -> "atak"
+        }
+        val adaylar = ArrayList<Pair<String, Hedef>>()
+        for (n in potActions(now) + listOfNotNull(minorAction(now)) + destekActions(now))
+            adaylar.add(kat(n) to Hedef(n.x.toFloat(), n.y.toFloat(), r))
+        lootAction(now)?.let { adaylar.add("kutu" to it) }
+        pick(now)?.let { adaylar.add("atak" to Hedef(it.x.toFloat(), it.y.toFloat(), r, fast = adaylar.any { a -> a.first == "kutu" })) }
+        val sira = Config.oncelikListe(cfg.oncelik)
+        adaylar.sortBy { sira.indexOf(it.first) }
+        val hedefler = adaylar.filter { it.first == "kutu" || it.first == "atak" }.map { it.second }
         val list = when {
-            // KO PK: savunma (HP pot + minor + MP pot) ayni anda basilabilir, yanina en fazla bir skill
-            koAktif && pkAktif -> pots + hedefler.take(1)
-            koAktif -> (pots + hedefler).take(1)
-            else -> pots + hedefler
+            // KO PK: destekler (iksir, minor, heal, buff) birlikte, yanina en fazla bir saldiri/kutu
+            koAktif && pkAktif -> {
+                val destek = adaylar.filter { it.first != "kutu" && it.first != "atak" }.map { it.second }
+                destek + hedefler.take(1)
+            }
+            // KO Farm: her adimda tek dokunus, oncelik sirasindaki ilk is
+            koAktif -> adaylar.take(1).map { it.second }
+            else -> adaylar.map { it.second }
         }
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
@@ -2890,6 +2997,135 @@ class MacroService : AccessibilityService() {
      * Kutu gozcusu: saldiridan bagimsiz, 0.12 sn'de bir ekrana bakar. Open/Collect All
      * gorunce bekleyen saldiri adimini iptal edip hemen basar.
      */
+    // ---- MykoMobile bot kontrolu (sadece MykoMobile Farm, tum uyeler, MykoMobile yonetiminin izniyle) ----
+    @Volatile private var kontrolde = false
+    @Volatile private var kontrolOkunuyor = false
+    private val kontrolIs by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
+
+    private val botKontrolGozcu = object : Runnable {
+        override fun run() {
+            if (!running) return
+            try {
+                // Sadece MykoMobile + Farm modu (tum uyeler; MykoMobile yonetiminin izniyle)
+                if (!koAktif && !pkAktif && !kontrolde && !kontrolOkunuyor && ScreenSampler.running) {
+                    // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
+                    val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
+                    val x2 = (screenW * 0.75f).toInt(); val y2 = (screenH * 0.82f).toInt()
+                    kontrolOkunuyor = true
+                    // Ekran kopyalama ve okuma arka planda: botun adim dongusu hic yavaslamaz
+                    kontrolIs.execute {
+                        val bm = ScreenSampler.kirp(x1, y1, x2, y2)
+                        if (bm == null) { kontrolOkunuyor = false; return@execute }
+                        BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r ->
+                            ui.post { kontrolOkunuyor = false; kontrolIsle(r) }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                kontrolOkunuyor = false
+                hataKaydet("kontrol", e)
+            }
+            h.postDelayed(this, 2500)
+        }
+    }
+
+    private fun kontrolKaydet(ne: String) {
+        val p = getSharedPreferences("botkontrol", MODE_PRIVATE)
+        val n = p.getInt("sayi", 0) + 1
+        p.edit().putInt("sayi", n).putString("son", "$ne @ ${System.currentTimeMillis() / 1000}").apply()
+    }
+
+    private fun kontrolIsle(r: BotKontrol.Sonuc) {
+        if (!running) return
+        when (r) {
+            is BotKontrol.Sonuc.Ok -> {
+                // 1. pencere: botu durdur, OK'a bas, 5 sn bekle, sonra 2. pencereyi (soru) ara
+                kontrolde = true
+                statusTv?.text = "Kontrol: OK"
+                tap(r.x, r.y, 0f) {
+                    kontrolKaydet("ok")
+                    ui.postDelayed({ soruAra(0) }, 5000)
+                }
+            }
+            is BotKontrol.Sonuc.Soru -> {
+                kontrolde = true
+                statusTv?.text = "Kontrol: ${r.cevap}"
+                // Yazi okunamazsa pencerenin sabit yerleri (ekran orani, MykoMobile ekran goruntusunden)
+                val kutu = r.kutu ?: floatArrayOf(screenW * 0.500f, screenH * 0.507f)
+                // Cevap kutusunun hemen altindaki buton (I'm); okunamazsa kutunun altina bas
+                val im = r.im ?: floatArrayOf(kutu[0], kutu[1] + screenH * 0.10f)
+                val yaz = {
+                    yaziYaz(r.cevap.toString())
+                    ui.postDelayed({ imBas(im, r.cevap) }, 900)
+                }
+                tap(kutu[0], kutu[1], 0f) { ui.postDelayed({ yaz() }, 900) }
+            }
+            else -> {}
+        }
+    }
+
+    /** OK'tan sonra soru penceresini ara: bulunca coz; ~10 sn icinde cikmazsa bota devam */
+    private fun soruAra(deneme: Int) {
+        if (!running) { kontrolde = false; return }
+        val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
+        val bm = ScreenSampler.kirp(x1, y1, (screenW * 0.75f).toInt(), (screenH * 0.82f).toInt())
+        if (bm == null) { kontrolde = false; return }
+        BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r ->
+            ui.post {
+                when {
+                    r is BotKontrol.Sonuc.Soru -> kontrolIsle(r)
+                    deneme < 6 -> ui.postDelayed({ soruAra(deneme + 1) }, 1500)
+                    else -> { kontrolde = false; statusTv?.text = "Kontrol bitti" }
+                }
+            }
+        }
+    }
+
+    /** Cevap yazildiktan sonra I'm butonuna bas (yeri bilinmiyorsa ekrani yeniden oku) */
+    private fun imBas(im: FloatArray?, cevap: Int) {
+        if (im != null) {
+            tap(im[0], im[1], 0f) {
+                kontrolKaydet("soru $cevap")
+                ui.postDelayed({ kontrolde = false }, 1500)
+            }
+            return
+        }
+        val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
+        val bm = ScreenSampler.kirp(x1, y1, (screenW * 0.75f).toInt(), (screenH * 0.82f).toInt())
+        if (bm == null) { kontrolde = false; return }
+        BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r ->
+            ui.post {
+                val yeni = (r as? BotKontrol.Sonuc.Soru)?.im
+                if (yeni != null) imBas(yeni, cevap) else kontrolde = false
+            }
+        }
+    }
+
+    /** Odaktaki yazi kutusuna metni yaz (oyunun acilan klavye kutusu) */
+    private fun yaziYaz(metin: String) {
+        try {
+            val kok = rootInActiveWindow ?: return
+            var kutu = kok.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+            if (kutu == null || !kutu.isEditable) kutu = duzenlenebilirBul(kok)
+            kutu ?: return
+            val b = android.os.Bundle()
+            b.putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, metin)
+            kutu.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+            if (Build.VERSION.SDK_INT >= 30) {
+                kutu.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+        } catch (e: Exception) {
+            hataKaydet("yazi", e)
+        }
+    }
+
+    private fun duzenlenebilirBul(n: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+        n ?: return null
+        if (n.isEditable) return n
+        for (i in 0 until n.childCount) duzenlenebilirBul(n.getChild(i))?.let { return it }
+        return null
+    }
+
     private val kutuGozcu = object : Runnable {
         override fun run() {
             if (!running) return
@@ -3009,22 +3245,27 @@ class MacroService : AccessibilityService() {
     /** Gereken potlar (HP, MP ya da ikisi) - beklemeden, saldiriyla birlikte basilir */
     /**
      * KO iksirleri: HP ve MP ortak bekleme kullanir (ayni anda icilmez). Ikisi de dusukse
-     * sirayla (HP, MP, HP...) icilir; can cok dusukse HP her zaman once. Minor bundan bagimsiz.
+     * MP onceligi aciksa MP (minor manayla calisir), kapaliysa sirayla (HP, MP, HP...).
+     * Can cok dusukse HP her zaman once. Minor bundan bagimsiz.
      */
     private var koSonIksirHp = false
     private fun koPotlar(now: Long): List<Nokta> {
-        if (now - maxOf(lastHpPot, lastMpPot) < KO_IKSIR_ARA) return emptyList()
-        if (KoOyun.doluluk(screenW, screenH, false) < 0f && now - koBarAt > 3000) {
+        if (now - maxOf(lastHpPot, lastMpPot) < cfg.potCd.coerceIn(300, 5000)) return emptyList()
+        if (koAktif && KoOyun.doluluk(screenW, screenH, false) < 0f && now - koBarAt > 3000) {
             koBarAt = now
             KoOyun.barlariBul(screenW, screenH)   // bar okunamadi: yeniden ara
         }
-        val hpD = if (cfg.hp != null) KoOyun.doluluk(screenW, screenH, false) else -1f
-        val mpD = if (cfg.mp != null) KoOyun.doluluk(screenW, screenH, true) else -1f
-        val hpDusuk = hpD >= 0f && hpD < cfg.hpYuzde / 100f
-        val mpDusuk = mpD >= 0f && mpD < cfg.mpYuzde / 100f
-        val hpKritik = hpDusuk && hpD < cfg.hpYuzde / 100f * 0.6f
+        val hpD = dolulukOku(false)
+        val hpDusuk = cfg.hp?.let { isLow(it) } ?: false
+        val mpDusuk = cfg.mp?.let { isLow(it) } ?: false
+        val hpKritik = hpDusuk && hpD >= 0f && hpD < cfg.hpYuzde / 100f * 0.6f
         val hpSec = when {
-            hpDusuk && mpDusuk -> hpKritik || !koSonIksirHp
+            // Ikisi de dusuk: can kritikse HP; degilse MP onceligi aciksa MP, kapaliysa sirayla
+            hpDusuk && mpDusuk -> hpKritik || run {
+                // Oncelik sirasinda MP HP'den ustteyse once MP
+                val o = Config.oncelikListe(cfg.oncelik)
+                o.indexOf("hp") < o.indexOf("mp")
+            }
             hpDusuk -> true
             mpDusuk -> false
             else -> return emptyList()
@@ -3036,8 +3277,48 @@ class MacroService : AccessibilityService() {
         return listOf(n)
     }
 
+    /** Barin dolulugu (0..1), okunamiyorsa -1. KO: KoOyun; MykoMobile: otomatik tanima acikken */
+    private fun dolulukOku(mp: Boolean): Float = when {
+        koAktif -> KoOyun.doluluk(screenW, screenH, mp)
+        otoMod && olcek != null -> if (mp) barDoluluk(mpBar, false) else barDoluluk(hpBar, true)
+        else -> -1f
+    }
+
+    /**
+     * Sinifa ozel tuslar:
+     * - Heal (orn. Priest): can o tusun kendi yuzdesinin altina inince, suresi dolmussa basilir.
+     * - Buff: hedeften bagimsiz, suresi doldukca basilir (PK'da skill arasina uyar).
+     * Iksir beklemesinden etkilenmez.
+     */
+    private val destekHazir = HashMap<Int, Long>()
+    private fun destekActions(now: Long): List<Nokta> {
+        val pts = cfg.points
+        if (pts.none { it.on && (it.type == "heal" || it.type == "buff") }) return emptyList()
+        val hp = dolulukOku(false)
+        for (i in pts.indices) {
+            val p = pts[i]
+            if (!p.on || p.type != "heal" || now < (destekHazir[i] ?: 0L)) continue
+            val dusuk = if (hp >= 0f) hp < p.yuzde / 100f else (cfg.hp?.let { isLow(it) } ?: false)
+            if (dusuk) {
+                destekHazir[i] = now + (p.cd * 1000).toLong().coerceAtLeast(500)
+                pkSonSkill = now
+                return listOf(p)
+            }
+        }
+        for (i in pts.indices) {
+            val p = pts[i]
+            if (!p.on || p.type != "buff" || now < (destekHazir[i] ?: 0L)) continue
+            if (pkAktif && now - pkSonSkill < cfg.skillAraMs) continue
+            destekHazir[i] = now + (p.cd * 1000).toLong().coerceAtLeast(1000)
+            pkSonSkill = now
+            return listOf(p)
+        }
+        return emptyList()
+    }
+
     private fun potActions(now: Long): List<Nokta> {
-        if (koAktif) return koPotlar(now)
+        // KO (Farm+PK) ve MykoMobile PK ayni mantik: HP/MP ortak iksir arasi, MP onceligi, kritikte HP
+        if (koAktif || pkAktif) return koPotlar(now)
         val out = ArrayList<Nokta>(2)
         val hp = cfg.hp
         val potBekle = if (pkAktif) 450 else cfg.potCd
@@ -3399,7 +3680,7 @@ class MacroService : AccessibilityService() {
                     ilerlemeAt = now
                     ilkVurus = true
                     menzilArdArda = 0
-                } else if (!ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
+                } else if (false && !ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
                     now - hedefBaslangic > cfg.menzilSn * 1000L
                 ) {
                     // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak

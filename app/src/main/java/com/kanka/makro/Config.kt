@@ -11,7 +11,8 @@ data class Nokta(
     var x: Int,
     var y: Int,
     var cd: Float = 0f,
-    var on: Boolean = true
+    var on: Boolean = true,
+    var yuzde: Int = 0      // Heal: can bu yuzdenin altina inince bas
 )
 
 data class RenkNokta(val x: Int, val y: Int, val color: Int) {
@@ -131,6 +132,8 @@ class Config {
 
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
+    var oncelik = ONCELIK_VARSAYILAN   // ne once basilsin (virgullu sira)
+    var mpOncelik = false     // KO: ikisi de dusukse once MP iksiri (minor manayla calistigi icin)
     var skillAraMs = 800      // PK: iki skill arasi oyunun ortak beklemesi (ms); videoda olculen ~0.8 sn
     var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
@@ -167,7 +170,7 @@ class Config {
         for (p in points) {
             arr.put(
                 JSONObject().put("name", p.name).put("type", p.type)
-                    .put("x", p.x).put("y", p.y).put("cd", p.cd.toDouble()).put("on", p.on)
+                    .put("x", p.x).put("y", p.y).put("cd", p.cd.toDouble()).put("on", p.on).put("yuzde", p.yuzde)
             )
         }
         o.put("points", arr)
@@ -184,7 +187,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -265,6 +268,41 @@ class Config {
 
         fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
 
+        /**
+         * Sinifa gore hangi tuslarin kaydedilmesi onerilir (Knight Online / MykoMobile sinif yapisi).
+         * Tus duzenleyicinin ustunde gosterilir; tuslari yine oyuncu kendisi kaydeder.
+         */
+        fun sinifOnerisi(ctx: Context): String? {
+            val pk = pkMi(ctx)
+            return when (if (pk) sinif(ctx) else "") {
+                "asas" -> "Asas/Okçu: ⚔ saldırı • 💚 Minor • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
+                "warrior" -> "Warrior: ⚔ saldırı • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
+                "priest" -> "Priest: ⚔ saldırı • 💗 heal skillerin (can %) • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
+                "mage" -> "Mage: ⚔ saldırı • ✨ büyülerin • 🛡 buffların • HP/MP pot — süreleri kendi skillerine göre gir"
+                else -> null
+            }
+        }
+
+        /** Sinifin ilk kurulum ayari: mana tum siniflarda can demek */
+        fun sinifVarsayilan(c: Config, sinif: String) {
+            // Skill sureleri/isimleri sabit degil, oyuncu kendisi girer; sadece mana onceligi
+            c.mpOncelik = true
+            c.oncelik = "mp,hp,minor,heal,buff,kutu,atak"
+        }
+
+        const val ONCELIK_VARSAYILAN = "hp,mp,minor,heal,buff,kutu,atak"
+        val ONCELIK_AD = linkedMapOf(
+            "hp" to "❤ HP pot", "mp" to "💧 MP pot", "minor" to "💚 Minor", "heal" to "💗 Heal",
+            "buff" to "🛡 Buff", "kutu" to "📦 Kutu", "atak" to "⚔ Skill / Saldırı"
+        )
+
+        /** Gecerli, eksiksiz oncelik listesi */
+        fun oncelikListe(s: String): MutableList<String> {
+            val l = s.split(",").map { it.trim() }.filter { it in ONCELIK_AD.keys }.distinct().toMutableList()
+            for (k in ONCELIK_AD.keys) if (k !in l) l.add(k)
+            return l
+        }
+
         /** Oyundaki panel icin kisa, emoji'siz sinif adi */
         fun sinifKisa(ctx: Context): String = when (sinif(ctx)) {
             "mage" -> "Mage"; "warrior" -> "Warrior"; "priest" -> "Priest"; else -> "Asas"
@@ -301,12 +339,20 @@ class Config {
         }
 
         /** Secili oyunun hazir ayarini yukle */
+        /**
+         * Secili oyunun EKRAN ayarlari (HP/MP/hedef bari, kutu butonu, sureler).
+         * Tuslar hazir gelmez: her oyuncu kendi skillerini, iksirlerini ve saldiri tusunu
+         * oyunda "Tuslari duzenle" ile kendisi kaydeder; mevcut tuslar korunur.
+         */
         fun hazirAyar(ctx: Context) {
-            when {
-                koMu(ctx) && pkMi(ctx) && sinif(ctx) == "asas" -> KoOyun.applyPkAsas(ctx)
-                koMu(ctx) -> KoOyun.apply(ctx)
-                else -> Preset.apply(ctx)
-            }
+            val tuslar = load(ctx).points.map { it.copy() }
+            if (koMu(ctx)) KoOyun.apply(ctx) else Preset.apply(ctx)
+            val c = load(ctx)
+            // Ilk kurulum (hic tus yok) ve PK ise: sinifa gore baslangic ayarlari
+            if (tuslar.isEmpty() && pkMi(ctx)) sinifVarsayilan(c, sinif(ctx))
+            c.points.clear()
+            c.points.addAll(tuslar)
+            c.save(ctx)
         }
 
         /**
@@ -320,7 +366,8 @@ class Config {
                 val ko = oyun(ctx) == "ko"
                 val k = (if (ko) "cfg_ko_pk_" else "cfg_pk_") + sinif(ctx)
                 // KO PK Asas'in kendi hazir ayari var: kopyalama, bos kalsin, ilk acilista yuklensin
-                if (prefs(ctx).getString(k, null) == null && !(ko && sinif(ctx) == "asas")) {
+                // KO PK'nin her sinifa kendi hazir ayari var: kopyalama, ilk acilista yuklensin
+                if (prefs(ctx).getString(k, null) == null && !ko) {
                     val kaynak = if (ko) prefs(ctx).getString("cfg_ko", null)
                     else prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
                     kaynak?.let { js ->
@@ -350,7 +397,8 @@ class Config {
                         Nokta(
                             p.getString("name"), p.getString("type"),
                             p.getInt("x"), p.getInt("y"),
-                            p.optDouble("cd", 0.0).toFloat(), p.optBoolean("on", true)
+                            p.optDouble("cd", 0.0).toFloat(), p.optBoolean("on", true),
+                            p.optInt("yuzde", 0)
                         )
                     )
                 }
@@ -387,6 +435,10 @@ class Config {
                 c.menzilSn = (if (eskiSn <= 0) 3 else eskiSn).coerceIn(1, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.skillAraMs = o.optInt("skillAraMs", 800).coerceIn(0, 5000)
+                c.mpOncelik = o.optBoolean("mpOncelik", false)
+                c.oncelik = o.optString("oncelik", "").ifEmpty {
+                    if (c.mpOncelik) "mp,hp,minor,heal,buff,kutu,atak" else ONCELIK_VARSAYILAN
+                }
                 c.minorAktif = o.optBoolean("minorAktif", true)
                 c.menzilBekleSn = o.optInt("menzilBekleSn", 4).coerceIn(1, 15)
                 c.alanAktif = o.optBoolean("alanAktif", false)
@@ -431,6 +483,8 @@ class Config {
             "hp_pot" -> "HP pot"
             "mp_pot" -> "MP pot"
             "skill" -> "Skill"
+            "heal" -> "Heal"
+            "buff" -> "Buff"
             else -> type
         }
     }

@@ -48,3 +48,8 @@ android {
         abortOnError false
     }
 }
+
+dependencies {
+    // MykoMobile bot kontrol penceresini okumak icin (cihazda, internetsiz yazi tanima)
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+}

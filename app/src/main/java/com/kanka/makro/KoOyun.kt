@@ -80,6 +80,7 @@ object KoOyun {
         c.collectT2 = null
         c.otoArayuz = false
         c.tuslarOto = false
+        c.potCd = 1800       // KO: HP/MP iksiri ortak bekleme (oyunda 1.8 sn)
     }
 
     /**
@@ -87,6 +88,32 @@ object KoOyun {
      * Video 848x390; skill paneli sag kenara gore yerlesir, bu yuzden x sagdan, y yukseklik
      * oranindan hesaplanir. Farkli telefonda yerler kayabilir: Tuslari duzenle ile surukleyerek oturtulur.
      */
+    /**
+     * KO PK • Warrior / Mage / Priest hazir ayari: Asas ile ayni ekran duzeni (kilic, iksirler,
+     * skill izgarasi). Skill sureleri tahmini; Kayitli tuslar'dan ayarlanir, bos yuvalar kapatilir.
+     */
+    fun applyPkGenel(ctx: Context) {
+        val (w, h) = Preset.landscapeSize(ctx)
+        val k = h / 390f
+        fun v(ad: String, tip: String, xv: Int, yv: Int, cd: Float = 0f, on: Boolean = true) =
+            Nokta(ad, tip, (w - (848 - xv) * k).roundToInt(), (yv * k).roundToInt(), cd, on)
+        val c = Config.load(ctx)
+        c.points.clear()
+        c.points.add(v("Kılıç", "saldiri", 785, 295))
+        c.points.add(v("HP pot", "hp_pot", 565, 327))
+        c.points.add(v("MP pot", "mp_pot", 613, 327))
+        val orta = intArrayOf(548, 597, 649, 698, 748, 800)
+        orta.forEachIndexed { i, x -> c.points.add(v("Skill ${i + 1}", "skill", x, 225, 5f)) }
+        val alt = intArrayOf(555, 606, 656, 718)
+        alt.forEachIndexed { i, x -> c.points.add(v("Skill ${i + 7}", "skill", x, 273, 10f)) }
+        barlar(c, w, h)
+        c.skillAraMs = 800
+        c.hpYuzde = 50
+        c.mpYuzde = 30
+        c.potCd = 1800
+        c.save(ctx)
+    }
+
     fun applyPkAsas(ctx: Context) {
         val (w, h) = Preset.landscapeSize(ctx)
         val k = h / 390f
@@ -116,6 +143,7 @@ object KoOyun {
         c.mpYuzde = 30
         c.minorYuzde = 80
         c.minorAktif = true
+        c.mpOncelik = true     // Asas: minor manayla calisir, mana bitmesin
         c.save(ctx)
     }
 
