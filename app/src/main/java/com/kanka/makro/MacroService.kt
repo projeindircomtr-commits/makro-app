@@ -3100,23 +3100,47 @@ class MacroService : AccessibilityService() {
         }
     }
 
-    /** Cevap yazildiktan sonra I'm butonuna bas (yeri bilinmiyorsa ekrani yeniden oku) */
-    private fun imBas(im: FloatArray?, cevap: Int) {
-        if (im != null) {
-            tap(im[0], im[1], 0f) {
-                kontrolKaydet("soru $cevap")
-                ui.postDelayed({ kontrolde = false }, 1500)
-            }
+    /** Orta bolgeyi arka planda oku, sonucu ana kolda ver */
+    private fun ortaOku(sonuc: (BotKontrol.Sonuc) -> Unit) {
+        val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
+        val x2 = (screenW * 0.75f).toInt(); val y2 = (screenH * 0.82f).toInt()
+        kontrolIs.execute {
+            val bm = ScreenSampler.kirp(x1, y1, x2, y2)
+            if (bm == null) { ui.post { sonuc(BotKontrol.Sonuc.Yok) }; return@execute }
+            BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r -> ui.post { sonuc(r) } }
+        }
+    }
+
+    /** Klavye acik mi (acik klavye butonun ustunu kapatir) */
+    private fun klavyeAcik(): Boolean = try {
+        windows.any { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+    } catch (e: Exception) { false }
+
+    /**
+     * Cevap yazildi: "I'm not a robot" butonuna bas ve pencerenin kapandigini dogrula.
+     * Klavye aciksa once kapatir. Pencere kapanmazsa 5 kez dener, sonra bota devam eder.
+     */
+    private fun imBas(im: FloatArray?, cevap: Int, deneme: Int = 0) {
+        if (!running || deneme >= 5) { kontrolde = false; return }
+        if (klavyeAcik()) {
+            performGlobalAction(GLOBAL_ACTION_BACK)   // sadece klavyeyi kapatir
+            ui.postDelayed({ imBas(im, cevap, deneme + 1) }, 900)
             return
         }
-        val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
-        val bm = ScreenSampler.kirp(x1, y1, (screenW * 0.75f).toInt(), (screenH * 0.82f).toInt())
-        if (bm == null) { kontrolde = false; return }
-        BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r ->
-            ui.post {
-                val yeni = (r as? BotKontrol.Sonuc.Soru)?.im
-                if (yeni != null) imBas(yeni, cevap) else kontrolde = false
-            }
+        val hedef = im ?: floatArrayOf(screenW * 0.500f, screenH * 0.612f)
+        tap(hedef[0], hedef[1], 0f) {
+            ui.postDelayed({
+                ortaOku { r ->
+                    if (r is BotKontrol.Sonuc.Soru) {
+                        // Pencere hala acik: butonun okunan yeriyle tekrar dene
+                        imBas(r.im ?: hedef, cevap, deneme + 1)
+                    } else {
+                        kontrolKaydet("soru $cevap")
+                        statusTv?.text = "Kontrol tamam"
+                        ui.postDelayed({ kontrolde = false }, 800)
+                    }
+                }
+            }, 1300)
         }
     }
 

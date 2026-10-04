@@ -18,6 +18,14 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 object BotKontrol {
     private val okuyucu by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val islem = Regex("""(\d{1,4})\s*([+\-xX×*/÷])\s*(\d{1,4})\s*=""")
+    // Pencere cevabi parantez icinde gosteriyor: "71 + 94 = ? (165)" -> 165
+    private val parantez = Regex("""=\s*\?\s*\(\s*(-?\d{1,7})\s*\)""")
+
+    /** Once parantez icindeki cevabi al; yoksa islemi hesapla */
+    fun cevapBul(metin: String): Int? {
+        parantez.find(metin)?.let { return it.groupValues[1].toIntOrNull() }
+        return hesapla(metin)
+    }
 
     sealed class Sonuc {
         object Yok : Sonuc()
@@ -56,11 +64,12 @@ object BotKontrol {
                 var ok: FloatArray? = null
                 for (blok in t.textBlocks) for (satir in blok.lines) {
                     val s = satir.text.trim()
-                    if (cevap == null) cevap = hesapla(s)
+                    if (cevap == null) cevap = cevapBul(s)
                     val k = s.lowercase()
                     when {
                         k.contains("enter answer") || k.contains("answer") -> kutu = merkez(satir.boundingBox)
-                        k == "i'm" || k == "i’m" || k == "im" || k == "i m" -> im = merkez(satir.boundingBox)
+                        k.contains("robot") || k.startsWith("i'm") || k.startsWith("i’m") || k == "im" || k == "i m" ->
+                            im = merkez(satir.boundingBox)
                         k == "ok" -> ok = merkez(satir.boundingBox)
                     }
                 }
