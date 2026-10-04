@@ -161,6 +161,20 @@ object KoOyun {
     @Volatile private var hpBul: IntArray? = null   // x1, x2, y
     @Volatile private var mpBul: IntArray? = null
 
+    // Bar arama agir bir tarama: botun ana dongusunu bekletmesin diye arka planda yapilir
+    private val arkaIs by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
+    @Volatile private var araniyor = false
+
+    /** Barlari arka planda ara (ayni anda tek arama); sonuc hpBul/mpBul'a yazilir */
+    fun barlariBulArka(w: Int, h: Int, bitince: (() -> Unit)? = null) {
+        if (araniyor) return
+        araniyor = true
+        arkaIs.execute {
+            try { barlariBul(w, h) } catch (_: Exception) {} finally { araniyor = false }
+            bitince?.invoke()
+        }
+    }
+
     fun sifirla() { hpBul = null; mpBul = null; hedefSatir = -1; for (g in gecmis) g.fill(-1f) }
 
     /** Bir satirdaki en uzun renkli seridi bul (yazi bosluklarini birlestirerek): x1, x2 ya da null */

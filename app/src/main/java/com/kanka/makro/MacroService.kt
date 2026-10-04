@@ -2795,8 +2795,8 @@ class MacroService : AccessibilityService() {
             isimRect = KoOyun.isimAlani(screenW, screenH)
             KoOyun.sifirla()
             KoOyun.barYukle(this, screenW, screenH)   // onceki seferde olculen bar boyu
-            KoOyun.barlariBul(screenW, screenH)
-            KoOyun.barKaydet(this, screenW, screenH)
+            val ctx = applicationContext; val bw = screenW; val bh = screenH
+            KoOyun.barlariBulArka(bw, bh) { KoOyun.barKaydet(ctx, bw, bh) }
             koBarAt = System.currentTimeMillis()
         }
         tgtStrip = Preset.tgtStrip(this, cfg.tgtBar)
@@ -3007,7 +3007,8 @@ class MacroService : AccessibilityService() {
             if (!running) return
             try {
                 // Sadece MykoMobile + Farm modu (tum uyeler; MykoMobile yonetiminin izniyle)
-                if (!koAktif && !pkAktif && !kontrolde && !kontrolOkunuyor && ScreenSampler.running) {
+                if (!koAktif && !pkAktif && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                    pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
                     val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
                     val x2 = (screenW * 0.75f).toInt(); val y2 = (screenH * 0.82f).toInt()
@@ -3027,6 +3028,24 @@ class MacroService : AccessibilityService() {
             }
             h.postDelayed(this, 2500)
         }
+    }
+
+    /**
+     * Ucuz on kontrol: kontrol pencereleri ekranin ortasinda koyu bir kutu. Ortadaki 24 noktanin
+     * cogu koyu degilse pencere yoktur, yazi tanima hic calismaz (pil/isinma yok).
+     */
+    private fun pencereVarMi(): Boolean {
+        var koyu = 0; var say = 0
+        for (i in 0 until 6) for (j in 0 until 4) {
+            val x = (screenW * (0.40f + i * 0.04f)).toInt()
+            val y = (screenH * (0.36f + j * 0.09f)).toInt()
+            val c = ScreenSampler.readPixel(x, y)
+            if (c < 0) continue
+            say++
+            val r = (c shr 16) and 0xff; val g = (c shr 8) and 0xff; val b = c and 0xff
+            if (r < 60 && g < 60 && b < 60) koyu++
+        }
+        return say >= 12 && koyu * 100 >= say * 55
     }
 
     private fun kontrolKaydet(ne: String) {
@@ -3166,7 +3185,7 @@ class MacroService : AccessibilityService() {
             if (d < 0f && simdi - koBarAt > 3000) {
                 // Bar okunamadi: ekranda yeniden ara (en fazla 3 sn'de bir)
                 koBarAt = simdi
-                KoOyun.barlariBul(screenW, screenH)
+                KoOyun.barlariBulArka(screenW, screenH)
                 d = KoOyun.doluluk(screenW, screenH, mp)
             }
             if (d < 0f) return false   // bar gorunmuyor: pot basma
@@ -3253,7 +3272,7 @@ class MacroService : AccessibilityService() {
         if (now - maxOf(lastHpPot, lastMpPot) < cfg.potCd.coerceIn(300, 5000)) return emptyList()
         if (koAktif && KoOyun.doluluk(screenW, screenH, false) < 0f && now - koBarAt > 3000) {
             koBarAt = now
-            KoOyun.barlariBul(screenW, screenH)   // bar okunamadi: yeniden ara
+            KoOyun.barlariBulArka(screenW, screenH)   // bar okunamadi: yeniden ara
         }
         val hpD = dolulukOku(false)
         val hpDusuk = cfg.hp?.let { isLow(it) } ?: false

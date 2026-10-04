@@ -15,6 +15,8 @@ android {
         def derleme = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
         versionCode derleme
         versionName "1." + derleme
+        // Sadece telefon/tablet islemcileri (ARM): emulator kutuphaneleri APK'ya girmesin, boyut kuculur
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
     }
 
     // Sabit imza: yeni APK eskisinin ustune kurulur, ayarlar silinmez
@@ -32,6 +34,7 @@ android {
         release {
             // Kodu karistir/kucult: APK'yi sokup lisansi atlatmayi zorlastirir
             minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
             signingConfig signingConfigs.sabit
         }
