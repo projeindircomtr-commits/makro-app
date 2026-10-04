@@ -223,11 +223,12 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 
 <div class="k"><b>🎛 Bölümler (kim ne görsün)</b>
 <?php $vo = explode(',', varsayilan_ozellik()); ?>
-<p class="gri" style="margin:4px 0">Yönetici hesabı her şeyi görür, Farm herkese açıktır. Yeni üyeler şu an: <b><?= e(implode(', ', $vo)) ?></b></p>
+<p class="gri" style="margin:4px 0">Yönetici hesabı her şeyi görür. Farm da artık üye üye verilir. Yeni üyeler şu an: <b><?= e(implode(', ', $vo)) ?></b></p>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" checked disabled> Farm</label>
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $vo, true) ? 'checked' : '' ?>> PK</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="farm" <?= in_array('farm', $vo, true) ? 'checked' : '' ?>> Farm</label>
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $vo, true) ? 'checked' : '' ?>> Pazar</label>
 <label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="genie" <?= in_array('genie', $vo, true) ? 'checked' : '' ?>> Genie hızlandır</label>
 <button class="tam" name="is" value="ozellik_varsayilan" style="background:#2e9e5b;padding:13px">Yeni üyeler için varsayılan yap</button>
@@ -275,6 +276,7 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <form method="post" class="in" style="margin:6px 0"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
 <span class="gri">Bölümler:</span> Farm
 <label><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $uo, true) ? 'checked' : '' ?>> PK</label>
+<label><input type="checkbox" name="oz[]" value="farm" <?= in_array('farm', $uo, true) ? 'checked' : '' ?>> Farm</label>
 <label><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $uo, true) ? 'checked' : '' ?>> Pazar</label>
 <label><input type="checkbox" name="oz[]" value="genie" <?= in_array('genie', $uo, true) ? 'checked' : '' ?>> Genie hızlandır</label>
 <button style="background:#2d3846">Kaydet</button></form>

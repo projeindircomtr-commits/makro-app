@@ -45,7 +45,7 @@ object Lisans {
 
     /** Bu hesap bu bolumu gorebilir mi? Farm ve KO Mobile (oyun secimi) herkese, yonetici hepsine acik */
     fun ozellikVar(kod: String): Boolean =
-        kod == "farm" || kod == "ko" || yoneticiMi() || (gecerliSimdi() && ozellikler.contains(kod))
+        kod == "ko" || yoneticiMi() || (gecerliSimdi() && ozellikler.contains(kod))
 
     /** Yonetici ve lisans su an gecerliyse true */
     fun yoneticiMi(): Boolean = yonetici && gecerliSimdi()
@@ -242,7 +242,7 @@ object Lisans {
                     sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
                     if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
                         ozKume = ozS.split(",").map { it.trim() }
-                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" }.toSet() + "farm"
+                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" }.toSet()
                     }
                 } catch (e: Exception) {
                 }

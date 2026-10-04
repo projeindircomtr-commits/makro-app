@@ -62,10 +62,9 @@ function sema_guncelle(): void {
 
 const OZELLIKLER = ['farm', 'pk', 'pazar', 'genie'];
 
-/** "farm,pk" gibi metni temizler: sadece bilinen bolumler kalir, farm her zaman vardir */
+/** "farm,pk" gibi metni temizler: sadece bilinen bolumler kalir (farm da artik panelden verilir) */
 function ozellik_temizle(string $s): string {
     $ist = array_map('trim', explode(',', strtolower($s)));
-    $ist[] = 'farm';
     $son = [];
     foreach (OZELLIKLER as $o) { if (in_array($o, $ist, true)) $son[] = $o; }
     return implode(',', $son);

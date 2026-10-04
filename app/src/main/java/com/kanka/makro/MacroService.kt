@@ -980,9 +980,21 @@ class MacroService : AccessibilityService() {
             box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
         val genieIzin = !Config.pkMi(this) && Lisans.ozellikVar("genie")
-        // Genie acikken menude sadece Genie ayarlari gorunur
-        if (genieIzin && c.genieModu) {
-            genieBolumu()
+        val farmIzin = Lisans.ozellikVar("farm")
+        // Genie acikken (ya da uyede sadece Genie yetkisi varken) menude sadece Genie ayarlari gorunur
+        if (genieIzin && (c.genieModu || !farmIzin)) {
+            if (farmIzin) genieBolumu()
+            else {
+                // Sadece Genie yetkisi: ac/kapa yok, Genie hep acik
+                box.addView(TextView(this).apply {
+                    text = "🧞 Genie hızlandırma (sadece kılıç)"
+                    setTextColor(Color.WHITE); textSize = 15f
+                    setPadding(0, 0, 0, dp(6))
+                })
+                satir("🗡 Genie kılıç aralığı", { "${Config.load(this).genieKilicMs} ms" },
+                    { kaydet { it.genieKilicMs = (it.genieKilicMs - 50).coerceIn(50, 2000) } },
+                    { kaydet { it.genieKilicMs = (it.genieKilicMs + 50).coerceIn(50, 2000) } })
+            }
             box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             ortadaGoster(box, dp(440))
@@ -1337,7 +1349,8 @@ class MacroService : AccessibilityService() {
     private var genieKilicAt = 0L
 
     /** Genie modu: ayar acik + Farm modu + panelde "Genie hizlandir" yetkisi (yonetici her zaman) */
-    private fun genieAktif(): Boolean = cfg.genieModu && !pkAktif && Lisans.ozellikVar("genie")
+    private fun genieAktif(): Boolean =
+        (cfg.genieModu || !Lisans.ozellikVar("farm")) && !pkAktif && Lisans.ozellikVar("genie")
 
     /** Oyunun Genie'si acikken: Genie mob secer, yurur, skilleri kullanir; bot sadece kilica seri basar. */
     private fun genieAdim(now: Long) {
@@ -2804,6 +2817,16 @@ class MacroService : AccessibilityService() {
             return
         }
         cfg = Config.load(this)
+        // Farm yetkisi: panelden verilir. Farm yoksa ama Genie varsa sadece Genie calisir.
+        if (!Config.pkMi(this) && !Config.pazarMi(this)) {
+            val farmIzin = Lisans.ozellikVar("farm")
+            val genieIzin = Lisans.ozellikVar("genie")
+            if (!farmIzin && !genieIzin) {
+                toast("Farm yetkin yok. Yöneticiden Farm ya da Genie yetkisi iste.")
+                return
+            }
+            if (!farmIzin) cfg.genieModu = true
+        }
         // Tuslar oyuncunun kendisinden: hic tus yoksa ekran ayarini yukle, tus duzenleyiciyi ac
         if (cfg.points.isEmpty()) {
             Config.hazirAyar(this)
