@@ -887,7 +887,12 @@ class MacroService : AccessibilityService() {
         ) else emptyList()
         showMenu(
             "Menü",
-            listOf<Pair<String, () -> Unit>>(
+            if (Config.genieMi(this)) listOf<Pair<String, () -> Unit>>(
+                // Genie Hizlandir: sadece ayar, kilic tusu ve uygulama
+                "⚙ Ayarlar" to { ayarKarti() },
+                "🛠 Tuşları düzenle" to { openEditor() },
+                "⚙ Uygulamayı aç" to { openApp() }
+            ) else listOf<Pair<String, () -> Unit>>(
                 "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() }
             ) + yoneticiListesi + listOf<Pair<String, () -> Unit>>(
@@ -921,7 +926,8 @@ class MacroService : AccessibilityService() {
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         box.addView(TextView(this).apply {
-            text = "⚙ " + (if (Config.pkMi(this@MacroService)) "PK Bot • " + Config.sinifAd(this@MacroService) else "Farm Bot") + " ayarları"
+            text = "⚙ " + (if (Config.genieMi(this@MacroService)) "Genie Hızlandır"
+                else if (Config.pkMi(this@MacroService)) "PK Bot • " + Config.sinifAd(this@MacroService) else "Farm Bot") + " ayarları"
             setTextColor(0xFFE0B04A.toInt())
             textSize = 16f
             setPadding(0, 0, 0, dp(6))
@@ -957,44 +963,16 @@ class MacroService : AccessibilityService() {
             box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
 
-        // Genie hizlandirma bolumu (ac/kapa + kilic araligi)
-        fun genieBolumu() {
-            val genieBtn = menuBtn("") {}
-            fun genieYaz() {
-                val on = Config.load(this).genieModu
-                genieBtn.text = if (on) "🧞 Genie hızlandırma: AÇIK" else "🧞 Genie hızlandırma: KAPALI"
-            }
-            genieYaz()
-            genieBtn.setOnClickListener {
-                kaydet { it.genieModu = !it.genieModu }
-                cfg.genieModu = Config.load(this).genieModu
-                genieYaz()
-                toast(if (Config.load(this).genieModu) "Genie modu: sadece kılıç seri, diğer her şey kapalı"
-                      else "Genie modu kapalı: bot normal çalışır")
-                ayarKarti()   // menu Genie / normal gorunume gecsin
-            }
-            box.addView(genieBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            satir("🗡 Genie kılıç aralığı", { "${Config.load(this).genieKilicMs} ms" },
+        // Genie Hizlandir modu: menude sadece kilic hizi
+        if (Config.genieMi(this)) {
+            box.addView(TextView(this).apply {
+                text = "Oyunun Genie'sini aç. Bot sadece kılıca seri basar, başka hiçbir şey yapmaz."
+                setTextColor(Color.WHITE); textSize = 13f
+                setPadding(0, 0, 0, dp(6))
+            })
+            satir("🗡 Kılıç aralığı", { "${Config.load(this).genieKilicMs} ms" },
                 { kaydet { it.genieKilicMs = (it.genieKilicMs - 50).coerceIn(50, 2000) } },
                 { kaydet { it.genieKilicMs = (it.genieKilicMs + 50).coerceIn(50, 2000) } })
-            box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
-        }
-        val genieIzin = !Config.pkMi(this) && Lisans.ozellikVar("genie")
-        val farmIzin = Lisans.ozellikVar("farm")
-        // Genie acikken (ya da uyede sadece Genie yetkisi varken) menude sadece Genie ayarlari gorunur
-        if (genieIzin && (c.genieModu || !farmIzin)) {
-            if (farmIzin) genieBolumu()
-            else {
-                // Sadece Genie yetkisi: ac/kapa yok, Genie hep acik
-                box.addView(TextView(this).apply {
-                    text = "🧞 Genie hızlandırma (sadece kılıç)"
-                    setTextColor(Color.WHITE); textSize = 15f
-                    setPadding(0, 0, 0, dp(6))
-                })
-                satir("🗡 Genie kılıç aralığı", { "${Config.load(this).genieKilicMs} ms" },
-                    { kaydet { it.genieKilicMs = (it.genieKilicMs - 50).coerceIn(50, 2000) } },
-                    { kaydet { it.genieKilicMs = (it.genieKilicMs + 50).coerceIn(50, 2000) } })
-            }
             box.addView(btn("Kapat ✓") { removeOverlay() }.apply { background = rounded(0xFF2E9E5B.toInt()) },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             ortadaGoster(box, dp(440))
@@ -1135,9 +1113,6 @@ class MacroService : AccessibilityService() {
         hizBoya()
         box.addView(hizSatir)
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
-
-        // Genie hizlandirma: sadece Farm'da ve panelden yetki verilen uyelerde
-        if (genieIzin) genieBolumu()
 
         // Oncelik sirasi: neye once basilsin
         box.addView(menuBtn("📋 Öncelik sırası (neye önce basılsın)") { oncelikMenu() },
@@ -1305,7 +1280,8 @@ class MacroService : AccessibilityService() {
             setPadding(dp(10), dp(4), dp(6), dp(4))
         }
         bar.addView(TextView(this).apply {
-            text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
+            text = if (Config.genieMi(this@MacroService)) "Genie Hızlandır: sadece Kılıç tuşunu kaydet  •  sürükleyerek yerine oturt"
+                else "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
                 (Config.sinifOnerisi(this@MacroService)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
             textSize = 13f
@@ -1333,7 +1309,8 @@ class MacroService : AccessibilityService() {
         ).apply { leftMargin = dp(12) })
     }
 
-    private fun turListesi(onPick: (String) -> Unit): List<Pair<String, () -> Unit>> = listOf(
+    private fun turListesi(onPick: (String) -> Unit): List<Pair<String, () -> Unit>> =
+        if (Config.genieMi(this)) listOf("⚔ Kılıç" to { onPick("saldiri") }) else listOf(
         "✨ Skill" to { onPick("skill") },
         "❤ HP pot" to { onPick("hp_pot") },
         "💧 MP pot" to { onPick("mp_pot") },
@@ -1349,8 +1326,8 @@ class MacroService : AccessibilityService() {
     private var genieKilicAt = 0L
 
     /** Genie modu: ayar acik + Farm modu + panelde "Genie hizlandir" yetkisi (yonetici her zaman) */
-    private fun genieAktif(): Boolean =
-        (cfg.genieModu || !Lisans.ozellikVar("farm")) && !pkAktif && Lisans.ozellikVar("genie")
+    private fun genieAktif(): Boolean = genieMod
+    @Volatile private var genieMod = false
 
     /** Oyunun Genie'si acikken: Genie mob secer, yurur, skilleri kullanir; bot sadece kilica seri basar. */
     private fun genieAdim(now: Long) {
@@ -2616,6 +2593,7 @@ class MacroService : AccessibilityService() {
 
     private fun modYazi() = when {
         Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
+        Config.genieMi(this) -> "🧞 Genie Hızlandır ▾"
         // Panelde kisa ve tek satir: emoji'li uzun sinif adi paneli buyutuyordu
         Config.pkMi(this) -> "⚔ PK • " + (if (Config.oyun(this) == "ko") "KO • " else "") + Config.sinifKisa(this) + " ▾"
         Config.koMu(this) -> "🌾 Farm Bot • KO ▾"
@@ -2628,18 +2606,28 @@ class MacroService : AccessibilityService() {
         ((Config.pkMi(this) && !Config.botGorunur("pk")) || (Config.pazarMi(this) && !Config.botGorunur("pazar")))
 
     private fun modMenu() {
+        val farmAcik = Config.botGorunur("farm")
         val pkAcik = Config.botGorunur("pk")
         val pazarAcik = Config.botGorunur("pazar")
-        if (!pkAcik && !pazarAcik) {
-            // Sadece Farm acik: secenek yok, menu acmaya gerek yok
-            modSec(false)
+        val genieAcik = Config.botGorunur("genie")
+        val say = listOf(farmAcik, pkAcik, pazarAcik, genieAcik).count { it }
+        if (say <= 1) {
+            // Tek mod acik: secenek yok, dogrudan o modun ayarlari
+            Config.modDuzelt(this)
+            cfg = Config.load(this)
+            modBtn?.text = modYazi()
             ayarKarti()
             return
         }
         val pk = Config.pkMi(this)
+        val genie = Config.genieMi(this)
         val liste = ArrayList<Pair<String, () -> Unit>>()
-        liste.add((if (!pk && !Config.pazarMi(this)) "✓ " else "") + "🌾 Farm Bot" to {
+        if (farmAcik) liste.add((if (!pk && !genie && !Config.pazarMi(this)) "✓ " else "") + "🌾 Farm Bot" to {
             modSec(false)
+            ui.postDelayed({ ayarKarti() }, 250)
+        })
+        if (genieAcik) liste.add((if (genie) "✓ " else "") + "🧞 Genie Hızlandır" to {
+            genieSecServis()
             ui.postDelayed({ ayarKarti() }, 250)
         })
         if (pkAcik) liste.add((if (pk) "✓ " else "") + "⚔ PK Bot" to { pkKarakterMenu() })
@@ -2667,10 +2655,24 @@ class MacroService : AccessibilityService() {
         showMenu("⚔ PK Bot • karakter seç", liste)
     }
 
+    /** Genie Hizlandir moduna gec (uygulamadan da cagrilir) */
+    fun genieSecServis() {
+        ui.post {
+            if (Config.genieMi(this)) return@post
+            if (running) stopMacro()
+            if (pazarCalisiyor) pazarDurdur()
+            Config.genieSec(this)
+            cfg = Config.load(this)
+            modBtn?.text = modYazi()
+            statusTv?.text = "Genie hazır"
+            toast("🧞 Genie Hızlandır")
+        }
+    }
+
     /** Modu secer; her modun kendi tus duzeni ve ayarlari yuklenir (uygulamadan da cagrilir) */
     fun modSec(pk: Boolean, sinif: String? = null) {
         ui.post {
-            if (!Config.pazarMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) {
+            if (!Config.pazarMi(this) && !Config.genieMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) {
                 return@post
             }
             if (running) stopMacro()
@@ -2817,15 +2819,20 @@ class MacroService : AccessibilityService() {
             return
         }
         cfg = Config.load(this)
-        // Farm yetkisi: panelden verilir. Farm yoksa ama Genie varsa sadece Genie calisir.
-        if (!Config.pkMi(this) && !Config.pazarMi(this)) {
-            val farmIzin = Lisans.ozellikVar("farm")
-            val genieIzin = Lisans.ozellikVar("genie")
-            if (!farmIzin && !genieIzin) {
-                toast("Farm yetkin yok. Yöneticiden Farm ya da Genie yetkisi iste.")
-                return
-            }
-            if (!farmIzin) cfg.genieModu = true
+        // Mod yetkisi panelden: secili mod verilmemisse verilen moda gec
+        Config.modDuzelt(this)
+        cfg = Config.load(this)
+        modBtn?.text = modYazi()
+        val secili = Config.bot(this)
+        if (secili != "pazar" && !Lisans.ozellikVar(secili)) {
+            toast("Bu mod için yetkin yok. Yöneticiden Farm, PK ya da Genie yetkisi iste.")
+            return
+        }
+        genieMod = Config.genieMi(this)
+        if (genieMod && cfg.points.none { it.type == "saldiri" }) {
+            toast("Genie Hızlandır için Kılıç tuşunu kaydet")
+            openEditor()
+            return
         }
         // Tuslar oyuncunun kendisinden: hic tus yoksa ekran ayarini yukle, tus duzenleyiciyi ac
         if (cfg.points.isEmpty()) {
@@ -2835,7 +2842,7 @@ class MacroService : AccessibilityService() {
             openEditor()
             return
         }
-        if (!Config.pkMi(this) && cfg.points.none { it.type == "hedef" || it.type == "saldiri" }) {
+        if (!Config.pkMi(this) && !Config.genieMi(this) && cfg.points.none { it.type == "hedef" || it.type == "saldiri" }) {
             toast("Farm için en az bir Mob seç ya da Saldırı tuşu kaydet (⋯ → Tuşları düzenle)")
             openEditor()
             return
@@ -2863,6 +2870,7 @@ class MacroService : AccessibilityService() {
         pkSonSkill = 0L
         pkSonKilic = 0L
         destekHazir.clear()
+        collectVaryant = null
         minorAcik = false
         minorSon = 0L
         if (pkAktif && cfg.points.none { it.type == "saldiri" }) {
@@ -4026,15 +4034,39 @@ class MacroService : AccessibilityService() {
         val simdi = System.currentTimeMillis()
         if (simdi - collectGenisAt < 400) return null
         collectGenisAt = simdi
-        for (t in listOfNotNull(cfg.collectT, cfg.collectT2)) {
+        // Tablette arayuz yukseklige gore buyur: sablonun farkli boylarini da dene (bir kez hazirlanir)
+        val varyant = collectVaryant ?: collectVaryantHazirla().also { collectVaryant = it }
+        val adaylar = listOfNotNull(cfg.collectT?.let { false to it }, cfg.collectT2?.let { true to it }) + varyant
+        for ((dugme, t) in adaylar) {
             findT(f, t)?.let { pos ->
                 collectAnkorGX = pos[0]; collectAnkorGY = pos[1]
+                // Tutan boyu hatirla: sonraki kutularda hizli yakin arama bununla yapilir
+                if (dugme) cfg.collectT2 = t else cfg.collectT = t
                 return t to pos
             }
         }
         return null
     }
     private var collectGenisAt = 0L
+    private var collectVaryant: List<Pair<Boolean, Sablon>>? = null
+
+    /** Collect sablonunun farkli boylari: (dugme mi, sablon) */
+    private fun collectVaryantHazirla(): List<Pair<Boolean, Sablon>> {
+        val gen = olcek?.s ?: (screenW / 2712f)
+        val yuk = screenH / 1220f
+        val olcekler = listOf(yuk, gen * 1.15f, gen * 1.3f, yuk * 1.15f, gen * 0.87f, yuk * 0.87f)
+            .map { Math.round(it * 100) / 100f }.distinct()
+        val out = ArrayList<Pair<Boolean, Sablon>>()
+        for (sc in olcekler) {
+            try {
+                Preset.loadTemplateF(this, "collect.png", sc, 25, 0.5f, 0.22f)?.let { out.add(false to it) }
+                Preset.loadTemplateF(this, "collect_btn.png", sc, 19, 0.5f, 0.5f)?.let { out.add(true to it) }
+            } catch (e: Exception) {
+                hataKaydet("collect", e)
+            }
+        }
+        return out
+    }
 
     /** Ayni Open'a, kutu toplanmadan tekrar basma */
     private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {

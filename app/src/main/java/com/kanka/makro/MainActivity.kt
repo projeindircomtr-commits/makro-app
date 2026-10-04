@@ -125,6 +125,10 @@ class MainActivity : Activity() {
     private lateinit var lootSwitch: Switch
     private lateinit var modFarmBtn: Button
     private lateinit var modPkBtn: Button
+    private lateinit var modGenieBtn: Button
+    private val normalSatirlar = ArrayList<View>()
+    private lateinit var genieSatir: LinearLayout
+    private lateinit var genieMsTv: TextView
     private lateinit var ayarBaslik: TextView
     private lateinit var sinifSatir: LinearLayout
     private val sinifBtnler = HashMap<String, Button>()
@@ -267,9 +271,18 @@ class MainActivity : Activity() {
             setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { modSec(true) }
         }
+        modGenieBtn = Button(this).apply {
+            text = "🧞  GENIE"
+            textSize = 17f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(14), 0, dp(14))
+            setOnClickListener { genieModSec() }
+        }
         modSatir.addView(modFarmBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        modSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-        modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
+        modSatir.addView(modGenieBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
         modKart.addView(modSatir)
         // PK karakter secimi
         sinifSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
@@ -288,8 +301,8 @@ class MainActivity : Activity() {
         }
         modKart.addView(sinifSatir)
         modKart.addView(TextView(this).apply {
-            text = "Farm: mob keser, kutu toplar.  PK: oyuncuya kılıçla saldırır, skilleri senin sıranla basar. " +
-                "Her modun tuş düzeni ve ayarları ayrı saklanır."
+            text = "Farm: mob keser, kutu toplar.  PK: oyuncuya saldırır, skilleri senin sıranla basar.  " +
+                "Genie: oyunun Genie'si açıkken sadece kılıca seri basar. Hangi modlar görünür, yöneticin belirler."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
@@ -326,6 +339,10 @@ class MainActivity : Activity() {
         oyunKart.addView(smallButton("📱 KO Mobile uygulamasını seç") { koPaketSec() })
 
         // --- Kurulum karti ---
+        // Mod karti oyun seciminin altinda dursun
+        root.removeView(modKart)
+        root.addView(modKart, root.indexOfChild(oyunKart) + 1)
+
         val setup = card(root)
         uyeBolumleri.add(setup)
         setup.addView(cardTitle("Kurulum (bir kere)"))
@@ -388,6 +405,7 @@ class MainActivity : Activity() {
         mRow.addView(minutesTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
         mRow.addView(smallButton("+") { changeMinutes(10) })
         quick.addView(mRow)
+        normalSatirlar.add(mRow)
 
         // Pot esikleri
         val hRow = row()
@@ -400,6 +418,7 @@ class MainActivity : Activity() {
         hRow.addView(hpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         hRow.addView(smallButton("+") { yuzdeDegis(true, 5) })
         quick.addView(hRow)
+        normalSatirlar.add(hRow)
 
         val pRow2 = row()
         pRow2.addView(label("💧 MP potu, mana şunun altına inince"), weight1())
@@ -411,6 +430,7 @@ class MainActivity : Activity() {
         pRow2.addView(mpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         pRow2.addView(smallButton("+") { yuzdeDegis(false, 5) })
         quick.addView(pRow2)
+        normalSatirlar.add(pRow2)
 
         // Mob kilidi
         val kRow = row()
@@ -424,7 +444,9 @@ class MainActivity : Activity() {
             toast("Kilitler kaldırıldı")
         })
         quick.addView(kRow)
+        normalSatirlar.add(kRow)
         quick.addView(TextView(this).apply {
+            normalSatirlar.add(this)
             text = "Mob kilitlemek için: oyunda mobu seç → panelde ⋯ → 🎯 Seçili mobu kilitle. Birden fazla mob kilitleyebilirsin."
             textSize = 12f
             setTextColor(MUTED)
@@ -440,6 +462,7 @@ class MainActivity : Activity() {
         sRow.addView(speedFast)
         sRow.addView(speedSeri)
         quick.addView(sRow)
+        normalSatirlar.add(sRow)
 
         val lRow = row()
         lRow.addView(label("Kutuları topla"), weight1())
@@ -454,6 +477,7 @@ class MainActivity : Activity() {
         }
         lRow.addView(lootSwitch)
         quick.addView(lRow)
+        normalSatirlar.add(lRow)
 
         val oRow = row()
         oRow.addView(label("Ekranı otomatik tanı"), weight1())
@@ -468,12 +492,26 @@ class MainActivity : Activity() {
         }
         oRow.addView(otoSwitch)
         quick.addView(oRow)
+        normalSatirlar.add(oRow)
         quick.addView(TextView(this).apply {
+            normalSatirlar.add(this)
             text = "Açıkken HP/MP barı, mobun can barı ve kutular her telefon ve tablette kendiliğinden bulunur."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), 0, 0, 0)
         })
+
+        // Genie Hizlandir: tek ayar, kilic araligi
+        genieSatir = row()
+        genieSatir.addView(label("🗡 Kılıç aralığı"), weight1())
+        genieSatir.addView(smallButton("−") { genieMsDegis(-50) })
+        genieMsTv = TextView(this).apply {
+            textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = degerKutusu(); setPadding(0, dp(6), 0, dp(6))
+        }
+        genieSatir.addView(genieMsTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
+        genieSatir.addView(smallButton("+") { genieMsDegis(50) })
+        quick.addView(genieSatir)
 
         // --- Site onizlemesi ---
         val site = card(root)
@@ -586,7 +624,7 @@ class MainActivity : Activity() {
         val g = if (ok) View.VISIBLE else View.GONE
         for (v in uyeBolumleri) v.visibility = g
         // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
-        modKartView.visibility = if (ok && Config.botGorunur("pk")) View.VISIBLE else View.GONE
+        modKartView.visibility = if (ok && Config.izinliModlar().isNotEmpty()) View.VISIBLE else View.GONE
         oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
@@ -777,6 +815,7 @@ class MainActivity : Activity() {
     }
 
     private fun refresh() {
+        Config.modDuzelt(this)   // uyeye verilmeyen mod secili kalmasin
         cfg = Config.load(this)
         refreshSteps()
         minutesTv.text = "${cfg.minutes} dk"
@@ -796,12 +835,23 @@ class MainActivity : Activity() {
         oyunMykoBtn.setTextColor(if (!ko) 0xFF12161C.toInt() else Color.WHITE)
         oyunKoBtn.setTextColor(if (ko) 0xFF12161C.toInt() else Color.WHITE)
         val pk = Config.pkMi(this)
-        modFarmBtn.background = rounded(if (!pk) ACCENT else LACI, 14)
+        val genie = Config.genieMi(this)
+        val farm = !pk && !genie
+        modFarmBtn.visibility = if (Config.botGorunur("farm")) View.VISIBLE else View.GONE
+        modPkBtn.visibility = if (Config.botGorunur("pk")) View.VISIBLE else View.GONE
+        modGenieBtn.visibility = if (Config.botGorunur("genie")) View.VISIBLE else View.GONE
+        modFarmBtn.background = rounded(if (farm) ACCENT else LACI, 14)
         modPkBtn.background = rounded(if (pk) ACCENT else LACI, 14)
-        modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
+        modGenieBtn.background = rounded(if (genie) ACCENT else LACI, 14)
+        modFarmBtn.setTextColor(if (farm) 0xFF12161C.toInt() else Color.WHITE)
         modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
-        ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this)
+        modGenieBtn.setTextColor(if (genie) 0xFF12161C.toInt() else Color.WHITE)
+        ayarBaslik.text = if (genie) "Ayarlar • Genie Hızlandır" + (if (ko) " • KO Mobile" else "")
+        else if (pk) "Ayarlar • PK • " + Config.sinifAd(this)
         else if (ko) "Ayarlar • Farm • KO Mobile" else "Ayarlar • Farm"
+        for (v in normalSatirlar) v.visibility = if (genie) View.GONE else View.VISIBLE
+        genieSatir.visibility = if (genie) View.VISIBLE else View.GONE
+        genieMsTv.text = "${cfg.genieKilicMs} ms"
         sinifSatir.visibility = if (pk) View.VISIBLE else View.GONE
         val sn = Config.sinif(this)
         for ((kod, b) in sinifBtnler) {
@@ -867,8 +917,24 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun genieModSec() {
+        if (Config.genieMi(this)) return
+        saveAll()
+        val servis = MacroService.instance
+        if (servis != null) servis.genieSecServis() else Config.genieSec(this)
+        modFarmBtn.postDelayed({ refresh() }, 150)
+    }
+
+    private fun genieMsDegis(d: Int) {
+        saveAll()
+        val c = Config.load(this)
+        c.genieKilicMs = (c.genieKilicMs + d).coerceIn(50, 2000)
+        c.save(this)
+        refresh()
+    }
+
     private fun modSec(pk: Boolean, sinif: String? = null) {
-        if (!Config.pazarMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
+        if (!Config.pazarMi(this) && !Config.genieMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
         saveAll()
         val servis = MacroService.instance
         if (servis != null) servis.modSec(pk, sinif) else Config.modDegistir(this, pk, sinif)

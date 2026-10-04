@@ -233,6 +233,29 @@ class Config {
 
         fun pkMi(ctx: Context): Boolean = bot(ctx) == "pk"
 
+        /** Genie Hizlandir modu: oyunun Genie'si acikken bot sadece kilica seri basar */
+        fun genieMi(ctx: Context): Boolean = bot(ctx) == "genie"
+
+        fun genieSec(ctx: Context) {
+            genel(ctx).edit().putBoolean("pk", false).putString("bot", "genie").commit()
+        }
+
+        /** Uyenin panelden aldigi modlar (sirayla): farm, pk, genie */
+        fun izinliModlar(): List<String> = listOf("farm", "pk", "genie").filter { Lisans.ozellikVar(it) }
+
+        /** Secili mod uyeye verilmemisse ilk verilen moda gec (Pazar ayri yonetilir) */
+        fun modDuzelt(ctx: Context) {
+            val b = bot(ctx)
+            if (b == "pazar") return
+            val izin = izinliModlar()
+            if (izin.isEmpty() || b in izin) return
+            when (izin.first()) {
+                "genie" -> genieSec(ctx)
+                "pk" -> modDegistir(ctx, true)
+                else -> modDegistir(ctx, false)
+            }
+        }
+
         // ---------- Pazar: satilacak esyalar (ikon + fiyat) ve kontrol araligi ----------
         fun pazarEsyalar(ctx: Context): MutableList<PazarEsya> {
             val out = mutableListOf<PazarEsya>()
@@ -311,6 +334,7 @@ class Config {
         }
 
         private fun anahtar(ctx: Context) = when {
+            genieMi(ctx) -> if (oyun(ctx) == "ko") "cfg_ko_genie" else "cfg_genie"
             koMu(ctx) && pkMi(ctx) -> "cfg_ko_pk_" + sinif(ctx)
             koMu(ctx) -> "cfg_ko"
             pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
