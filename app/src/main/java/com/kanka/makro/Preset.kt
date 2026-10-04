@@ -66,7 +66,7 @@ object Preset {
         c.lootEvery = 150
         c.collectWait = 2500
         c.otoArayuz = true
-        c.tuslarOto = true
+        c.tuslarOto = false   // tuslar oyuncudan, otomatik tasinmaz
         c.save(ctx)
     }
 

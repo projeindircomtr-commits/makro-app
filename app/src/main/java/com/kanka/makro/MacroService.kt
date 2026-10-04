@@ -3519,7 +3519,8 @@ class MacroService : AccessibilityService() {
         val m2 = Preset.solUst(o, 407, 70)
         mpBar = intArrayOf(m1[0], m2[0], m1[1])
         isimRect = isimAlani(o)
-        if (cfg.tuslarOto) {
+        // Tuslar oyuncudan: kaydettigi yerlere asla dokunma (eski "hazir tuslari tasima" kapali)
+        if (false && cfg.tuslarOto) {
             val yeni = Preset.otoTuslar(o, cfg.points)
             cfg.points.clear()
             cfg.points.addAll(yeni)
@@ -3691,7 +3692,9 @@ class MacroService : AccessibilityService() {
                 val c = ScreenSampler.readPixel(x, y)
                 if (c >= 0 && isRed(c)) return true
             }
-            return false
+            // Serit kirmizi degilse: kaydedilen bar noktasinin rengine de bak
+            // (bar elle kaydedildiyse ve rengi kirmizidan farkliysa hedef yine taninir)
+            return !isLow(bar)
         }
         return !isLow(bar)
     }
