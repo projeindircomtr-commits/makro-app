@@ -20,6 +20,11 @@
         android:label="Projeindir Bot"
         android:icon="@drawable/ic_makro"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- Yazi tanima modelini uygulama kurulurken Google Play Hizmetleri indirsin -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
+
 
         <activity
             android:name=".MainActivity"

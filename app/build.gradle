@@ -53,6 +53,7 @@ android {
 }
 
 dependencies {
-    // MykoMobile bot kontrol penceresini okumak icin (cihazda, internetsiz yazi tanima)
-    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    // MykoMobile bot kontrol penceresini okumak icin (cihazda yazi tanima).
+    // Google Play Hizmetleri surumu: model APK'ya girmez, telefona bir kez iner -> APK kucuk kalir
+    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
 }
