@@ -1258,7 +1258,7 @@ class MacroService : AccessibilityService() {
         }
         bar.addView(TextView(this).apply {
             text = "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
-                (Config.sinifOnerisi(this)?.let { "\n" + it } ?: "")
+                (Config.sinifOnerisi(this@MacroService)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
             textSize = 13f
             setPadding(0, 0, dp(10), 0)
