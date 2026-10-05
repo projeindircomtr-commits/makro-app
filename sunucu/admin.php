@@ -306,7 +306,7 @@ function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(f
 <?php if (empty($u['yonetici']) && (int)$u['bitis'] > time()): ?><?= form('sure_sifirla', (int)$u['id'], 'Süreyi 0 yap', '#b03a3a', false, 'Bu üyenin süresi bitsin mi?') ?><?php endif; ?>
 </div>
 
-<?php $uo = explode(',', ozellik_temizle((string)($u['ozellik'] ?? ''))); ?>
+<?php $uo = explode(',', uye_ozellik($u)); ?>
 <div class="bolum"><div class="bolum-ad">Bölümler (dokun: aç/kapat, sonra kaydet)</div>
 <form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
 <div class="chips">

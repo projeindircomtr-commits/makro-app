@@ -136,7 +136,7 @@ object Lisans {
         isim = p.getString("is", "") ?: ""
         yonetici = p.getBoolean("yn", false)
         ozellikler = (p.getString("oz", "farm") ?: "farm").split(",").map { it.trim() }
-            .filter { it.isNotEmpty() }.toSet().ifEmpty { setOf("farm") }
+            .filter { it.isNotEmpty() }.toSet()   // bos = hic bolum verilmemis (Farm da panelden verilir)
     }
 
     fun gecerliSimdi(): Boolean {
@@ -235,7 +235,9 @@ object Lisans {
             var ozKume = setOf("farm")
             val ozS = j.optString("ozellik", "")
             val imza2S = j.optString("imza2", "")
-            if (ozS.isNotEmpty() && imza2S.isNotEmpty()) {
+            // Sunucu imzali "ozellik" gonderdiyse BOS olsa bile gecerlidir (admin hic bolum vermemis olabilir).
+            // Eski sunucuda alan yoktur: guvenli taraf sadece Farm.
+            if (j.has("ozellik") && imza2S.isNotEmpty()) {
                 try {
                     val sig2 = Signature.getInstance("SHA256withECDSA")
                     sig2.initVerify(pk)

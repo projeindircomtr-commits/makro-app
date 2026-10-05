@@ -70,6 +70,12 @@ function ozellik_temizle(string $s): string {
     return implode(',', $son);
 }
 
+/** Uyenin bolumleri: kolon hic ayarlanmamissa (eski uye) eskiden oldugu gibi sadece farm */
+function uye_ozellik(array $u): string {
+    $ham = $u['ozellik'] ?? null;
+    return ozellik_temizle($ham === null ? 'farm' : (string)$ham);
+}
+
 /** Yeni eklenen uyelerin baslayacagi bolumler (admin panelinden secilir) */
 function varsayilan_ozellik(): string {
     return ozellik_temizle(ayar_al('varsayilan_ozellik', 'farm'));

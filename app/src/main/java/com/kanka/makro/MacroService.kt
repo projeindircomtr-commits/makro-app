@@ -1335,8 +1335,9 @@ class MacroService : AccessibilityService() {
         // Seri vurus KO ve MykoMobile yonetimlerinin izniyle; aralik oyuncunun ayari.
         val kilic = cfg.points.firstOrNull { it.type == "saldiri" && it.on }
         if (kilic == null) {
-            toast("Genie modu için Kılıç tuşunu kaydet (⋯ → Tuşları düzenle)")
-            stepPlanla(3000); return
+            // Kilic yoksa her adimda uyari yagdirma: botu durdur
+            stopMacro("Kılıç tuşu yok: ⋯ → Tuşları düzenle")
+            return
         }
         val bekle = cfg.genieKilicMs.toLong() - (now - genieKilicAt)
         if (bekle > 0) { stepPlanla(bekle.coerceAtMost(500)); return }
@@ -3096,6 +3097,7 @@ class MacroService : AccessibilityService() {
     // ---- MykoMobile bot kontrolu (sadece MykoMobile Farm, tum uyeler, MykoMobile yonetiminin izniyle) ----
     @Volatile private var kontrolde = false
     @Volatile private var kontrolOkunuyor = false
+    @Volatile private var kontrolBekleBitis = 0L
     private val kontrolIs by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
 
     private val botKontrolGozcu = object : Runnable {
@@ -3104,6 +3106,7 @@ class MacroService : AccessibilityService() {
             try {
                 // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
                 if (!koAktif && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                    SystemClock.uptimeMillis() >= kontrolBekleBitis &&
                     pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
                     val x1 = (screenW * 0.25f).toInt(); val y1 = (screenH * 0.25f).toInt()
@@ -3114,7 +3117,12 @@ class MacroService : AccessibilityService() {
                         val bm = ScreenSampler.kirp(x1, y1, x2, y2)
                         if (bm == null) { kontrolOkunuyor = false; return@execute }
                         BotKontrol.oku(bm, x1, y1, 1f / ScreenSampler.SCALE) { r ->
-                            ui.post { kontrolOkunuyor = false; kontrolIsle(r) }
+                            ui.post {
+                                kontrolOkunuyor = false
+                                // Karanlik harita yanlis alarm verirse yazi tanimayi sik calistirma: 6 sn dinlen
+                                if (r is BotKontrol.Sonuc.Yok) kontrolBekleBitis = SystemClock.uptimeMillis() + 6000
+                                kontrolIsle(r)
+                            }
                         }
                     }
                 }
@@ -3692,9 +3700,7 @@ class MacroService : AccessibilityService() {
                 val c = ScreenSampler.readPixel(x, y)
                 if (c >= 0 && isRed(c)) return true
             }
-            // Serit kirmizi degilse: kaydedilen bar noktasinin rengine de bak
-            // (bar elle kaydedildiyse ve rengi kirmizidan farkliysa hedef yine taninir)
-            return !isLow(bar)
+            return false
         }
         return !isLow(bar)
     }
@@ -3996,6 +4002,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun collectAnkorHazirla(o: Preset.Olcek) {
+        collectKesin = false
         val p = Preset.solUst(o, 398, 540)
         collectAnkorGX = (p[0] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         collectAnkorGY = (p[1] * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
@@ -4021,28 +4028,42 @@ class MacroService : AccessibilityService() {
     }
 
     /** Collect All penceresini ara: sabit konumun cevresinde, once tum pencere, olmazsa sadece buton */
-    private fun findCollect(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
+    private fun findCollect(f: ScreenSampler.Frame, genis: Boolean = false, bekleme: Boolean = false): Pair<Sablon, IntArray>? {
         if (collectAnkorGX < 0) return null
+        // BILINEN YER: Collect All bir kere bulununca yeri hatirlanir; sonraki kutularda sadece
+        // o noktanin hemen cevresine (~16 px) bakilir. Genis tarama yok, bot hizli kalir.
+        if (collectKesin) {
+            for (t in listOfNotNull(cfg.collectT, cfg.collectT2)) {
+                ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, 8)
+                    ?.let { return t to collectOgren(it) }
+            }
+            // Pencere acilmasi bekleniyorsa (Open'dan hemen sonra) genis arama yapma, sadece bilinen yere bak
+            if (bekleme) return null
+        }
         val m = 60   // izgara birimi (~120 ekran pikseli): kucuk cihaz/olcek sapmalarini tolere eder
         cfg.collectT?.let { t ->
             ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, m)
-                ?.let { return t to it }
+                ?.let { return t to collectOgren(it) }
         }
         cfg.collectT2?.let { t ->
             ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, collectAnkorGX, collectAnkorGY, m)
-                ?.let { return t to it }
+                ?.let { return t to collectOgren(it) }
         }
-        // Bulunamadi: tablet / farkli ekranda pencere baska yerde acilabilir. Tum ekranda ara
-        // (en fazla 0.4 sn'de bir); bulunca yerini ogren, sonraki seferler yine hizli olsun.
+        // Tum ekran taramasi AGIR: sadece (1) Open'a basildiktan sonra pencere bekleniyorsa ve
+        // (2) cihaz tablet gibi (kare'ye yakin ekran) ise yapilir. Telefonlarda hic calismaz,
+        // bot hizi etkilenmez. Bulunca yerini ogrenir, sonraki seferler yine hizli olur.
+        if (!genis) return null
+        val uzun = maxOf(screenW, screenH).toFloat(); val kisa = minOf(screenW, screenH).toFloat()
+        if (uzun / kisa >= 1.85f) return null
         val simdi = System.currentTimeMillis()
-        if (simdi - collectGenisAt < 400) return null
+        if (simdi - collectGenisAt < 1200) return null
         collectGenisAt = simdi
         // Tablette arayuz yukseklige gore buyur: sablonun farkli boylarini da dene (bir kez hazirlanir)
         val varyant = collectVaryant ?: collectVaryantHazirla().also { collectVaryant = it }
         val adaylar = listOfNotNull(cfg.collectT?.let { false to it }, cfg.collectT2?.let { true to it }) + varyant
         for ((dugme, t) in adaylar) {
             findT(f, t)?.let { pos ->
-                collectAnkorGX = pos[0]; collectAnkorGY = pos[1]
+                collectOgren(pos)
                 // Tutan boyu hatirla: sonraki kutularda hizli yakin arama bununla yapilir
                 if (dugme) cfg.collectT2 = t else cfg.collectT = t
                 return t to pos
@@ -4051,6 +4072,13 @@ class MacroService : AccessibilityService() {
         return null
     }
     private var collectGenisAt = 0L
+    private var collectKesin = false   // Collect All'in tam yeri ogrenildi mi
+
+    private fun collectOgren(pos: IntArray): IntArray {
+        collectAnkorGX = pos[0]; collectAnkorGY = pos[1]
+        collectKesin = true
+        return pos
+    }
     private var collectVaryant: List<Pair<Boolean, Sablon>>? = null
 
     /** Collect sablonunun farkli boylari: (dugme mi, sablon) */
@@ -4120,7 +4148,7 @@ class MacroService : AccessibilityService() {
 
         when (lootPhase) {
             Loot.COLLECT_BEKLE -> {
-                findCollect(f)?.let { (t, pos) -> return collectHit(now, t, pos) }
+                findCollect(f, genis = true, bekleme = now - lastOpenAt < 600)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()

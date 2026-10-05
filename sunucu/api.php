@@ -66,7 +66,7 @@ try {
     $ozel = openssl_pkey_get_private(file_get_contents(GIZLI . '/ozel.pem'));
     if (!$ozel || !openssl_sign($metin, $imza, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası', true);
     // Gorunen bolumler (farm/pk/pazar): ikinci imza. Eski uygulamalar bunu yok sayar, girisleri bozulmaz.
-    $ozellik = ozellik_temizle((string)($u['ozellik'] ?? ''));
+    $ozellik = uye_ozellik($u);
     $metin2 = "v2|$k|$c|$n|$simdi|$ozellik";
     if (!openssl_sign($metin2, $imza2, $ozel, OPENSSL_ALGO_SHA256)) hata('Sunucu imza hatası', true);
 
