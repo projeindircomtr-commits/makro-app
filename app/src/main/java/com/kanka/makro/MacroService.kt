@@ -3700,6 +3700,21 @@ class MacroService : AccessibilityService() {
                 val c = ScreenSampler.readPixel(x, y)
                 if (c >= 0 && isRed(c)) return true
             }
+            // Mob olmek uzereyken kirmizi sadece barin SOL ucunda ~20 px kalir ve 12 noktali kaba
+            // tarama arasindan kacabilir (skiller o anda duruyordu). Sol %35'i sik (adim ~3 px) ve
+            // 3 satirda tara; en az 2 kirmizi nokta yeter. Sadece kaba tarama bos donunce calisir.
+            val sonSol = x1 + ((x2 - x1) * 0.35f).toInt()
+            val adim = maxOf(2, (x2 - x1) / 110)
+            val dy = maxOf(2, screenH / 330)
+            var kirmizi = 0
+            for (satir in intArrayOf(-dy, 0, dy)) {
+                var x = x1
+                while (x <= sonSol) {
+                    val c = ScreenSampler.readPixel(x, y + satir)
+                    if (c >= 0 && isRed(c) && ++kirmizi >= 2) return true
+                    x += adim
+                }
+            }
             return false
         }
         return !isLow(bar)
