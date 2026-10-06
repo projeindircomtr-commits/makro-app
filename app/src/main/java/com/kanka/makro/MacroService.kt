@@ -770,6 +770,12 @@ class MacroService : AccessibilityService() {
 
     // ================= Yuzen panel =================
 
+    /** Panel daraltılmış (sadece ikon) mı? */
+    @Volatile private var panelDar = false
+    private var panelGenisIcerik: View? = null
+    private var panelIkonBtn: View? = null
+    private var panelRootBg: View? = null
+
     @SuppressLint("ClickableViewAccessibility")
     private fun showPanel() {
         if (panel != null) return
@@ -781,31 +787,52 @@ class MacroService : AccessibilityService() {
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(0xE60E0E0E.toInt())
         }
+        panelRootBg = root
 
-        val drag = btn("⠿") {}
-        drag.setOnTouchListener(object : View.OnTouchListener {
-            var sx = 0
-            var sy = 0
-            var tx = 0f
-            var ty = 0f
+        // Sürükleme
+        fun dragListener(hedef: View) = object : View.OnTouchListener {
+            var sx = 0; var sy = 0; var tx = 0f; var ty = 0f; var moved = false
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        sx = params.x; sy = params.y; tx = e.rawX; ty = e.rawY
+                        sx = params.x; sy = params.y; tx = e.rawX; ty = e.rawY; moved = false
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = sx + (e.rawX - tx).toInt()
-                        params.y = sy + (e.rawY - ty).toInt()
-                        try {
-                            wm.updateViewLayout(root, params)
-                        } catch (ex: Exception) {
-                        }
+                        val dx = (e.rawX - tx).toInt(); val dy = (e.rawY - ty).toInt()
+                        if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(6)) moved = true
+                        params.x = sx + dx; params.y = sy + dy
+                        try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!moved && v === panelIkonBtn) panelDaralt(false)
                     }
                 }
                 return true
             }
-        })
+        }
 
+        // --- Dar ikon: Projeindir Bot logosu (şeffaf arka plan) ---
+        val ikonBoy = dp(44)
+        val ikon = ImageView(this).apply {
+            val bmp = try {
+                assets.open("panel_icon.png").use { android.graphics.BitmapFactory.decodeStream(it) }
+            } catch (_: Exception) { null }
+            if (bmp != null) setImageBitmap(bmp)
+            else setImageResource(resources.getIdentifier("ic_makro", "drawable", packageName))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            layoutParams = LinearLayout.LayoutParams(ikonBoy, ikonBoy)
+        }
+        panelIkonBtn = ikon
+        ikon.setOnTouchListener(dragListener(ikon))
+
+        // --- Geniş panel içeriği ---
+        val genis = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val drag = btn("⠿") {}
+        drag.setOnTouchListener(dragListener(drag))
         val play = btn("▶") { toggle() }
         playBtn = play
         val st = TextView(this).apply {
@@ -813,30 +840,50 @@ class MacroService : AccessibilityService() {
             setTextColor(0xFFB0FFB0.toInt())
             textSize = 12f
             setPadding(dp(6), 0, dp(10), 0)
+            maxWidth = dp(200)
+            setSingleLine(true)
+            includeFontPadding = false
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         statusTv = st
-
-        val mb = btn(modYazi()) { modMenu() }.apply { setTextColor(0xFFE0B04A.toInt()) }
+        val mb = btn("Farm") { modMenu() }.apply { setTextColor(0xFFE0B04A.toInt()) }
         modBtn = mb
-        // Panel her modda ayni incelikte kalsin: tek satir, ekstra font boslugu yok
-        for (v in listOf(drag, play, mb, st)) {
+        val daraltBtn = btn("—") { panelDaralt(true) }
+        for (v in listOf(drag, play, mb, st, daraltBtn)) {
             v.setSingleLine(true)
             v.includeFontPadding = false
-            v.ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        st.maxWidth = dp(220)
-        root.addView(drag)
-        root.addView(play)
-        root.addView(mb)
-        root.addView(btn("⋯") { showMainMenu() })
-        root.addView(st)
+        genis.addView(drag)
+        genis.addView(play)
+        genis.addView(mb)
+        genis.addView(btn("⋯") { showMainMenu() })
+        genis.addView(st)
+        genis.addView(daraltBtn)
+        panelGenisIcerik = genis
+
+        root.addView(genis)
+        root.addView(ikon)
+        ikon.visibility = View.GONE
 
         try {
             wm.addView(root, params)
             panel = root
+            panelDar = false
         } catch (e: Exception) {
             toast("Panel açılamadı: ${e.message}")
         }
+    }
+
+    /** Panel ↔ ikon geçişi. Daraltınca arka plan şeffaf, sadece logo görünür. */
+    private fun panelDaralt(dar: Boolean) {
+        panelDar = dar
+        val g = panelGenisIcerik
+        val i = panelIkonBtn
+        val root = panelRootBg
+        if (g == null || i == null) return
+        g.visibility = if (dar) View.GONE else View.VISIBLE
+        i.visibility = if (dar) View.VISIBLE else View.GONE
+        root?.background = if (dar) null else rounded(0xE60E0E0E.toInt())
     }
 
     // ================= Menuler =================
@@ -2651,12 +2698,9 @@ class MacroService : AccessibilityService() {
     fun isRunning() = running
 
     private fun modYazi() = when {
-        Config.pazarMi(this) -> "🏪 Pazar Bot ▾"
-        Config.genieMi(this) -> "🧞 Genie Hızlandır ▾"
-        // Panelde kisa ve tek satir: emoji'li uzun sinif adi paneli buyutuyordu
-        Config.pkMi(this) -> "⚔ PK • " + (if (Config.oyun(this) == "ko") "KO • " else "") + Config.sinifKisa(this) + " ▾"
-        Config.koMu(this) -> "🌾 Farm Bot • KO ▾"
-        else -> "🌾 Farm Bot ▾"
+        Config.pazarMi(this) -> "🏪 Pazar ▾"
+        Config.koMu(this) -> "🌾 Farm • KO ▾"
+        else -> "🌾 Farm ▾"
     }
 
     /** Oyun ici ana menu: Farm Bot / PK Bot / Pazar Bot */
@@ -2912,7 +2956,7 @@ class MacroService : AccessibilityService() {
             requestCaptureThenStart()
             return
         }
-        pkAktif = Config.pkMi(this)
+        pkAktif = false   // PK bu sürümde tamamen kapalı — sadece Farm
         koAktif = Config.koMu(this)
         koSonKutu = 0L
         if (koAktif) {
@@ -3650,23 +3694,54 @@ class MacroService : AccessibilityService() {
     private fun isimMaske(px: IntArray, renk: Int): BooleanArray =
         BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 110 }
 
-    /** Hedefin ismi kilitli moblardan biri mi? Cihaz / cozunurluk / tablet-telefon farkina dayanikli. */
+    /** Hedefin ismi kilitli moblardan biri mi?
+     * Ana ayırıcı: isim UZUNLUĞU (piksel genişliği). Bir sürü mob benzer renkte;
+     * kısa/uzun isim en güvenilir fark. Şekil ikinci planda doğrular. */
     @Volatile private var isimBilinmiyor = false
     private var kilitOnayli = false
 
     private fun isimUygun(): Boolean {
         isimBilinmiyor = false
         val r = ScreenSampler.bolge(isimRect[0], isimRect[1], isimRect[2], isimRect[3])
-        if (r == null) { isimBilinmiyor = true; return true }   // kare yok: karar verme, bu adimda bekle
+        if (r == null) { isimBilinmiyor = true; return true }
         val (w, h, px) = r
         if (w < 6 || h < 3 || cfg.kilitler.isEmpty()) { isimBilinmiyor = true; return true }
+
+        // Mevcut ismin dolu piksel genişliği (sol-sağ boşluk kırpılmış)
+        val m0 = isimMaske(px, cfg.kilitler.first().renk)
+        var sol = w; var sag = -1
+        for (y in 0 until h) for (x in 0 until w) {
+            if (m0[y * w + x]) { if (x < sol) sol = x; if (x > sag) sag = x }
+        }
+        // Renk farklı olabilir; her kilit kendi rengiyle de dene
+        fun doluGenislik(renk: Int): Int {
+            val m = isimMaske(px, renk)
+            var s = w; var g = -1
+            for (y in 0 until h) for (x in 0 until w) {
+                if (m[y * w + x]) { if (x < s) s = x; if (x > g) g = x }
+            }
+            return if (g >= s) g - s + 1 else 0
+        }
+        fun kayitGenislik(k: Kilit): Int {
+            var s = k.w; var g = -1
+            for (y in 0 until k.h) for (x in 0 until k.w) {
+                if (k.bits[y * k.w + x] == '1') { if (x < s) s = x; if (x > g) g = x }
+            }
+            return if (g >= s) g - s + 1 else k.w
+        }
 
         for (k in cfg.kilitler) {
             if (k.w < 4 || k.h < 2 || k.bits.length != k.w * k.h) continue
 
-            // Kayitli maskeyi mevcut bolge boyutuna olcek (nearest). Telefon↔tablet / DPI farkinda
-            // bile sekil korunur; eski kod boyut orani 0.75–1.33 disinda kilitleri tamamen atiyordu
-            // ve "baska ekranda yapilmis" deyip TUM moblara izin veriyordu.
+            val curW = doluGenislik(k.renk)
+            val lockW = kayitGenislik(k)
+            if (curW < 4 || lockW < 4) continue
+
+            // İSİM UZUNLUĞU: en önemli filtre. %22'den fazla fark = başka mob
+            val uzunlukOran = maxOf(curW.toFloat() / lockW, lockW.toFloat() / curW)
+            if (uzunlukOran > 1.22f) continue
+
+            // Şekil doğrulama (ölçeklenmiş maske)
             val maskK = BooleanArray(w * h)
             for (y in 0 until h) {
                 val sy = (y * k.h / h).coerceIn(0, k.h - 1)
@@ -3676,13 +3751,9 @@ class MacroService : AccessibilityService() {
                 }
             }
             val m = isimMaske(px, k.renk)
-
-            // Yatay + dikey kayma toleransi (farkli aspect / status bar / UI scale)
             var best = 0f
-            val maxDx = 7
-            val maxDy = 3
-            for (dy in -maxDy..maxDy) {
-                for (dx in -maxDx..maxDx) {
+            for (dy in -3..3) {
+                for (dx in -7..7) {
                     var kesisim = 0
                     var birlesim = 0
                     for (y in 0 until h) {
@@ -3699,20 +3770,10 @@ class MacroService : AccessibilityService() {
                     if (birlesim > 0) best = maxOf(best, kesisim.toFloat() / birlesim)
                 }
             }
-
-            // Olcek farki buyudukce esigi biraz dusur (resize kaybi)
-            val oran = maxOf(
-                w.toFloat() / k.w, h.toFloat() / k.h,
-                k.w.toFloat() / w, k.h.toFloat() / h
-            )
-            val esik = when {
-                oran <= 1.12f -> 0.58f
-                oran <= 1.45f -> 0.52f
-                else -> 0.48f
-            }
+            // Uzunluk çok yakınsa şekil eşiği biraz yumuşak
+            val esik = if (uzunlukOran <= 1.08f) 0.48f else 0.55f
             if (best >= esik) return true
         }
-        // Hicbiri tutmadi = yanlis mob. Eski davranis (olcu uymayinca herkese izin) kaldirildi.
         return false
     }
 
@@ -3831,7 +3892,8 @@ class MacroService : AccessibilityService() {
      * can %97'ye gelince BIR KEZ basip kapatir (mana yemeyi birakir). Arada dokunmaz.
      */
     private fun minorAction(now: Long): Nokta? {
-        if (pkAktif && Config.sinif(this) != "asas") return null   // Minor sadece Asas'ta
+        return null   // Minor bu sürümde tamamen kapalı
+        if (pkAktif && Config.sinif(this) != "asas") return null
         if (!cfg.minorAktif) return null
         val m = cfg.points.firstOrNull { it.type == "minor" && it.on } ?: return null
         if (pkSaf()) return pkMinorZamanli(m, now)
@@ -3952,10 +4014,11 @@ class MacroService : AccessibilityService() {
                     ilerlemeAt = now
                     ilkVurus = true
                     menzilArdArda = 0
-                } else if (false && !ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
+                } else if (!ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
                     now - hedefBaslangic > cfg.menzilSn * 1000L
                 ) {
                     // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak
+                    // (Eskiden "false &&" ile tamamen kapaliydi; uzak moba kosup Skill Failed - Too far oluyordu)
                     hedefBaslangic = now
                     ilkVurus = true
                     // Ayni uzak moba tekrar kosmamak icin bekle; ust uste olursa bekleme uzar

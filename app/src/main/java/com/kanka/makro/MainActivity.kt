@@ -301,8 +301,8 @@ class MainActivity : Activity() {
         }
         modKart.addView(sinifSatir)
         modKart.addView(TextView(this).apply {
-            text = "Farm: mob keser, kutu toplar.  PK: oyuncuya saldırır, skilleri senin sıranla basar.  " +
-                "Genie: oyunun Genie'si açıkken sadece kılıca seri basar. Hangi modlar görünür, yöneticin belirler."
+            text = "🌾 Farm Bot: mob seçer, skill basar, HP/MP pot kullanır, kutu toplar. " +
+                "Oyunda paneldeki ▶ ile istediğin zaman başlat / durdur."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
@@ -1083,11 +1083,8 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             toast("Oyun açılamadı"); return
         }
-        // Oyun yuklensin diye biraz bekle, sonra baslat
-        MacroService.instance?.let {
-            if (!it.isRunning()) it.startFromApp(4000)
-        }
-        toast("Bot 4 saniye sonra başlayacak")
+        // Bot otomatik başlamaz: kullanıcı oyunda ▶'a basınca başlar
+        toast("Oyun açılıyor. Hazır olunca paneldeki ▶ ile botu başlat")
     }
 
     // ================= Gelismis bolum =================

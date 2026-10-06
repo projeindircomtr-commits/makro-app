@@ -224,10 +224,14 @@ class Config {
          * Kod silinmedi, sadece secim ekranlarinda gizleniyor.
          */
         /**
-         * Bu hesap bu botu görebilir mi? Farm herkese açık; yönetici hepsini görür;
-         * diğerleri için admin panelinde seçilenler (sunucu imzalı) görünür.
+         * Farm odaklı sürüm: sadece Farm (ve lisanslı Pazar) görünür.
+         * PK ve Genie tamamen kapalı — kod yolu korundu ama seçilemez.
          */
-        fun botGorunur(kod: String): Boolean = Lisans.ozellikVar(kod)
+        fun botGorunur(kod: String): Boolean = when (kod) {
+            "farm" -> true
+            "pk", "genie" -> false
+            else -> Lisans.ozellikVar(kod)
+        }
 
         fun pazarMi(ctx: Context): Boolean = bot(ctx) == "pazar"
 
@@ -244,18 +248,21 @@ class Config {
             genel(ctx).edit().putBoolean("pk", false).putString("bot", "genie").commit()
         }
 
-        /** Uyenin panelden aldigi modlar (sirayla): farm, pk, genie */
-        fun izinliModlar(): List<String> = listOf("farm", "pk", "genie").filter { Lisans.ozellikVar(it) }
+        /** Uyenin panelden aldigi modlar: Farm odaklı — pk/genie yok */
+        fun izinliModlar(): List<String> = listOf("farm").filter { botGorunur(it) }
 
-        /** Secili mod uyeye verilmemisse ilk verilen moda gec (Pazar ayri yonetilir) */
+        /** Secili mod uyeye verilmemisse Farm'a gec (Pazar ayri yonetilir) */
         fun modDuzelt(ctx: Context) {
             val b = bot(ctx)
             if (b == "pazar") return
+            // PK / Genie bu sürümde yok — ne olursa olsun Farm'a çek
+            if (b == "pk" || b == "genie" || !botGorunur(b)) {
+                modDegistir(ctx, false)
+                return
+            }
             val izin = izinliModlar()
             if (izin.isEmpty() || b in izin) return
             when (izin.first()) {
-                "genie" -> genieSec(ctx)
-                "pk" -> modDegistir(ctx, true)
                 else -> modDegistir(ctx, false)
             }
         }
@@ -292,8 +299,8 @@ class Config {
 
         fun sinif(ctx: Context): String = genel(ctx).getString("pkSinif", "asas") ?: "asas"
 
-        /** Minor sadece Asas/Okcu'da (farm'da da acik) */
-        fun minorVar(ctx: Context): Boolean = !pkMi(ctx) || sinif(ctx) == "asas"
+        /** Minor bu sürümde tamamen kapalı */
+        fun minorVar(ctx: Context): Boolean = false
 
         fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
 
@@ -319,7 +326,7 @@ class Config {
             c.oncelik = "mp,hp,minor,heal,buff,kutu,atak"
         }
 
-        const val ONCELIK_VARSAYILAN = "hp,mp,minor,heal,buff,kutu,atak"
+        const val ONCELIK_VARSAYILAN = "hp,mp,heal,buff,kutu,atak"
         val ONCELIK_AD = linkedMapOf(
             "hp" to "❤ HP pot", "mp" to "💧 MP pot", "minor" to "💚 Minor", "heal" to "💗 Heal",
             "buff" to "🛡 Buff", "kutu" to "📦 Kutu", "atak" to "⚔ Skill / Saldırı"

@@ -18,7 +18,8 @@
 
     <application
         android:label="Projeindir Bot"
-        android:icon="@drawable/ic_makro"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <!-- Yazi tanima modelini uygulama kurulurken Google Play Hizmetleri indirsin -->
         <meta-data
