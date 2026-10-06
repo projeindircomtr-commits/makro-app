@@ -423,7 +423,7 @@ object KoOyun {
 
     /** Ust ortadaki secili mob ismi (ornek "Small Bulcan"): mob kilidi bu alani okur.
      * Biraz daha genis/yuksek: telefon↔tablet / farkli aspect'te isim kesilmesin. */
-    fun isimAlani(w: Int, h: Int) = intArrayOf(sx(w, 1030), sy(h, 2), sx(w, 1550), sy(h, 52))
+    fun isimAlani(w: Int, h: Int) = intArrayOf(sx(w, 1030), sy(h, 2), sx(w, 1480), sy(h, 50))
 
     /** Hedef secilince cikan kirmizi X (hedefi birak) */
     fun iptalNokta(w: Int, h: Int) = intArrayOf(sx(w, 2524), sy(h, 965))
