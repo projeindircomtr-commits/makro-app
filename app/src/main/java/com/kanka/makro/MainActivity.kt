@@ -1230,7 +1230,7 @@ class MainActivity : Activity() {
                 textSize = 14f
                 setTextColor(Color.WHITE)
             }, weight1())
-            if (p.type == "skill") {
+            if (p.type == "skill" || (Config.pkMi(this) && p.type in listOf("hp_pot", "mp_pot", "minor", "heal", "buff"))) {
                 r.addView(TextView(this).apply { text = "sn"; textSize = 12f; setTextColor(MUTED) })
                 val e = EditText(this).apply {
                     inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -1325,7 +1325,7 @@ class MainActivity : Activity() {
         if (sameList) {
             for ((i, e) in cdEdits) {
                 val v = e.text.toString().replace(',', '.').toFloatOrNull() ?: continue
-                if (latest.points[i].type == "skill") latest.points[i].cd = v.coerceIn(0f, 3600f)
+                if (latest.points[i].type in listOf("skill", "hp_pot", "mp_pot", "minor", "heal", "buff")) latest.points[i].cd = v.coerceIn(0f, 3600f)
             }
             for ((i, cb) in onChecks) {
                 if (latest.points[i].type == "skill") latest.points[i].on = cb.isChecked

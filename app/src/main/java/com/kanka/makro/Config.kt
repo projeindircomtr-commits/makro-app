@@ -133,6 +133,7 @@ class Config {
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
     var oncelik = ONCELIK_VARSAYILAN   // ne once basilsin (virgullu sira)
+    var pkOkuma = false       // PK: can/mana/hedef ekrandan okunsun mu (kapali = sadece tus basma)
     var genieModu = false     // Genie hizlandirma: oyunun Genie'si acikken sadece skill + seri kilic
     var genieKilicMs = 150    // Genie modunda kilica basma araligi (ms)
     var mpOncelik = false     // KO: ikisi de dusukse once MP iksiri (minor manayla calistigi icin)
@@ -189,7 +190,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("pkOkuma", pkOkuma).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -462,6 +463,7 @@ class Config {
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.skillAraMs = o.optInt("skillAraMs", 800).coerceIn(0, 5000)
                 c.mpOncelik = o.optBoolean("mpOncelik", false)
+                c.pkOkuma = o.optBoolean("pkOkuma", false)
                 c.genieModu = o.optBoolean("genieModu", false)
                 c.genieKilicMs = o.optInt("genieKilicMs", 150).coerceIn(50, 2000)
                 c.oncelik = o.optString("oncelik", "").ifEmpty {
