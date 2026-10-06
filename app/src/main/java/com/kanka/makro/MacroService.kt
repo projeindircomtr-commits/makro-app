@@ -789,7 +789,7 @@ class MacroService : AccessibilityService() {
         }
         panelRootBg = root
 
-        // Sürükleme
+        // Sürükleme + ikon tık
         fun dragListener(hedef: View) = object : View.OnTouchListener {
             var sx = 0; var sy = 0; var tx = 0f; var ty = 0f; var moved = false
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -804,21 +804,25 @@ class MacroService : AccessibilityService() {
                         try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!moved && v === panelIkonBtn) panelDaralt(false)
+                        if (!moved && v === panelIkonBtn) {
+                            // Bot çalışıyorsa ikon = DURDUR; duruyorsa panel açılsın
+                            if (running) stopMacro()
+                            else panelDaralt(false)
+                        }
                     }
                 }
                 return true
             }
         }
 
-        // --- Dar ikon: Projeindir Bot logosu (şeffaf arka plan) ---
+        // --- Sol ikon: Projeindir Bot logosu (şeffaf) ---
         val ikonBoy = dp(44)
         val ikon = ImageView(this).apply {
             val bmp = try {
                 assets.open("panel_icon.png").use { android.graphics.BitmapFactory.decodeStream(it) }
             } catch (_: Exception) { null }
             if (bmp != null) setImageBitmap(bmp)
-            else setImageResource(resources.getIdentifier("ic_makro", "drawable", packageName))
+            else setImageResource(resources.getIdentifier("ic_launcher", "mipmap", packageName))
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(dp(2), dp(2), dp(2), dp(2))
             layoutParams = LinearLayout.LayoutParams(ikonBoy, ikonBoy)
@@ -826,7 +830,7 @@ class MacroService : AccessibilityService() {
         panelIkonBtn = ikon
         ikon.setOnTouchListener(dragListener(ikon))
 
-        // --- Geniş panel içeriği ---
+        // --- Geniş panel (ikonun sağında) ---
         val genis = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -861,8 +865,9 @@ class MacroService : AccessibilityService() {
         genis.addView(daraltBtn)
         panelGenisIcerik = genis
 
-        root.addView(genis)
+        // İkon solda, panel sağda
         root.addView(ikon)
+        root.addView(genis)
         ikon.visibility = View.GONE
 
         try {
@@ -3046,6 +3051,8 @@ class MacroService : AccessibilityService() {
 
         sonLisansKontrol = SystemClock.uptimeMillis()
         playBtn?.text = "⏸"
+        // Bot aktifken panel gizlenir, solda sadece ikon kalır
+        ui.post { panelDaralt(true) }
         stepPlanla( 700)
         h.postDelayed(kutuGozcu, 900)
         h.postDelayed(botKontrolGozcu, 3000)
@@ -3075,6 +3082,8 @@ class MacroService : AccessibilityService() {
         ui.post {
             playBtn?.text = "▶"
             statusTv?.text = "Durdu"
+            // Durunca panel tekrar açılsın (ayar / menü için)
+            panelDaralt(false)
         }
         if (reason != null) {
             toast(reason)
@@ -3679,24 +3688,46 @@ class MacroService : AccessibilityService() {
         return (son + 1).toFloat() / n
     }
 
-    // ---------- Mob kilidi (isim sekli) ----------
+    // ---------- Mob kilidi: sadece KIRMIZI hedef ismi (üstteki kırmızı yazı) ----------
 
     private fun isimAlani(o: Preset.Olcek): IntArray {
-        // Biraz daha genis/yuksek kutu: tablet ve farkli DPI'da isim kesilmesin
-        val a = Preset.ustOrta(o, 1070, 0)
-        val b = Preset.ustOrta(o, 1670, 52)
+        // Üst ortadaki kırmızı mob ismi — barın üstündeki ince şerit
+        val a = Preset.ustOrta(o, 1050, 2)
+        val b = Preset.ustOrta(o, 1690, 40)
         return intArrayOf(a[0], a[1], b[0], b[1])
     }
 
     private fun renkFark(a: Int, b: Int) = ScreenSampler.diff(a, b)
 
-    /** Bolgedeki isim renginde olan pikseller (tolerans biraz genis: farkli DPI/anti-alias) */
-    private fun isimMaske(px: IntArray, renk: Int): BooleanArray =
-        BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 110 }
+    /** Seçili hedefin kırmızı isim pikseli mi? (R baskın, yeşil/mavi düşük) */
+    private fun kirmiziIsimPiksel(c: Int): Boolean {
+        val r = (c shr 16) and 0xff
+        val g = (c shr 8) and 0xff
+        val b = c and 0xff
+        // Kırmızı / pembe isim: R yüksek, G ve B belirgin şekilde daha düşük
+        return r > 140 && r - g > 40 && r - b > 30 && g < 180
+    }
 
-    /** Hedefin ismi kilitli moblardan biri mi?
-     * Ana ayırıcı: isim UZUNLUĞU (piksel genişliği). Bir sürü mob benzer renkte;
-     * kısa/uzun isim en güvenilir fark. Şekil ikinci planda doğrular. */
+    /** Bölgedeki sadece kırmızı isim pikselleri (HP barı / arka plan elenir) */
+    private fun kirmiziIsimMaske(px: IntArray): BooleanArray =
+        BooleanArray(px.size) { kirmiziIsimPiksel(px[it] and 0xFFFFFF) }
+
+    /** Eski kayıtlar için: kayıtlı renge yakın + kırmızımsı */
+    private fun isimMaske(px: IntArray, renk: Int): BooleanArray {
+        // Yeni mantık: önce kırmızı isim; kayıt rengi yedek
+        val kirmizi = kirmiziIsimMaske(px)
+        var kSay = 0
+        for (b in kirmizi) if (b) kSay++
+        if (kSay >= 8) return kirmizi
+        return BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 110 }
+    }
+
+    /**
+     * Kilitli mob mu?
+     * 1) Üstteki kırmızı isim şeridini al
+     * 2) İsim uzunluğu (genişlik) ana filtre
+     * 3) Kırmızı şekil ikinci doğrulama
+     */
     @Volatile private var isimBilinmiyor = false
     private var kilitOnayli = false
 
@@ -3707,18 +3738,16 @@ class MacroService : AccessibilityService() {
         val (w, h, px) = r
         if (w < 6 || h < 3 || cfg.kilitler.isEmpty()) { isimBilinmiyor = true; return true }
 
-        // Mevcut ismin dolu piksel genişliği (sol-sağ boşluk kırpılmış)
-        val m0 = isimMaske(px, cfg.kilitler.first().renk)
-        var sol = w; var sag = -1
-        for (y in 0 until h) for (x in 0 until w) {
-            if (m0[y * w + x]) { if (x < sol) sol = x; if (x > sag) sag = x }
-        }
-        // Renk farklı olabilir; her kilit kendi rengiyle de dene
-        fun doluGenislik(renk: Int): Int {
-            val m = isimMaske(px, renk)
-            var s = w; var g = -1
-            for (y in 0 until h) for (x in 0 until w) {
-                if (m[y * w + x]) { if (x < s) s = x; if (x > g) g = x }
+        val m = kirmiziIsimMaske(px)
+        var kSay = 0
+        for (b in m) if (b) kSay++
+        // Kırmızı isim henüz yok / yüklenmedi → bu karede karar verme (hemen bırakma)
+        if (kSay < 8) { isimBilinmiyor = true; return true }
+
+        fun doluGenislik(mask: BooleanArray, bw: Int, bh: Int): Int {
+            var s = bw; var g = -1
+            for (y in 0 until bh) for (x in 0 until bw) {
+                if (mask[y * bw + x]) { if (x < s) s = x; if (x > g) g = x }
             }
             return if (g >= s) g - s + 1 else 0
         }
@@ -3730,18 +3759,18 @@ class MacroService : AccessibilityService() {
             return if (g >= s) g - s + 1 else k.w
         }
 
+        val curW = doluGenislik(m, w, h)
+        if (curW < 4) { isimBilinmiyor = true; return true }
+
         for (k in cfg.kilitler) {
             if (k.w < 4 || k.h < 2 || k.bits.length != k.w * k.h) continue
-
-            val curW = doluGenislik(k.renk)
             val lockW = kayitGenislik(k)
-            if (curW < 4 || lockW < 4) continue
+            if (lockW < 4) continue
 
-            // İSİM UZUNLUĞU: en önemli filtre. %22'den fazla fark = başka mob
+            // İsim uzunluğu: ana ayırıcı (Kecoon fighter vs kısa isimler)
             val uzunlukOran = maxOf(curW.toFloat() / lockW, lockW.toFloat() / curW)
-            if (uzunlukOran > 1.22f) continue
+            if (uzunlukOran > 1.25f) continue
 
-            // Şekil doğrulama (ölçeklenmiş maske)
             val maskK = BooleanArray(w * h)
             for (y in 0 until h) {
                 val sy = (y * k.h / h).coerceIn(0, k.h - 1)
@@ -3750,10 +3779,9 @@ class MacroService : AccessibilityService() {
                     maskK[y * w + x] = k.bits[sy * k.w + sx] == '1'
                 }
             }
-            val m = isimMaske(px, k.renk)
             var best = 0f
-            for (dy in -3..3) {
-                for (dx in -7..7) {
+            for (dy in -2..2) {
+                for (dx in -8..8) {
                     var kesisim = 0
                     var birlesim = 0
                     for (y in 0 until h) {
@@ -3770,8 +3798,7 @@ class MacroService : AccessibilityService() {
                     if (birlesim > 0) best = maxOf(best, kesisim.toFloat() / birlesim)
                 }
             }
-            // Uzunluk çok yakınsa şekil eşiği biraz yumuşak
-            val esik = if (uzunlukOran <= 1.08f) 0.48f else 0.55f
+            val esik = if (uzunlukOran <= 1.10f) 0.45f else 0.52f
             if (best >= esik) return true
         }
         return false
@@ -3799,38 +3826,37 @@ class MacroService : AccessibilityService() {
                 toast("Ekran görüntüsü alınamadı"); return@post
             }
             val (w, hh, px) = r
-            // Ismin rengi: bolgedeki canli (doygun) piksellerin ortancasi
+            // Sadece üstteki KIRMIZI hedef ismi — dikdörtgen alan, kırmızı yazı
+            val m = kirmiziIsimMaske(px)
             val rs = ArrayList<Int>(); val gs = ArrayList<Int>(); val bs = ArrayList<Int>()
             for (c in px) {
-                val rr = (c shr 16) and 0xff
-                val gg = (c shr 8) and 0xff
-                val bb = c and 0xff
-                val mx = maxOf(rr, gg, bb)
-                val mn = minOf(rr, gg, bb)
-                if (mx - mn > 80 && mx > 120) { rs.add(rr); gs.add(gg); bs.add(bb) }
+                val rgb = c and 0xFFFFFF
+                if (kirmiziIsimPiksel(rgb)) {
+                    rs.add((rgb shr 16) and 0xff)
+                    gs.add((rgb shr 8) and 0xff)
+                    bs.add(rgb and 0xff)
+                }
             }
-            if (rs.size < 20) {
-                toast("İsim bulunamadı. Önce oyunda bir mob seç, ismi üstte görünsün"); return@post
+            if (rs.size < 12) {
+                toast("Kırmızı isim yok. Önce mobu seç — üstte kırmızı isim görünsün"); return@post
             }
             rs.sort(); gs.sort(); bs.sort()
             val renk = (rs[rs.size / 2] shl 16) or (gs[gs.size / 2] shl 8) or bs[bs.size / 2]
-            val m = isimMaske(px, renk)
             var birSay = 0
             val bits = StringBuilder(m.size)
             for (b in m) {
                 bits.append(if (b) '1' else '0')
                 if (b) birSay++
             }
-            // Cok seyrek veya neredeyse dolu maske = isim okunamamis / arka plan karismis
             val oran = birSay.toFloat() / m.size
-            if (birSay < 12 || oran < 0.02f || oran > 0.55f) {
-                toast("İsim net değil. Mobu seçip isim üstte net görünsün, tekrar dene")
+            if (birSay < 12 || oran < 0.015f || oran > 0.50f) {
+                toast("Kırmızı isim net değil. Mob seçiliyken tekrar dene")
                 return@post
             }
             val c = Config.load(this)
             c.kilitler.add(Kilit(w, hh, renk, bits.toString()))
             c.save(this)
-            toast("🎯 Mob kilitlendi. Toplam ${c.kilitler.size} mob — her cihazda aynı kilit çalışır")
+            toast("🎯 Kırmızı isim kilitlendi (${c.kilitler.size}). Sadece bu isme vurulacak")
         }
     }
 
@@ -4082,24 +4108,25 @@ class MacroService : AccessibilityService() {
                 if (now < kilitBekleUntil) return null
                 if (alive) {
                     val uygun = isimUygun()
+                    // Kırmızı isim henüz oturmadı → bırakma, bekle (seç-bırak döngüsü engeli)
                     if (isimBilinmiyor) return null
                     if (uygun) {
                         kilitKotu = 0
-                        // Yeni hedefte ilk skill/saldirindan once isim en az 150 ms tutarli eslessin
+                        // İsim en az 280 ms tutarlı görünsün, sonra skill/saldırı
                         if (!kilitOnayli) {
-                            if (now - hedefBaslangic < 150) return null
+                            if (now - hedefBaslangic < 280) return null
                             kilitOnayli = true
                         }
                     } else {
-                        kilitOnayli = false
-                        // Yanlis mob: karakter ona yurumesin diye hemen hedefi iptal et (X)
+                        // Tek kare yanlış = hemen X yok. 2 üst üste yanlışta bırak.
                         kilitKotu++
-                        if (kilitKotu >= 6) {
-                            // Ust uste 6 yanlis mob: kilitli mob kalmadi, 8 sn bekle
+                        if (kilitKotu < 2) return null
+                        kilitOnayli = false
+                        if (kilitKotu >= 8) {
                             kilitBekleUntil = now + 8000
-                            kilitKotu = 5   // bekleme sonrasi tek deneme; tutmazsa yine bekle
+                            kilitKotu = 6
                         }
-                        nextTarget = now + rand(350, 500)
+                        nextTarget = now + rand(400, 600)
                         iptalAt = now
                         val x = if (o != null) iptalNoktasi(o) else koIptal()
                         return Nokta("İptal", "iptal", x[0], x[1])
