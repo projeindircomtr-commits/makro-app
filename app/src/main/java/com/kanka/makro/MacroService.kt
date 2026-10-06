@@ -3638,18 +3638,19 @@ class MacroService : AccessibilityService() {
     // ---------- Mob kilidi (isim sekli) ----------
 
     private fun isimAlani(o: Preset.Olcek): IntArray {
-        val a = Preset.ustOrta(o, 1100, 0)
-        val b = Preset.ustOrta(o, 1640, 44)
+        // Biraz daha genis/yuksek kutu: tablet ve farkli DPI'da isim kesilmesin
+        val a = Preset.ustOrta(o, 1070, 0)
+        val b = Preset.ustOrta(o, 1670, 52)
         return intArrayOf(a[0], a[1], b[0], b[1])
     }
 
     private fun renkFark(a: Int, b: Int) = ScreenSampler.diff(a, b)
 
-    /** Bolgedeki isim renginde olan pikseller */
+    /** Bolgedeki isim renginde olan pikseller (tolerans biraz genis: farkli DPI/anti-alias) */
     private fun isimMaske(px: IntArray, renk: Int): BooleanArray =
-        BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 90 }
+        BooleanArray(px.size) { renkFark(px[it] and 0xFFFFFF, renk) < 110 }
 
-    /** Hedefin ismi kilitli moblardan biri mi? */
+    /** Hedefin ismi kilitli moblardan biri mi? Cihaz / cozunurluk / tablet-telefon farkina dayanikli. */
     @Volatile private var isimBilinmiyor = false
     private var kilitOnayli = false
 
@@ -3658,41 +3659,60 @@ class MacroService : AccessibilityService() {
         val r = ScreenSampler.bolge(isimRect[0], isimRect[1], isimRect[2], isimRect[3])
         if (r == null) { isimBilinmiyor = true; return true }   // kare yok: karar verme, bu adimda bekle
         val (w, h, px) = r
-        var olcuUyan = false
+        if (w < 6 || h < 3 || cfg.kilitler.isEmpty()) { isimBilinmiyor = true; return true }
+
         for (k in cfg.kilitler) {
-            // Ekran olcegi oturumlar arasinda biraz degisebilir (0.95 -> 0.96): kilit boyutu %25 icinde
-            // farkliysa kayitli ismi yeni boyuta olcekleyip karsilastir. Eskiden boyut tam tutmazsa
-            // TUM moblar serbest kaliyordu (kilit "tutmuyor" gibi gorunurdu).
-            val oranW = w.toFloat() / k.w
-            val oranH = h.toFloat() / k.h
-            if (oranW < 0.75f || oranW > 1.33f || oranH < 0.75f || oranH > 1.33f) continue
-            val ayniBoyut = k.w == w && k.h == h
-            olcuUyan = true
-            val m = isimMaske(px, k.renk)
-            var best = 0f
-            for (dx in -3..3) {
-                var kesisim = 0
-                var birlesim = 0
-                for (y in 0 until h) {
-                    for (x in 0 until w) {
-                        val a = (if (ayniBoyut) k.bits[y * w + x] else k.bits[(y * k.h / h) * k.w + (x * k.w / w)]) == '1'
-                        val xx = x - dx
-                        val b = xx in 0 until w && m[y * w + xx]
-                        if (a && b) kesisim++
-                        if (a || b) birlesim++
-                    }
+            if (k.w < 4 || k.h < 2 || k.bits.length != k.w * k.h) continue
+
+            // Kayitli maskeyi mevcut bolge boyutuna olcek (nearest). Telefon↔tablet / DPI farkinda
+            // bile sekil korunur; eski kod boyut orani 0.75–1.33 disinda kilitleri tamamen atiyordu
+            // ve "baska ekranda yapilmis" deyip TUM moblara izin veriyordu.
+            val maskK = BooleanArray(w * h)
+            for (y in 0 until h) {
+                val sy = (y * k.h / h).coerceIn(0, k.h - 1)
+                for (x in 0 until w) {
+                    val sx = (x * k.w / w).coerceIn(0, k.w - 1)
+                    maskK[y * w + x] = k.bits[sy * k.w + sx] == '1'
                 }
-                if (birlesim > 0) best = maxOf(best, kesisim.toFloat() / birlesim)
             }
-            if (best >= (if (ayniBoyut) 0.65f else 0.55f)) return true
-        }
-        if (!olcuUyan) {
-            if (!kilitUyarildi) {
-                kilitUyarildi = true
-                toast("Mob kilidi başka bir ekranda yapılmış. ⋯ menüsünden yeniden kilitle")
+            val m = isimMaske(px, k.renk)
+
+            // Yatay + dikey kayma toleransi (farkli aspect / status bar / UI scale)
+            var best = 0f
+            val maxDx = 7
+            val maxDy = 3
+            for (dy in -maxDy..maxDy) {
+                for (dx in -maxDx..maxDx) {
+                    var kesisim = 0
+                    var birlesim = 0
+                    for (y in 0 until h) {
+                        val yy = y + dy
+                        if (yy !in 0 until h) continue
+                        for (x in 0 until w) {
+                            val a = maskK[y * w + x]
+                            val xx = x + dx
+                            val b = xx in 0 until w && m[yy * w + xx]
+                            if (a && b) kesisim++
+                            if (a || b) birlesim++
+                        }
+                    }
+                    if (birlesim > 0) best = maxOf(best, kesisim.toFloat() / birlesim)
+                }
             }
-            return true
+
+            // Olcek farki buyudukce esigi biraz dusur (resize kaybi)
+            val oran = maxOf(
+                w.toFloat() / k.w, h.toFloat() / k.h,
+                k.w.toFloat() / w, k.h.toFloat() / h
+            )
+            val esik = when {
+                oran <= 1.12f -> 0.58f
+                oran <= 1.45f -> 0.52f
+                else -> 0.48f
+            }
+            if (best >= esik) return true
         }
+        // Hicbiri tutmadi = yanlis mob. Eski davranis (olcu uymayinca herkese izin) kaldirildi.
         return false
     }
 
@@ -3734,12 +3754,22 @@ class MacroService : AccessibilityService() {
             rs.sort(); gs.sort(); bs.sort()
             val renk = (rs[rs.size / 2] shl 16) or (gs[gs.size / 2] shl 8) or bs[bs.size / 2]
             val m = isimMaske(px, renk)
+            var birSay = 0
             val bits = StringBuilder(m.size)
-            for (b in m) bits.append(if (b) '1' else '0')
+            for (b in m) {
+                bits.append(if (b) '1' else '0')
+                if (b) birSay++
+            }
+            // Cok seyrek veya neredeyse dolu maske = isim okunamamis / arka plan karismis
+            val oran = birSay.toFloat() / m.size
+            if (birSay < 12 || oran < 0.02f || oran > 0.55f) {
+                toast("İsim net değil. Mobu seçip isim üstte net görünsün, tekrar dene")
+                return@post
+            }
             val c = Config.load(this)
             c.kilitler.add(Kilit(w, hh, renk, bits.toString()))
             c.save(this)
-            toast("🎯 Mob kilitlendi. Toplam ${c.kilitler.size} mob, sadece bunlara vurulacak")
+            toast("🎯 Mob kilitlendi. Toplam ${c.kilitler.size} mob — her cihazda aynı kilit çalışır")
         }
     }
 
