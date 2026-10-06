@@ -1111,9 +1111,15 @@ class MacroService : AccessibilityService() {
                 { kaydet { it.skillAraMs = (it.skillAraMs - 100).coerceIn(0, 5000) } },
                 { kaydet { it.skillAraMs = (it.skillAraMs + 100).coerceIn(0, 5000) } })
             // Ekran okuma: kapaliyken bot sadece tus basar (can/mana/hedef okumaz); potlar sureyle basilir
-            satir("🕹 Yön joystick'leri (yürü/dön)", { if (Config.load(this).padAcik) "AÇIK" else "KAPALI" },
+            satir("🕹 Yön joystick'i (yürü + dön)", { if (Config.load(this).padAcik) "AÇIK" else "KAPALI" },
                 { kaydet { it.padAcik = false } },
                 { kaydet { it.padAcik = true } })
+            satir("🕹 Yürürken skill", { if (Config.load(this).padSkillDurur) "DURSUN (akıcı yürü)" else "DEVAM ETSİN" },
+                { kaydet { it.padSkillDurur = false } },
+                { kaydet { it.padSkillDurur = true } })
+            satir("👁 Ayrı kamera joystick'i", { if (Config.load(this).padKamera) "AÇIK" else "KAPALI" },
+                { kaydet { it.padKamera = false } },
+                { kaydet { it.padKamera = true } })
             satir("🖐 Ekran okuma", { if (Config.load(this).pkOkuma) "AÇIK" else "KAPALI (sadece tuş)" },
                 { kaydet { it.pkOkuma = false } },
                 { kaydet { it.pkOkuma = true } })
@@ -1209,6 +1215,7 @@ class MacroService : AccessibilityService() {
         "hedef" -> "🎯"
         "hp_pot" -> "HP"
         "kutu" -> "📦"
+        "joy" -> "🕹"
         "minor" -> "💚"
         "mp_pot" -> "MP"
         "heal" -> "💗\n%${p.yuzde}"
@@ -1368,6 +1375,7 @@ class MacroService : AccessibilityService() {
         "❌ İptal (X)" to { onPick("iptal") },
         "💗 Can skilli (Heal)" to { onPick("heal") },
         "📦 Kutu butonu (KO)" to { onPick("kutu") },
+        "🕹 Oyunun yürüme joystick'i (halkanın ortasına)" to { onPick("joy") },
         "🛡 Buff (süreyle)" to { onPick("buff") }
     ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
 
@@ -4420,8 +4428,15 @@ class MacroService : AccessibilityService() {
     }
 
     /** Oyundaki yurume (sol yari) ve kamera (sag yari) baslangic noktalari; joystick'lerin altinda DEGIL */
-    private fun padTaban(p: Pad) =
-        if (p.tur == 0) floatArrayOf(screenW * 0.30f, screenH * 0.55f) else floatArrayOf(screenW * 0.60f, screenH * 0.38f)
+    private fun padTaban(p: Pad): FloatArray {
+        if (p.tur == 0) {
+            // Oyunun yurume joystick'inin halkasi: kayitli "Joystick" tusu varsa orasi, yoksa olculen varsayilan
+            // (video: soldan %24.6, yukaridan %61.3). Oyunun joystick'i hem yurutur hem sag/sol ile cevirir.
+            cfg.points.firstOrNull { it.type == "joy" }?.let { return floatArrayOf(it.x.toFloat(), it.y.toFloat()) }
+            return floatArrayOf(screenW * 0.246f, screenH * 0.613f)
+        }
+        return floatArrayOf(screenW * 0.60f, screenH * 0.25f)
+    }
 
     /** -1..1 arasi normallestirilmis itme (olu bolge dahil) */
     private fun padItme(p: Pad): FloatArray {
@@ -4437,7 +4452,7 @@ class MacroService : AccessibilityService() {
         val tb = padTaban(p)
         if (p.tur != 0) return floatArrayOf((tb[0] + p.ofs).coerceIn(2f, screenW - 3f), tb[1])
         val itme = padItme(p)
-        val menzil = screenH * 0.10f   // oyundaki joystick'in tam itme yaricapi
+        val menzil = screenH * 0.11f   // oyundaki joystick topuzunun azami yolu (videoda ~%10-12)
         return floatArrayOf(
             (tb[0] + itme[0] * menzil).coerceIn(2f, screenW - 3f),
             (tb[1] + itme[1] * menzil).coerceIn(2f, screenH - 3f)
@@ -4511,8 +4526,8 @@ class MacroService : AccessibilityService() {
         ui.post {
             padKaldirUi()
             if (!pkAktif || !cfg.padAcik || screenW <= 0) return@post
-            val yBoy = (screenH * 0.40f).toInt()
-            val kBoy = (screenH * 0.34f).toInt()
+            val yBoy = (screenH * 0.38f).toInt()
+            val kBoy = (screenH * 0.30f).toInt()
             fun ekle(p: Pad, x: Int, y: Int, boy: Int, etiket: String) {
                 p.yaricap = boy / 2f * 0.80f
                 val v = joystickGorunumu(p, etiket)
@@ -4523,9 +4538,11 @@ class MacroService : AccessibilityService() {
                 synchronized(padKilit) { padlar.add(p) }
             }
             try {
-                ekle(Pad(0), (screenW * 0.02f).toInt(), (screenH * 0.57f).toInt(), yBoy, "YÜRÜ")
-                ekle(Pad(1), (screenW * 0.32f).toInt(), (screenH * 0.63f).toInt(), kBoy, "KAMERA")
-                toast("🕹 Yön joystick'leri hazır")
+                // Sol alt: oyunun joystick'i ile AYNI isi yapar (yurut + sag/sol cevir). Oyunun kendi halkasinin
+                // ustunu ortmez (halka soldan %24.6'da).
+                ekle(Pad(0), (screenW * 0.012f).toInt(), (screenH * 0.58f).toInt(), yBoy, "YÜRÜ / DÖN")
+                if (cfg.padKamera) ekle(Pad(1), (screenW * 0.34f).toInt(), (screenH * 0.66f).toInt(), kBoy, "KAMERA")
+                toast("🕹 Joystick hazır: ileri/geri yürür, sağ/sol çevirir")
             } catch (e: Exception) {
                 hataKaydet("pad", e)
                 toast("Joystick açılamadı: ${e.message}")
@@ -4609,7 +4626,10 @@ class MacroService : AccessibilityService() {
                     hataKaydet("pad-jest", e)
                 }
             }
-            if (padBotSirasi.isNotEmpty()) {
+            // Bazi telefonlarda joystick + tus ayni jestte gercek coklu dokunus gibi islenmiyor ve yuruyus bozuluyor.
+            // "Yururken skill durur" aciksa joystick'e dokunulduğu surece bot tuslari bekler, birakinca devam eder.
+            val joyMesgul = cfg.padSkillDurur && padlar.any { it.down || it.stroke != null }
+            if (padBotSirasi.isNotEmpty() && !joyMesgul) {
                 bot = padBotSirasi.removeAt(0)
                 val liste = bot!!.first
                 liste.forEachIndexed { i, t ->
