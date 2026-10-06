@@ -11,6 +11,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.os.Environment
 import android.provider.MediaStore
 import android.content.res.Configuration
@@ -1109,7 +1111,7 @@ class MacroService : AccessibilityService() {
                 { kaydet { it.skillAraMs = (it.skillAraMs - 100).coerceIn(0, 5000) } },
                 { kaydet { it.skillAraMs = (it.skillAraMs + 100).coerceIn(0, 5000) } })
             // Ekran okuma: kapaliyken bot sadece tus basar (can/mana/hedef okumaz); potlar sureyle basilir
-            satir("🕹 Yön pedleri (yürü/dön)", { if (Config.load(this).padAcik) "AÇIK" else "KAPALI" },
+            satir("🕹 Yön joystick'leri (yürü/dön)", { if (Config.load(this).padAcik) "AÇIK" else "KAPALI" },
                 { kaydet { it.padAcik = false } },
                 { kaydet { it.padAcik = true } })
             satir("🖐 Ekran okuma", { if (Config.load(this).pkOkuma) "AÇIK" else "KAPALI (sadece tuş)" },
@@ -4388,20 +4390,19 @@ class MacroService : AccessibilityService() {
         if (!ok) tapSeq(list, 0, done)
     }
 
-    // ================= Yon pedleri (PK) =================
+    // ================= Yon joystick'leri (PK) =================
     // Sorun: Android'de dispatchGesture, o an devam eden TUM dokunuslari (senin parmagin dahil) iptal eder.
-    // Bu yuzden bot tuslara basarken oyunun kendi joystick'iyle yuruyemezdin. Cozum: ekranda PED goster;
-    // pedlere dokunman oyundaki yurume/kamera noktasina AYNI dokunus akisi icinde aktarilir ve botun
-    // tuslari da ayni akisa eklenir. Boylece parmaklar birbirini iptal etmez.
-    //  - Yurume pedi: dairenin hangi yanina basarsan o yone yurur (ust = ileri). Surukleme gerekmez.
-    //  - Kamera: ◀ ▶ butonlarina basili tut, kamera doner.
-    private class Pad(val tur: Int) {   // 0 = yurume, 1 = kamera sola, 2 = kamera saga
+    // Bu yuzden bot tuslara basarken oyunun kendi joystick'iyle yuruyemezdin. Cozum: ekranda iki JOYSTICK
+    // goster; parmagini joystick'te tutup oynattikca hareket oyundaki yurume/kamera noktasina AYNI dokunus
+    // akisi icinde aktarilir, botun tuslari da ayni akisa eklenir. Boylece parmaklar birbirini iptal etmez.
+    //  - Sol joystick: yurume (her yone, analog).
+    //  - Sag joystick: kamera (sola/saga cevirir; ne kadar itersen o kadar hizli doner).
+    private class Pad(val tur: Int) {   // 0 = yurume, 1 = kamera
         var view: View? = null
         var down = false
-        var cx = 0f; var cy = 0f              // parmagin ekrandaki yeri (yurume)
-        var merkezX = 0f; var merkezY = 0f    // pedin merkezi (yurume)
-        var yaricap = 1f
-        var ofs = 0f                          // kamera: oyundaki kaydirma miktari
+        var dx = 0f; var dy = 0f              // topuzun merkezden kaymasi (piksel)
+        var yaricap = 1f                      // joystick'in kullanilabilir yaricapi (piksel)
+        var ofs = 0f                          // kamera: oyundaki toplam kaydirma
         var stroke: GestureDescription.StrokeDescription? = null
         var lx = 0f; var ly = 0f              // oyuna son aktarilan nokta
         var birak = false
@@ -4418,81 +4419,118 @@ class MacroService : AccessibilityService() {
         padlar.isNotEmpty() && padlar.any { it.down || it.stroke != null || it.birak } || padUcusta
     }
 
-    /** Oyundaki yurume (sol yari) ve kamera (sag yari) baslangic noktalari; pedlerin altinda DEGIL */
+    /** Oyundaki yurume (sol yari) ve kamera (sag yari) baslangic noktalari; joystick'lerin altinda DEGIL */
     private fun padTaban(p: Pad) =
         if (p.tur == 0) floatArrayOf(screenW * 0.30f, screenH * 0.55f) else floatArrayOf(screenW * 0.60f, screenH * 0.38f)
+
+    /** -1..1 arasi normallestirilmis itme (olu bolge dahil) */
+    private fun padItme(p: Pad): FloatArray {
+        var nx = p.dx / p.yaricap
+        var ny = p.dy / p.yaricap
+        val d = Math.hypot(nx.toDouble(), ny.toDouble()).toFloat()
+        if (d > 1f) { nx /= d; ny /= d }
+        if (d < 0.12f) { nx = 0f; ny = 0f }
+        return floatArrayOf(nx, ny)
+    }
 
     private fun padHedef(p: Pad): FloatArray {
         val tb = padTaban(p)
         if (p.tur != 0) return floatArrayOf((tb[0] + p.ofs).coerceIn(2f, screenW - 3f), tb[1])
-        var dx = p.cx - p.merkezX
-        var dy = p.cy - p.merkezY
-        val d = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
-        if (d > p.yaricap) { dx *= p.yaricap / d; dy *= p.yaricap / d }
-        if (d < p.yaricap * 0.12f) { dx = 0f; dy = 0f }          // ortada olu bolge
+        val itme = padItme(p)
+        val menzil = screenH * 0.10f   // oyundaki joystick'in tam itme yaricapi
         return floatArrayOf(
-            (tb[0] + dx * 0.60f).coerceIn(2f, screenW - 3f),
-            (tb[1] + dy * 0.60f).coerceIn(2f, screenH - 3f)
+            (tb[0] + itme[0] * menzil).coerceIn(2f, screenW - 3f),
+            (tb[1] + itme[1] * menzil).coerceIn(2f, screenH - 3f)
         )
+    }
+
+    /** Ekranda gorunen joystick: taban daire + oynayan topuz */
+    private fun joystickGorunumu(p: Pad, etiket: String): View {
+        val taban = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x70000000 }
+        val halka = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3).toFloat(); color = 0xDDE0B04A.toInt() }
+        val ic = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1).toFloat(); color = 0x55E0B04A }
+        val topuz = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xEEE0B04A.toInt() }
+        val yazi = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCCFFFFFF.toInt(); textSize = dp(13).toFloat(); textAlign = Paint.Align.CENTER }
+        return object : View(this) {
+            override fun onDraw(c: Canvas) {
+                val cx = width / 2f
+                val cy = height / 2f
+                val r = width / 2f - dp(3)
+                c.drawCircle(cx, cy, r, taban)
+                c.drawCircle(cx, cy, r, halka)
+                c.drawCircle(cx, cy, r * 0.62f, ic)
+                if (p.tur == 0) {
+                    c.drawText("▲", cx, cy - r * 0.78f + yazi.textSize / 3, yazi)
+                    c.drawText("▼", cx, cy + r * 0.78f + yazi.textSize / 3, yazi)
+                    c.drawText("◀", cx - r * 0.78f, cy + yazi.textSize / 3, yazi)
+                    c.drawText("▶", cx + r * 0.78f, cy + yazi.textSize / 3, yazi)
+                } else {
+                    c.drawText("◀", cx - r * 0.78f, cy + yazi.textSize / 3, yazi)
+                    c.drawText("▶", cx + r * 0.78f, cy + yazi.textSize / 3, yazi)
+                }
+                c.drawText(etiket, cx, cy + r * 0.45f, yazi)
+                c.drawCircle(cx + p.dx, cy + p.dy, r * 0.34f, topuz)
+            }
+
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                val cx = width / 2f
+                val cy = height / 2f
+                val sinir = width / 2f * 0.80f
+                p.yaricap = sinir
+                fun kaydir() {
+                    var x = e.x - cx
+                    var y = e.y - cy
+                    val d = Math.hypot(x.toDouble(), y.toDouble()).toFloat()
+                    if (d > sinir) { x *= sinir / d; y *= sinir / d }
+                    synchronized(padKilit) { p.dx = x; p.dy = y }
+                    invalidate()
+                }
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        synchronized(padKilit) { p.down = true; p.birak = false; p.stroke = null; p.ofs = 0f }
+                        kaydir()
+                        padPompa()
+                    }
+                    MotionEvent.ACTION_MOVE -> kaydir()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        synchronized(padKilit) {
+                            p.down = false
+                            p.birak = p.stroke != null
+                            p.dx = 0f; p.dy = 0f
+                        }
+                        invalidate()
+                        padPompa()
+                    }
+                }
+                return true
+            }
+        }
     }
 
     private fun padKur() {
         ui.post {
             padKaldirUi()
             if (!pkAktif || !cfg.padAcik || screenW <= 0) return@post
-            val joyBoy = (screenH * 0.36f).toInt()
-            val joyX = (screenW * 0.02f).toInt()
-            val joyY = (screenH * 0.60f).toInt()
-            val kBoy = (screenH * 0.17f).toInt()
-            val kY = (screenH * 0.72f).toInt()
-            fun ekle(p: Pad, x: Int, y: Int, boy: Int, etiket: String, yuvarlak: Boolean) {
-                val v = TextView(this).apply {
-                    text = etiket
-                    gravity = Gravity.CENTER
-                    setTextColor(0xCCFFFFFF.toInt())
-                    textSize = if (yuvarlak) 17f else 22f
-                    background = GradientDrawable().apply {
-                        shape = if (yuvarlak) GradientDrawable.OVAL else GradientDrawable.RECTANGLE
-                        cornerRadius = dp(14).toFloat()
-                        setColor(0x30FFFFFF)
-                        setStroke(dp(2), 0x88E0B04A.toInt())
-                    }
-                }
-                if (yuvarlak) { p.merkezX = x + boy / 2f; p.merkezY = y + boy / 2f; p.yaricap = boy / 2f }
-                v.setOnTouchListener { _, e ->
-                    when (e.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            synchronized(padKilit) {
-                                p.down = true; p.birak = false; p.stroke = null; p.ofs = 0f
-                                p.cx = e.rawX; p.cy = e.rawY
-                            }
-                            padPompa()
-                        }
-                        MotionEvent.ACTION_MOVE -> synchronized(padKilit) { p.cx = e.rawX; p.cy = e.rawY }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            synchronized(padKilit) {
-                                p.cx = e.rawX; p.cy = e.rawY
-                                p.down = false
-                                p.birak = p.stroke != null
-                            }
-                            padPompa()
-                        }
-                    }
-                    true
-                }
-                val lp = WindowManager.LayoutParams(
-                    boy, boy, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSLUCENT
-                ).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
-                try {
-                    wm.addView(v, lp); p.view = v
-                    synchronized(padKilit) { padlar.add(p) }
-                } catch (e: Exception) { hataKaydet("pad", e) }
+            val yBoy = (screenH * 0.40f).toInt()
+            val kBoy = (screenH * 0.34f).toInt()
+            fun ekle(p: Pad, x: Int, y: Int, boy: Int, etiket: String) {
+                p.yaricap = boy / 2f * 0.80f
+                val v = joystickGorunumu(p, etiket)
+                // Panelle AYNI pencere turu (erisilebilirlik katmani): "ustte gosterme" izni gerekmez
+                val par = lp(boy, boy).apply { this.x = x; this.y = y }
+                wm.addView(v, par)
+                p.view = v
+                synchronized(padKilit) { padlar.add(p) }
             }
-            ekle(Pad(0), joyX, joyY, joyBoy, "▲\n◀  🕹  ▶\n▼", true)
-            ekle(Pad(1), (screenW * 0.30f).toInt(), kY, kBoy, "◀👁", false)
-            ekle(Pad(2), (screenW * 0.30f).toInt() + kBoy + dp(10), kY, kBoy, "👁▶", false)
+            try {
+                ekle(Pad(0), (screenW * 0.02f).toInt(), (screenH * 0.57f).toInt(), yBoy, "YÜRÜ")
+                ekle(Pad(1), (screenW * 0.32f).toInt(), (screenH * 0.63f).toInt(), kBoy, "KAMERA")
+                toast("🕹 Yön joystick'leri hazır")
+            } catch (e: Exception) {
+                hataKaydet("pad", e)
+                toast("Joystick açılamadı: ${e.message}")
+                padKaldirUi()
+            }
         }
     }
 
@@ -4512,7 +4550,7 @@ class MacroService : AccessibilityService() {
         padPompa()
     }
 
-    /** Pedin ve botun dokunuslarini TEK jestte gonderir; jest bitince tekrar calisir */
+    /** Joystick'lerin ve botun dokunuslarini TEK jestte gonderir; jest bitince tekrar calisir */
     private fun padPompa() {
         val strokes = ArrayList<GestureDescription.StrokeDescription>()
         var bot: Pair<List<Hedef>, () -> Unit>? = null
@@ -4521,7 +4559,7 @@ class MacroService : AccessibilityService() {
                 if (!running) { padBotSirasi.forEach { it.second() }; padBotSirasi.clear() }
                 return
             }
-            val camAdim = screenW * 0.0035f
+            val camAdim = screenW * 0.0075f
             val camSinir = screenW * 0.10f
             for (p in padlar) {
                 val tb = padTaban(p)
@@ -4529,9 +4567,9 @@ class MacroService : AccessibilityService() {
                 try {
                     if (p.down) {
                         var kes = false
-                        if (p.tur != 0 && onceki != null) {
-                            p.ofs += if (p.tur == 1) -camAdim else camAdim
-                            if (Math.abs(p.ofs) >= camSinir) kes = true   // sinira ulasti: kaldir, tabandan tekrar basla
+                        if (p.tur == 1 && onceki != null) {
+                            p.ofs += padItme(p)[0] * camAdim            // ne kadar itersen o kadar hizli doner
+                            if (Math.abs(p.ofs) >= camSinir) kes = true  // sinira ulasti: kaldir, tabandan tekrar basla
                         }
                         val h2 = padHedef(p)
                         var tx = h2[0]; var ty = h2[1]
@@ -4593,12 +4631,12 @@ class MacroService : AccessibilityService() {
                 padUcusta = false
                 if (basarili) padHata = 0 else {
                     padHata++
-                    for (p in padlar) p.stroke = null   // zincir koptu: parmak hala pedde ise yeniden baslar
+                    for (p in padlar) p.stroke = null   // zincir koptu: parmak hala joystick'te ise yeniden baslar
                 }
             }
             botDone?.invoke()
             if (padHata >= 5) {
-                toast("Yön pedleri çalışmadı, kapatıldı. Telefon çoklu dokunuşu desteklemiyor olabilir")
+                toast("Joystick'ler çalışmadı, kapatıldı. Telefon çoklu dokunuşu desteklemiyor olabilir")
                 padKaldir(); return
             }
             if (basarili) padPompa() else h.postDelayed({ padPompa() }, 40)
