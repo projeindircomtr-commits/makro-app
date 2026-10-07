@@ -53,6 +53,7 @@ import java.net.URLEncoder
 import org.json.JSONObject
 
 class MacroService : AccessibilityService() {
+    private var bankaKontrolAraligiDk: Int = 5
     private var otoBankaKopru: OtoBankaKopru? = null
 
     companion object {
@@ -1018,6 +1019,13 @@ class MacroService : AccessibilityService() {
     // ================= Oyun icinde ayarlar (uygulamaya gecmeden) =================
 
     private fun ayarKarti() {
+        // Banka kontrol süresi satırı (+ / -)
+        try {
+            val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
+            bankaKontrolAraligiDk = sp.getInt("banka_sure_dk", 5)
+            otoBankaKopru?.kontrolAraligiDakika = bankaKontrolAraligiDk
+        } catch (e: Exception) {}
+
         // Oto-Banka sure ayari entegrasyonu
         removeOverlay()
         val c = Config.load(this)
