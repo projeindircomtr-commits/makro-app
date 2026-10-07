@@ -984,6 +984,7 @@ class MacroService : AccessibilityService() {
             if (Config.genieMi(this)) listOf<Pair<String, () -> Unit>>(
                 // Genie Hizlandir: sadece ayar, kilic tusu ve uygulama
                 "⚙ Ayarlar" to { ayarKarti() },
+            "⏱️ Banka Süresi" to { bankaSureSecDialog() },
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "⚙ Uygulamayı aç" to { openApp() }
             ) else listOf<Pair<String, () -> Unit>>(
@@ -1017,6 +1018,7 @@ class MacroService : AccessibilityService() {
     // ================= Oyun icinde ayarlar (uygulamaya gecmeden) =================
 
     private fun ayarKarti() {
+        // Oto-Banka sure ayari entegrasyonu
         removeOverlay()
         val c = Config.load(this)
         val box = LinearLayout(this).apply {
@@ -4917,4 +4919,26 @@ class MacroService : AccessibilityService() {
         }, h)
         if (!ok) h.postDelayed({ done() }, 300)
     }
+
+    private fun bankaSureSecDialog() {
+        val sureler = arrayOf("2 Dk", "3 Dk", "5 Dk", "10 Dk", "15 Dk", "20 Dk")
+        val degerler = intArrayOf(2, 3, 5, 10, 15, 20)
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Banka Kontrol Aralığı (Dakika)")
+        builder.setItems(sureler) { dialog, which ->
+            val secilen = degerler[which]
+            try {
+                val c = Config.load(this)
+                c.bankaKontrolDk = secilen
+                c.save(this)
+            } catch (e: Exception) {}
+            otoBankaKopru?.kontrolAraligiDakika = secilen
+            toast("Kontrol süresi $secilen dakika olarak ayarlandı.")
+            dialog.dismiss()
+        }
+        val d = builder.create()
+        d.window?.setType(android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        d.show()
+    }
+
 }
