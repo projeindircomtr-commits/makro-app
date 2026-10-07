@@ -53,11 +53,6 @@ import java.net.URLEncoder
 import org.json.JSONObject
 
 class MacroService : AccessibilityService() {
-    // Otomasyon ve Kutu Referanslari
-    var kutuVar: Boolean = false
-    var kutuNokta: android.graphics.PointF = android.graphics.PointF(0f, 0f)
-    var iptalNokta: android.graphics.PointF = android.graphics.PointF(0f, 0f)
-
 
     companion object {
         /** Uygulama ekranindan servise ulasmak icin (ayni surec) */

@@ -22,12 +22,12 @@ jobs:
       - name: Gradle Yetkisi Ver
         run: chmod +x gradlew
 
-      - name: APK Derle
+      - name: Debug APK Derle
         run: ./gradlew assembleDebug --stacktrace
 
       - name: APK Dosyasini Yukle
         uses: actions/upload-artifact@v4
         with:
-          name: ProjeindirBot-APK
+          name: ProjeindirBot-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 7
