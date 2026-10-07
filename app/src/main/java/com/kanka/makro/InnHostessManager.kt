@@ -28,7 +28,7 @@ class InnHostessManager(
                 if (currentSlot >= skipFirstSlotsCount) {
                     val pt = res.getInventorySlotPoint(row, col)
                     doubleTap(pt.x, pt.y)
-                    delay(140)
+                    delay(160)
                 }
                 currentSlot++
             }
@@ -41,7 +41,7 @@ class InnHostessManager(
         delay(500)
     }
 
-    private fun tap(x: Float, y: Float, duration: Long = 60) {
+    private fun tap(x: Float, y: Float, duration: Long = 50) {
         val path = Path().apply { moveTo(x, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0, duration)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
@@ -49,8 +49,8 @@ class InnHostessManager(
     }
 
     private suspend fun doubleTap(x: Float, y: Float) {
-        tap(x, y, 50)
-        delay(90)
-        tap(x, y, 50)
+        tap(x, y, 40)
+        delay(80)
+        tap(x, y, 40)
     }
 }

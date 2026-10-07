@@ -17,8 +17,10 @@ class OtoBankaKopru(
 
     var kontrolAraligiDakika: Int = 5
     private var sonKontrolZamani: Long = System.currentTimeMillis()
+    var isBusy: Boolean = false
 
     fun kontrolVaktiGeldiMi(): Boolean {
+        if (isBusy) return false
         val farkDakika = (System.currentTimeMillis() - sonKontrolZamani) / (1000 * 60)
         return farkDakika >= kontrolAraligiDakika
     }
@@ -28,30 +30,38 @@ class OtoBankaKopru(
         tap(pt.x, pt.y)
     }
 
+    fun sonSlotKoordinati(): android.graphics.PointF {
+        // Envanterin son kutucuğu (4. satır, 7. sütun)
+        return res.getInventorySlotPoint(3, 6)
+    }
+
     fun rutiniBaslat(
         cantaDoluMuKontrol: () -> Boolean,
         onAtakDurdur: () -> Unit,
         onAtakBaslat: () -> Unit
     ) {
+        if (isBusy) return
+        isBusy = true
+
         scope.launch {
-            onAtakDurdur()
-            delay(600)
+            try {
+                onAtakDurdur()
+                delay(700)
 
-            toggleInventory()
-            delay(800)
+                toggleInventory()
+                delay(800)
 
-            val dolu = cantaDoluMuKontrol()
+                val dolu = cantaDoluMuKontrol()
 
-            toggleInventory()
-            delay(500)
+                toggleInventory()
+                delay(500)
 
-            if (dolu) {
-                bankayaGitVeBosalt {
-                    sonKontrolZamani = System.currentTimeMillis()
-                    onAtakBaslat()
+                if (dolu) {
+                    bankayaGitVeBosaltInternal()
                 }
-            } else {
+            } finally {
                 sonKontrolZamani = System.currentTimeMillis()
+                isBusy = false
                 onAtakBaslat()
             }
         }
@@ -67,25 +77,21 @@ class OtoBankaKopru(
         }
     }
 
-    fun bankayaGitVeBosalt(onTamamlandi: () -> Unit = {}) {
-        scope.launch {
-            if (pathRecorder.recordedSteps.isNotEmpty()) {
-                pathRecorder.playForward()
-                delay(600)
-            }
+    private suspend fun bankayaGitVeBosaltInternal() {
+        if (pathRecorder.recordedSteps.isNotEmpty()) {
+            pathRecorder.playForward()
+            delay(800)
+        }
 
-            innManager.clickOpenButton()
-            innManager.clickInnHostesOpenMenu()
-            innManager.dumpInventoryToBank(skipFirstSlotsCount = 2)
-            innManager.closeBank()
-            delay(500)
+        innManager.clickOpenButton()
+        innManager.clickInnHostesOpenMenu()
+        innManager.dumpInventoryToBank(skipFirstSlotsCount = 2)
+        innManager.closeBank()
+        delay(600)
 
-            if (pathRecorder.recordedSteps.isNotEmpty()) {
-                pathRecorder.playBackward()
-                delay(600)
-            }
-
-            onTamamlandi()
+        if (pathRecorder.recordedSteps.isNotEmpty()) {
+            pathRecorder.playBackward()
+            delay(800)
         }
     }
 
