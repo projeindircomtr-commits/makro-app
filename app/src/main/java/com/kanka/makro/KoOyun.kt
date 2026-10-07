@@ -3,6 +3,7 @@ package com.kanka.makro
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.PointF
 import kotlinx.coroutines.delay
 
 class KoOyun(
@@ -11,8 +12,14 @@ class KoOyun(
     private val screenWidth: Int,
     private val screenHeight: Int
 ) {
+    // Yeni eklenen modüller
     val pathRecorder = PathRecorder(service)
     val innManager = InnHostessManager(service, screenWidth, screenHeight)
+
+    // MacroService.kt'nin beklediği eksik değişkenler
+    var kutuVar: Boolean = false
+    var kutuNokta: PointF = PointF(0f, 0f)
+    var iptalNokta: PointF = PointF(0f, 0f)
 
     var isRunning = false
     private var mobKillCount = 0
@@ -29,7 +36,7 @@ class KoOyun(
             checkPlayerVitals()
             targetAndAttack()
 
-            if (sampler.isLootBoxAvailable()) {
+            if (kutuVar || sampler.isLootBoxAvailable()) {
                 collectLoot()
                 mobKillCount++
             }
@@ -60,7 +67,9 @@ class KoOyun(
     }
 
     private suspend fun collectLoot() {
-        tap(screenWidth * 0.50f, screenHeight * 0.50f)
+        val clickX = if (kutuNokta.x > 0f) kutuNokta.x else (screenWidth * 0.50f)
+        val clickY = if (kutuNokta.y > 0f) kutuNokta.y else (screenHeight * 0.50f)
+        tap(clickX, clickY)
         delay(250)
     }
 
