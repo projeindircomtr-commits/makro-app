@@ -990,6 +990,11 @@ class MacroService : AccessibilityService() {
                 "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() }
             ) + yoneticiListesi + listOf<Pair<String, () -> Unit>>(
+            "📍 İz Kaydet / Bitir" to {
+                otoBankaKopru?.toggleKayit { k ->
+                    toast(if (k) "İz kaydı başladı" else "İz kaydı tamamlandı")
+                }
+            },
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
