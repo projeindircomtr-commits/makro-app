@@ -982,11 +982,7 @@ class MacroService : AccessibilityService() {
             "⏱️ Kontrol Süresi" to {
                 showBankaSureDialog()
             },
-            "🏦 Banka Boşalt" to {
-                toast("Bankaya gidiliyor...")
-                otoBankaKopru?.bankayaGitVeBosalt {
-                    toast("Banka işlemi tamamlandı, slota dönüldü")
-                }
+            
             },
             "🧪 Ekran testi" to { ekranTesti() },
             "🌡 Sistem kaydı" to { sistemKaydiGoster() },
