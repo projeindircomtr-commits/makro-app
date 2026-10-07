@@ -1,19 +1,71 @@
 package com.kanka.makro
 
 import android.accessibilityservice.AccessibilityService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import kotlinx.coroutines.*
 
 class OtoBankaKopru(
     private val service: AccessibilityService,
-    screenWidth: Int,
-    screenHeight: Int
+    private val screenWidth: Int,
+    private val screenHeight: Int
 ) {
     val pathRecorder = PathRecorder(service)
     val innManager = InnHostessManager(service, screenWidth, screenHeight)
     private val scope = CoroutineScope(Dispatchers.Default)
+
+    var kontrolAraligiDakika: Int = 5
+    private var sonKontrolZamani: Long = System.currentTimeMillis()
+
+    // 1. Süre doldu mu kontrolü
+    fun kontrolVaktiGeldiMi(): Boolean {
+        val simdi = System.currentTimeMillis()
+        val farkDakika = (simdi - sonKontrolZamani) / (1000 * 60)
+        return farkDakika >= kontrolAraligiDakika
+    }
+
+    // 2. Alt bardaki Inventory butonuna tıkla
+    fun toggleInventory() {
+        val invX = screenWidth * 0.735f
+        val invY = screenHeight * 0.962f
+        tap(invX, invY)
+    }
+
+    // 3. Çanta doluluk ve banka rutini
+    fun rutiniBaslat(
+        cantaDoluMuKontrol: () -> Boolean,
+        onAtakDurdur: () -> Unit,
+        onAtakBaslat: () -> Unit
+    ) {
+        scope.launch {
+            // Atak durduruluyor
+            onAtakDurdur()
+            delay(600)
+
+            // Envanteri aç
+            toggleInventory()
+            delay(800)
+
+            // Çantanın doluluğu test ediliyor
+            val dolu = cantaDoluMuKontrol()
+
+            // Envanteri kapat
+            toggleInventory()
+            delay(500)
+
+            if (dolu) {
+                // Bankaya git, boşalt, geri dön
+                bankayaGitVeBosalt {
+                    sonKontrolZamani = System.currentTimeMillis()
+                    onAtakBaslat()
+                }
+            } else {
+                // Boşsa hemen atağa dön
+                sonKontrolZamani = System.currentTimeMillis()
+                onAtakBaslat()
+            }
+        }
+    }
 
     fun toggleKayit(onDurumDegisti: (kaydediyorMu: Boolean) -> Unit) {
         if (!pathRecorder.isRecording) {
@@ -27,24 +79,17 @@ class OtoBankaKopru(
 
     fun bankayaGitVeBosalt(onTamamlandi: () -> Unit = {}) {
         scope.launch {
-            // 1. İzi ileri takip et (Slottan Inn Hostess'e varış)
             if (pathRecorder.recordedSteps.isNotEmpty()) {
                 pathRecorder.playForward()
                 delay(600)
             }
 
-            // 2. NPC Open ve Inn Hostes Open tıkla
             innManager.clickOpenButton()
             innManager.clickInnHostesOpenMenu()
-
-            // 3. Çantayı bankaya çift tıklamalarla aktar
             innManager.dumpInventoryToBank(skipFirstSlotsCount = 2)
-
-            // 4. Bankayı kapat
             innManager.closeBank()
             delay(500)
 
-            // 5. İzi tersine takip et (Bankadan slota dönüş)
             if (pathRecorder.recordedSteps.isNotEmpty()) {
                 pathRecorder.playBackward()
                 delay(600)
@@ -52,5 +97,12 @@ class OtoBankaKopru(
 
             onTamamlandi()
         }
+    }
+
+    private fun tap(x: Float, y: Float, duration: Long = 60) {
+        val path = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        service.dispatchGesture(gesture, null, null)
     }
 }
