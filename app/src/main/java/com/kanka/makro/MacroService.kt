@@ -53,6 +53,7 @@ import java.net.URLEncoder
 import org.json.JSONObject
 
 class MacroService : AccessibilityService() {
+    private var otoBankaKopru: OtoBankaKopru? = null
 
     companion object {
         /** Uygulama ekranindan servise ulasmak icin (ayni surec) */
@@ -242,6 +243,8 @@ class MacroService : AccessibilityService() {
     // ================= Yasam dongusu =================
 
     override fun onServiceConnected() {
+        val dm = resources.displayMetrics
+        otoBankaKopru = OtoBankaKopru(this, dm.widthPixels, dm.heightPixels)
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
