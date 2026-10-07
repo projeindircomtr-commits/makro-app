@@ -979,6 +979,9 @@ class MacroService : AccessibilityService() {
                     toast(if (kaydediyor) "İz kaydı başladı" else "İz kaydı tamamlandı")
                 }
             },
+            "⏱️ Kontrol Süresi" to {
+                showBankaSureDialog()
+            },
             "🏦 Banka Boşalt" to {
                 toast("Bankaya gidiliyor...")
                 otoBankaKopru?.bankayaGitVeBosalt {
@@ -4923,4 +4926,22 @@ class MacroService : AccessibilityService() {
         }, h)
         if (!ok) h.postDelayed({ done() }, 300)
     }
+
+    private fun showBankaSureDialog() {
+        val secenekler = arrayOf("2 Dakika", "3 Dakika", "5 Dakika", "10 Dakika", "15 Dakika")
+        val dakikalar = intArrayOf(2, 3, 5, 10, 15)
+
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Envanter Kontrol Aralığı")
+        builder.setItems(secenekler) { dialog, which ->
+            val secilen = dakikalar[which]
+            otoBankaKopru?.kontrolAraligiDakika = secilen
+            toast("Envanter kontrolü her $secilen dakikada bir yapılacak.")
+            dialog.dismiss()
+        }
+        val dialog = builder.create()
+        dialog.window?.setType(android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        dialog.show()
+    }
+
 }
