@@ -1258,6 +1258,59 @@ class MacroService : AccessibilityService() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
 
+        // Banka Kontrol Araligi Ayar Satiri
+        try {
+            val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
+            var bankaDk = sp.getInt("banka_sure_dk", 5)
+            val bankaRow = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            val title = android.widget.TextView(this).apply {
+                text = "🏦 Banka kontrolü"
+                setTextColor(0xFFE0E0E0.toInt())
+                textSize = 14f
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val valTxt = android.widget.TextView(this).apply {
+                text = "$bankaDk dk"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 14f
+                gravity = android.view.Gravity.CENTER
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(50), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            val btnEksi = android.widget.Button(this).apply {
+                text = "-"
+                setOnClickListener {
+                    if (bankaDk > 1) {
+                        bankaDk--
+                        sp.edit().putInt("banka_sure_dk", bankaDk).apply()
+                        otoBankaKopru?.kontrolAraligiDakika = bankaDk
+                        valTxt.text = "$bankaDk dk"
+                    }
+                }
+            }
+            val btnArti = android.widget.Button(this).apply {
+                text = "+"
+                setOnClickListener {
+                    if (bankaDk < 60) {
+                        bankaDk++
+                        sp.edit().putInt("banka_sure_dk", bankaDk).apply()
+                        otoBankaKopru?.kontrolAraligiDakika = bankaDk
+                        valTxt.text = "$bankaDk dk"
+                    }
+                }
+            }
+            bankaRow.addView(title)
+            bankaRow.addView(btnEksi)
+            bankaRow.addView(valTxt)
+            bankaRow.addView(btnArti)
+            box.addView(bankaRow)
+            box.addView(android.view.View(this), android.widget.LinearLayout.LayoutParams(1, dp(4)))
+        } catch (e: Exception) {}
+
+
         box.addView(TextView(this).apply {
             text = if (c.kilitler.isEmpty()) "🎯 Mob kilidi yok (her moba vurur)"
             else "🎯 ${c.kilitler.size} mob kilitli"
