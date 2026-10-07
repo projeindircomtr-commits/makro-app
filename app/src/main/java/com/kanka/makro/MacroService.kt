@@ -974,6 +974,17 @@ class MacroService : AccessibilityService() {
         val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
             "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
             "📦 Kutu butonu kaydet" to { showLootChooser() },
+            "📍 İz Kaydet / Bitir" to {
+                otoBankaKopru?.toggleKayit { kaydediyor ->
+                    toast(if (kaydediyor) "İz kaydı başladı" else "İz kaydı tamamlandı")
+                }
+            },
+            "🏦 Banka Boşalt" to {
+                toast("Bankaya gidiliyor...")
+                otoBankaKopru?.bankayaGitVeBosalt {
+                    toast("Banka işlemi tamamlandı, slota dönüldü")
+                }
+            },
             "🧪 Ekran testi" to { ekranTesti() },
             "🌡 Sistem kaydı" to { sistemKaydiGoster() },
             "🎥 Kamera testi" to { kameraTesti() },
