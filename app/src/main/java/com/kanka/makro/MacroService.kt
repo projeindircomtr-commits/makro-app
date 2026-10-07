@@ -4920,18 +4920,19 @@ class MacroService : AccessibilityService() {
         if (!ok) h.postDelayed({ done() }, 300)
     }
 
+    
+
+
     private fun bankaSureSecDialog() {
         val sureler = arrayOf("2 Dk", "3 Dk", "5 Dk", "10 Dk", "15 Dk", "20 Dk")
         val degerler = intArrayOf(2, 3, 5, 10, 15, 20)
+        val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
+
         val builder = android.app.AlertDialog.Builder(this)
-        builder.setTitle("Banka Kontrol Aralığı (Dakika)")
+        builder.setTitle("Banka Kontrol Aralığı")
         builder.setItems(sureler) { dialog, which ->
             val secilen = degerler[which]
-            try {
-                val c = Config.load(this)
-                c.bankaKontrolDk = secilen
-                c.save(this)
-            } catch (e: Exception) {}
+            sp.edit().putInt("banka_sure_dk", secilen).apply()
             otoBankaKopru?.kontrolAraligiDakika = secilen
             toast("Kontrol süresi $secilen dakika olarak ayarlandı.")
             dialog.dismiss()

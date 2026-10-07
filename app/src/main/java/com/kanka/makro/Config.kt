@@ -138,7 +138,6 @@ class Config {
     var padAcik = true        // PK: ekranda yurume/kamera pedleri (parmak bota takilmadan hareket eder)
     var pkOkuma = false       // PK: can/mana/hedef ekrandan okunsun mu (kapali = sadece tus basma)
     var genieModu = false     // Genie hizlandirma: oyunun Genie'si acikken sadece skill + seri kilic
-    var bankaKontrolDk: Int = 5,
     var genieKilicMs = 150    // Genie modunda kilica basma araligi (ms)
     var mpOncelik = false     // KO: ikisi de dusukse once MP iksiri (minor manayla calistigi icin)
     var skillAraMs = 800      // PK: iki skill arasi oyunun ortak beklemesi (ms); videoda olculen ~0.8 sn
