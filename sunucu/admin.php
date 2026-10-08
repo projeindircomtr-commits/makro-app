@@ -241,7 +241,7 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
 <div class="chips">
-<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie'] as $kod => $ad): ?>
+<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test'] as $kod => $ad): ?>
 <label class="chip"><input type="checkbox" name="oz[]" value="<?= $kod ?>" <?= in_array($kod, $vo, true) ? 'checked' : '' ?>><span><?= $ad ?></span></label>
 <?php endforeach; ?>
 </div>
@@ -310,7 +310,7 @@ function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(f
 <div class="bolum"><div class="bolum-ad">Bölümler (dokun: aç/kapat, sonra kaydet)</div>
 <form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
 <div class="chips">
-<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie'] as $kod => $ad): ?>
+<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test'] as $kod => $ad): ?>
 <label class="chip"><input type="checkbox" name="oz[]" value="<?= $kod ?>" <?= in_array($kod, $uo, true) ? 'checked' : '' ?>><span><?= $ad ?></span></label>
 <?php endforeach; ?>
 </div>

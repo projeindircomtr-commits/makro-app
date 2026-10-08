@@ -53,8 +53,6 @@ import java.net.URLEncoder
 import org.json.JSONObject
 
 class MacroService : AccessibilityService() {
-    private var bankaKontrolAraligiDk: Int = 5
-    private var otoBankaKopru: OtoBankaKopru? = null
 
     companion object {
         /** Uygulama ekranindan servise ulasmak icin (ayni surec) */
@@ -207,6 +205,29 @@ class MacroService : AccessibilityService() {
     private var isimRect = IntArray(4)
     private var kilitKotu = 0
     private var kilitUyarildi = false
+
+    // ---- Dayanıklılık + test modu durumu ----
+    private var testCalisiyor = false                  // bu oturumda test modu etkin mi
+    @Volatile private var endAtReal = 0L               // elapsedRealtime tabanlı bitiş (derin uykuda da sayar)
+    @Volatile private var sonIlerleme = 0L             // adım döngüsünün son canlılık zamanı (uptime)
+    private var hataPenceresi = 0L
+    private var hataSayisi = 0
+    private var duraklamaBas = 0L
+    private var yakalamaVardi = false
+    private var yakalamaYokSince = 0L
+    private var koHpSifirSince = 0L
+    private var koHpDusukSince = 0L
+    private var koHpGordu = false
+    private var koHpBak = 0L
+    private var dcBekleBas = 0L
+    private var dcBekleSonBak = 0L
+    private var dcOk = 0
+    private var stallSn = 0
+    private var stallRef = 0
+    private var agKopmaAt = 0L
+    private var sonAgTuru = ""
+    private var kontrolPencereBas = 0L
+    private var agCallback: android.net.ConnectivityManager.NetworkCallback? = null
     @Volatile private var kilitBekleUntil = 0L   // kilitli mob yok: bu ana kadar hicbir sey yapma
 
     // Guvenlik: oyun onde mi, ekran acik mi, goruntu taze mi
@@ -244,8 +265,6 @@ class MacroService : AccessibilityService() {
     // ================= Yasam dongusu =================
 
     override fun onServiceConnected() {
-        val dm = resources.displayMetrics
-        otoBankaKopru = OtoBankaKopru(this, dm.widthPixels, dm.heightPixels)
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
@@ -255,6 +274,17 @@ class MacroService : AccessibilityService() {
             Config.modDegistir(this, false)
         }
         Lisans.yukle(this)
+        TestLog.hazirla(this)
+        rotaYukle()
+        TestLog.sistem = Lisans.testHesabi() && Config.load(this).testModu
+        if (TestLog.sistem) {
+            TestLog.olay("SERVIS_BASLADI", "erişilebilirlik servisi bağlandı", "sürüm=${surumAdi()}")
+            val pr = getSharedPreferences("test_durum", MODE_PRIVATE)
+            if (pr.getBoolean("oturum_acik", false)) {
+                TestLog.olay("ONCEKI_OTURUM_KESILDI", "önceki oturum normal bitmedi (servis/uygulama sistem tarafından sonlandırılmış olabilir)", "")
+                pr.edit().putBoolean("oturum_acik", false).apply()
+            }
+        }
         // Beklenmedik cokmeleri kaydet (panele raporlanir)
         val onceki = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
@@ -372,7 +402,8 @@ class MacroService : AccessibilityService() {
             p == "com.google.android.as" || p.contains("freeform")
 
     override fun onInterrupt() {
-        stopMacro()
+        TestLog.olay("SERVIS_KESINTI", "onInterrupt", "")
+        if (running) stopMacro("Servis kesintiye uğradı") else stopMacro()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -381,6 +412,10 @@ class MacroService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        TestLog.olay("SERVIS_DURDU", "onDestroy", "")
+        konumDonguAktif = false
+        yuruAktif = false
+        jAktif = false
         instance = null
         ui.removeCallbacksAndMessages(null)   // ana thread'de bekleyen post/postDelayed cagrilari (statusTick, mesaj kartlari vb.)
         alanView?.let { safeRemove(it) }
@@ -972,6 +1007,8 @@ class MacroService : AccessibilityService() {
         // Bar/kutu kaydi ve tum test/kayit ekranlari SADECE YONETICI. Yeni menu ogesi eklerken
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
+        val testListesi: List<Pair<String, () -> Unit>> = if (Lisans.testHesabi())
+            listOf<Pair<String, () -> Unit>>("🧪 Test modu" to { testMenu() }) else emptyList()
         val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
             "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
             "📦 Kutu butonu kaydet" to { showLootChooser() },
@@ -985,18 +1022,12 @@ class MacroService : AccessibilityService() {
             if (Config.genieMi(this)) listOf<Pair<String, () -> Unit>>(
                 // Genie Hizlandir: sadece ayar, kilic tusu ve uygulama
                 "⚙ Ayarlar" to { ayarKarti() },
-            "⏱️ Banka Süresi" to { bankaSureSecDialog() },
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "⚙ Uygulamayı aç" to { openApp() }
             ) else listOf<Pair<String, () -> Unit>>(
                 "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() }
-            ) + yoneticiListesi + listOf<Pair<String, () -> Unit>>(
-            "📍 İz Kaydet / Bitir" to {
-                otoBankaKopru?.toggleKayit { k ->
-                    toast(if (k) "İz kaydı başladı" else "İz kaydı tamamlandı")
-                }
-            },
+            ) + yoneticiListesi + testListesi + listOf<Pair<String, () -> Unit>>(
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
@@ -1019,14 +1050,6 @@ class MacroService : AccessibilityService() {
     // ================= Oyun icinde ayarlar (uygulamaya gecmeden) =================
 
     private fun ayarKarti() {
-        // Banka kontrol süresi satırı (+ / -)
-        try {
-            val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
-            bankaKontrolAraligiDk = sp.getInt("banka_sure_dk", 5)
-            otoBankaKopru?.kontrolAraligiDakika = bankaKontrolAraligiDk
-        } catch (e: Exception) {}
-
-        // Oto-Banka sure ayari entegrasyonu
         removeOverlay()
         val c = Config.load(this)
         val box = LinearLayout(this).apply {
@@ -1257,59 +1280,6 @@ class MacroService : AccessibilityService() {
         box.addView(kutuBtn, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         box.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
-
-        // Banka Kontrol Araligi Ayar Satiri
-        try {
-            val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
-            var bankaDk = sp.getInt("banka_sure_dk", 5)
-            val bankaRow = android.widget.LinearLayout(this).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(0, dp(4), 0, dp(4))
-            }
-            val title = android.widget.TextView(this).apply {
-                text = "🏦 Banka kontrolü"
-                setTextColor(0xFFE0E0E0.toInt())
-                textSize = 14f
-                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val valTxt = android.widget.TextView(this).apply {
-                text = "$bankaDk dk"
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 14f
-                gravity = android.view.Gravity.CENTER
-                layoutParams = android.widget.LinearLayout.LayoutParams(dp(50), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-            }
-            val btnEksi = android.widget.Button(this).apply {
-                text = "-"
-                setOnClickListener {
-                    if (bankaDk > 1) {
-                        bankaDk--
-                        sp.edit().putInt("banka_sure_dk", bankaDk).apply()
-                        otoBankaKopru?.kontrolAraligiDakika = bankaDk
-                        valTxt.text = "$bankaDk dk"
-                    }
-                }
-            }
-            val btnArti = android.widget.Button(this).apply {
-                text = "+"
-                setOnClickListener {
-                    if (bankaDk < 60) {
-                        bankaDk++
-                        sp.edit().putInt("banka_sure_dk", bankaDk).apply()
-                        otoBankaKopru?.kontrolAraligiDakika = bankaDk
-                        valTxt.text = "$bankaDk dk"
-                    }
-                }
-            }
-            bankaRow.addView(title)
-            bankaRow.addView(btnEksi)
-            bankaRow.addView(valTxt)
-            bankaRow.addView(btnArti)
-            box.addView(bankaRow)
-            box.addView(android.view.View(this), android.widget.LinearLayout.LayoutParams(1, dp(4)))
-        } catch (e: Exception) {}
-
 
         box.addView(TextView(this).apply {
             text = if (c.kilitler.isEmpty()) "🎯 Mob kilidi yok (her moba vurur)"
@@ -1993,6 +1963,7 @@ class MacroService : AccessibilityService() {
 
     /** Hatayi kisa haliyle kaydeder; dakikalik kontrolde sunucuya gonderilir */
     private fun hataKaydet(yer: String, e: Throwable) {
+        TestLog.olay("HATA", yer, "${e.javaClass.simpleName}: ${e.message ?: ""}".take(200))
         try {
             val iz = e.stackTrace.take(3).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }
             val metin = "$yer: ${e.javaClass.simpleName}: ${e.message ?: ""} @ $iz".take(480)
@@ -2920,9 +2891,12 @@ class MacroService : AccessibilityService() {
     private val statusTick = object : Runnable {
         override fun run() {
             if (!running) return
-            val left = ((endAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0)
+            val left = ((endAtReal - SystemClock.elapsedRealtime()) / 1000).coerceAtLeast(0)
             // Uyelik: 10 dakikada bir sunucudan tekrar kontrol
             val simdi = SystemClock.uptimeMillis()
+            bekciKontrol(simdi)
+            if (!running) return
+            TestLog.tik(kesilen, toplanan, basilanPot)
             if (!Lisans.gecerliSimdi()) {
                 stopMacro("Üyelik doğrulanamadı ya da süresi doldu. Bot durdu")
                 return
@@ -2943,7 +2917,7 @@ class MacroService : AccessibilityService() {
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
-            statusTv?.text = (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
+            statusTv?.text = (if (testCalisiyor) "🧪TEST " else "") + (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
                 "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
             ui.postDelayed(this, 1000)
         }
@@ -3040,6 +3014,9 @@ class MacroService : AccessibilityService() {
             cfg.minDelay = cfg.minDelay.coerceAtLeast(700)
             cfg.maxDelay = cfg.maxDelay.coerceAtLeast(cfg.minDelay + 600)
         }
+        // Test modu: SADECE yönetimin "Test" yetkisi verdiği hesapta ve modu açıkken
+        testCalisiyor = cfg.testModu && Lisans.testHesabi()
+        if (testCalisiyor) testAyarlariUygula()
         alanBitti = false
         alanArdArda = 0
         alanBekleUntil = 0L
@@ -3094,7 +3071,8 @@ class MacroService : AccessibilityService() {
         kilitBekleUntil = 0L
         hpBar = IntArray(3)
         mpBar = IntArray(3)
-        dcT = if (cfg.otoArayuz || koAktif) null
+        dcT = if (koAktif) Preset.loadTemplateF(this, "ko_disconnect.png", Preset.landscapeSize(this).first / 2576f, 18, 0.5f, 0.5f)
+        else if (cfg.otoArayuz) null
         else Preset.loadTemplateF(this, "disconnect.png", Preset.landscapeSize(this).first / 2712f, 20, 0.5f, 0.5f)
         hpSol = intArrayOf(-1, -1)
         taramaHata = 0
@@ -3102,6 +3080,7 @@ class MacroService : AccessibilityService() {
         h.post {
             val now = SystemClock.uptimeMillis()
             endAt = now + cfg.minutes * 60_000L
+            endAtReal = SystemClock.elapsedRealtime() + cfg.minutes * 60_000L
             nextTarget = 0L
             lastHpPot = 0L
             lastMpPot = 0L
@@ -3118,6 +3097,12 @@ class MacroService : AccessibilityService() {
             doluKutuAt = 0L
         }
         running = true
+        oturumBaslat()
+        cantaDoluBayrak = false
+        if (testCalisiyor && cfg.rotaAcik && !koAktif) {
+            rotaYukle()
+            konumBaslat()
+        }
         if (pkAktif && cfg.padAcik) padKur()
         oyunPaketi = sonPaket   // su an ondeki uygulama = oyun
         bekleNeden = ""
@@ -3133,7 +3118,1217 @@ class MacroService : AccessibilityService() {
         ui.post(statusTick)
     }
 
+    // ================= Dayanıklılık + test modu =================
+
+    private fun surumAdi(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (e: Exception) {
+        "?"
+    }
+
+    /** Test modu hız merdiveni ve süre. Alt sınır A hiçbir basamakta aşılmaz. */
+    private fun testAyarlariUygula() {
+        if (cfg.testSureDk > 0) cfg.minutes = cfg.testSureDk
+        val b = cfg.testBasamak
+        if (b in 1..4) {
+            val a = cfg.testAltMs
+            var mn = 350
+            var mx = 900
+            when (b) {
+                1 -> { mn = 350; mx = 900; cfg.skMin = 150; cfg.skMax = 700; cfg.pauseChance = 2 }
+                2 -> { mn = 250; mx = 600; cfg.skMin = 100; cfg.skMax = 400; cfg.pauseChance = 1 }
+                3 -> { mn = 180; mx = 400; cfg.skMin = 50; cfg.skMax = 250; cfg.pauseChance = 0 }
+                else -> { mn = a; mx = a + 120; cfg.skMin = 0; cfg.skMax = 150; cfg.pauseChance = 0 }
+            }
+            cfg.minDelay = maxOf(mn, a)
+            cfg.maxDelay = maxOf(mx, cfg.minDelay + 60)
+        }
+    }
+
+    private fun testAyarOzeti(): String =
+        "oyun=${Config.oyunAd(this)} sure=${cfg.minutes}dk basamak=${cfg.testBasamak} A=${cfg.testAltMs}ms " +
+            "minDelay=${cfg.minDelay} maxDelay=${cfg.maxDelay} skMin=${cfg.skMin} skMax=${cfg.skMax} " +
+            "mola=%${cfg.pauseChance} bekci=${cfg.testStallDk}dk dcBekle=${cfg.testDcSn}sn " +
+            "kilit=${cfg.kilitler.size} cihaz=${Build.MODEL} android=${Build.VERSION.SDK_INT} " +
+            "ekran=${screenW}x${screenH} surum=${surumAdi()}"
+
+    private fun oturumBaslat() {
+        sonIlerleme = SystemClock.uptimeMillis()
+        hataSayisi = 0
+        hataPenceresi = 0L
+        duraklamaBas = 0L
+        yakalamaVardi = ScreenSampler.running
+        yakalamaYokSince = 0L
+        koHpSifirSince = 0L
+        koHpDusukSince = 0L
+        koHpGordu = false
+        koHpBak = 0L
+        dcBekleBas = 0L
+        dcBekleSonBak = 0L
+        dcOk = 0
+        stallSn = 0
+        stallRef = kesilen + toplanan + basilanPot
+        kontrolPencereBas = 0L
+        if (testCalisiyor) {
+            TestLog.oturumBasla(this, testAyarOzeti())
+            agIzlemeBasla()
+            toast("🧪 TEST MODU AÇIK: oturum günlüğü kaydediliyor")
+            getSharedPreferences("test_durum", MODE_PRIVATE).edit().putBoolean("oturum_acik", true).apply()
+        }
+    }
+
+    private fun oturumKapat(reason: String?) {
+        agIzlemeDurdur()
+        if (testCalisiyor) {
+            TestLog.oturumBitir(reason ?: "kullanıcı durdurdu")
+            getSharedPreferences("test_durum", MODE_PRIVATE).edit().putBoolean("oturum_acik", false).apply()
+        }
+        testCalisiyor = false
+    }
+
+    /** Duraklama / bağlantı geçişlerinden sonra süre sayaçları haksız durdurmasın */
+    private fun gecisSayaclariniSifirla() {
+        hpLowSince = 0L
+        hpBosSince = 0L
+        dcSay = 0
+        koHpSifirSince = 0L
+        koHpDusukSince = 0L
+        isimBilinmiyorSince = 0L
+        kilitKotu = 0
+    }
+
+    private fun engelAd(e: String): String = when (e) {
+        "🌙" -> "ekran kapalı"
+        "⏸" -> "oyun ön planda değil"
+        "📷" -> "ekran görüntüsü gelmiyor"
+        else -> e
+    }
+
+    /** Art arda tekrarlayan hata: 60 sn içinde 8 hata olursa kontrollü dur */
+    private fun hataPatlamasi() {
+        val simdi = SystemClock.uptimeMillis()
+        if (simdi - hataPenceresi > 60_000L) {
+            hataPenceresi = simdi
+            hataSayisi = 0
+        }
+        hataSayisi++
+        if (hataSayisi >= 8) {
+            TestLog.olay("HATA_PATLAMASI", "60 sn içinde $hataSayisi hata", "")
+            stopMacro("Tekrarlayan hata: bot güvenli durduruldu")
+        }
+    }
+
+    /** Saniyede bir: donma, izin kaybı ve ilerleme kontrolü */
+    private fun bekciKontrol(simdi: Long) {
+        if (!running) return
+        // 1) Adım döngüsü yanıt veriyor mu? (dokunuş geri bildirimi hiç gelmezse bot sessizce donardı)
+        if (sonIlerleme != 0L && simdi - sonIlerleme > 25_000L) {
+            TestLog.olay("DONMA", "adım döngüsü yanıt vermiyor", "sessiz_ms=${simdi - sonIlerleme}")
+            stopMacro("Bot yanıt vermiyor, güvenli durduruldu")
+            return
+        }
+        // 2) Ekran paylaşımı çalışırken kapandıysa kör dokunma: dur
+        if (yakalamaVardi && !ScreenSampler.running) {
+            if (yakalamaYokSince == 0L) {
+                yakalamaYokSince = simdi
+            } else if (simdi - yakalamaYokSince > 5000L) {
+                TestLog.olay("IZIN_KAYBI", "ekran paylaşımı kapandı", "")
+                stopMacro("Ekran paylaşımı kapandı. Bot güvenli durduruldu")
+                return
+            }
+        } else {
+            yakalamaYokSince = 0L
+        }
+        // 3) Test modunda: uzun süre hiç mob/kutu/pot ilerlemesi yoksa (pop-up, ölüm, şehir, harita...) dur
+        val ilerleme = kesilen + toplanan + basilanPot
+        if (ilerleme != stallRef) {
+            stallRef = ilerleme
+            stallSn = 0
+        } else if (bekleNeden.isEmpty()) {
+            stallSn++
+        }
+        if (testCalisiyor && cfg.testStallDk > 0 && stallSn > cfg.testStallDk * 60) {
+            TestLog.olay("ILERLEME_YOK", "uzun süre mob/kutu/pot ilerlemesi yok", "sn=$stallSn")
+            stopMacro("${cfg.testStallDk} dk boyunca ilerleme yok (mob bulunamadı / ekran engeli?). Bot durdu")
+        }
+    }
+
+    /** Test modu: kopma penceresi bekleniyor. true = bu adımda dokunma */
+    private fun baglantiBekle(now: Long): Boolean {
+        val d = dcT
+        if (d != null && ScreenSampler.running && now - dcBekleSonBak > 1500L) {
+            dcBekleSonBak = now
+            val f = ScreenSampler.grab()
+            if (f != null) {
+                if (findT(f, d) == null) dcOk++ else dcOk = 0
+            }
+            if (dcOk >= 2) {
+                val sure = now - dcBekleBas
+                TestLog.olay("BAGLANTI_TOPARLANDI", "kopma penceresi kayboldu, bot devam ediyor", "sure_ms=$sure")
+                dcBekleBas = 0L
+                dcOk = 0
+                gecisSayaclariniSifirla()
+                return false
+            }
+        }
+        if (now - dcBekleBas > cfg.testDcSn * 1000L) {
+            TestLog.olay("BAGLANTI_GELMEDI", "bağlantı beklenen sürede gelmedi", "sure_sn=${cfg.testDcSn}")
+            dcBekleBas = 0L
+            stopMacro("Bağlantı ${cfg.testDcSn} sn içinde gelmedi. Bot durdu")
+            return true
+        }
+        bekleNeden = "🔌"
+        stepPlanla(500)
+        return true
+    }
+
+    private fun agIzlemeBasla() {
+        if (!testCalisiyor || agCallback != null) return
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    val sure = if (agKopmaAt != 0L) SystemClock.elapsedRealtime() - agKopmaAt else 0L
+                    agKopmaAt = 0L
+                    TestLog.olay("AG_GELDI", "ağ bağlantısı geldi", if (sure > 0L) "kopukluk_ms=$sure" else "")
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    agKopmaAt = SystemClock.elapsedRealtime()
+                    TestLog.olay("AG_KOPTU", "ağ bağlantısı kayboldu", "")
+                }
+
+                override fun onCapabilitiesChanged(network: android.net.Network, nc: android.net.NetworkCapabilities) {
+                    val tur = if (nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) "wifi"
+                    else if (nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) "mobil" else "diger"
+                    if (tur != sonAgTuru) {
+                        sonAgTuru = tur
+                        TestLog.olay("AG_TURU", tur, "")
+                    }
+                }
+            }
+            cm.registerDefaultNetworkCallback(cb)
+            agCallback = cb
+        } catch (e: Exception) {
+            hataKaydet("ag-izleme", e)
+        }
+    }
+
+    private fun agIzlemeDurdur() {
+        val cb = agCallback ?: return
+        agCallback = null
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            cm.unregisterNetworkCallback(cb)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** Seçilen dokunuşları kategori ve nedenleriyle günlüğe yaz */
+    private fun eylemLogla(sec: List<Pair<String, Hedef>>) {
+        for ((kat, hd) in sec) {
+            val neden = when (kat) {
+                "hp" -> "can eşiği %${cfg.hpYuzde}"
+                "mp" -> "mana eşiği %${cfg.mpYuzde}"
+                "kutu" -> "kutu fazı=$lootPhase"
+                "atak" -> "hedefCanlı=$oncekiCanli"
+                else -> ""
+            }
+            TestLog.eylem(kat, "x=${hd.x.toInt()} y=${hd.y.toInt()}", neden)
+        }
+    }
+
+    // ---- Test menüsü (yalnızca "Test" yetkili hesapta ⋯ menüsünde görünür) ----
+    private fun testMenu() {
+        val c = Config.load(this)
+        fun sonraki(liste: List<Int>, simdi: Int): Int {
+            val i = liste.indexOf(simdi)
+            return liste[(if (i < 0) 0 else i + 1) % liste.size]
+        }
+        fun ayar(degis: (Config) -> Unit) {
+            val cf = Config.load(this)
+            degis(cf)
+            cf.save(this)
+            TestLog.sistem = Lisans.testHesabi() && cf.testModu
+            testMenu()
+        }
+        val basamakAd = listOf("Normal ayar", "Basamak 1", "Basamak 2", "Basamak 3", "Basamak 4 (alt sınır A)")
+        val altListe = listOf(1000, 700, 500, 400, 300, 200, 150, 100)
+        val sureListe = listOf(0, 60, 240, 720, 1440, 2880)
+        val stallListe = listOf(0, 5, 10, 20, 30)
+        val dcListe = listOf(0, 60, 120, 300)
+        val sureAd = if (c.testSureDk == 0) "ayardaki" else "${c.testSureDk} dk"
+        val stallAd = if (c.testStallDk == 0) "kapalı" else "${c.testStallDk} dk"
+        val dcAd = if (c.testDcSn == 0) "hemen dur" else "${c.testDcSn} sn"
+        val maddeler = listOf<Pair<String, () -> Unit>>(
+            (if (c.testModu) "✅ Test modu: AÇIK" else "⬜ Test modu: KAPALI") to { ayar { it.testModu = !it.testModu } },
+            "⚡ Hız: ${basamakAd[c.testBasamak]}" to { ayar { it.testBasamak = (it.testBasamak + 1) % 5 } },
+            "⏱ Alt sınır A: ${c.testAltMs} ms" to { ayar { it.testAltMs = sonraki(altListe, it.testAltMs) } },
+            "🕒 Test süresi: $sureAd" to { ayar { it.testSureDk = sonraki(sureListe, it.testSureDk) } },
+            "📉 İlerleme bekçisi: $stallAd" to { ayar { it.testStallDk = sonraki(stallListe, it.testStallDk) } },
+            "🔌 Bağlantı bekleme: $dcAd" to { ayar { it.testDcSn = sonraki(dcListe, it.testDcSn) } },
+            "📌 Olay işaretle" to { isaretMenu() },
+            "📍 Konum testi (okunan koordinat)" to { konumTesti() },
+            (if (rotaKayit) "⏹ Rota kaydını bitir" else "🔴 Rota kaydını başlat") to {
+                if (rotaKayit) rotaKayitBitir() else rotaKayitBasla()
+                removeOverlay()
+            },
+            "🗑 Rotayı sil (${rotaIz.size} nokta)" to { rotaSil() },
+            "🚶 Yürüme testi (Inn Hostes'e git)" to { rotaBaslat(1) },
+            "🎒 Çanta rotasını şimdi çalıştır" to { rotaBaslat(0) },
+            (if (c.rotaAcik) "✅ Otomatik çanta rotası: AÇIK" else "⬜ Otomatik çanta rotası: KAPALI") to { ayar { it.rotaAcik = !it.rotaAcik } },
+            "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
+            "📋 Raporu kopyala" to { raporKopyala() },
+            "📤 Raporu paylaş" to { raporPaylas() },
+            "🗑 Günlüğü temizle" to { TestLog.temizle(); toast("Günlük temizlendi") },
+            "Kapat" to { removeOverlay() }
+        )
+        showMenu("🧪 Test modu (yönetim test hesabı)", maddeler)
+    }
+
+    private fun isaretMenu() {
+        val etiketler = listOf(
+            "Karakter öldü", "Şehir / güvenli bölge", "Işınlanma / harita değişimi", "Pop-up çıktı",
+            "Bağlantı elle kesildi", "Bağlantı elle açıldı", "Mob yok / alan boş", "Diğer"
+        )
+        val maddeler = ArrayList<Pair<String, () -> Unit>>()
+        for (e in etiketler) {
+            maddeler.add(e to { TestLog.olay("ISARET", e, "test uzmanı işaretledi"); toast("📌 $e") })
+        }
+        maddeler.add("Geri" to { testMenu() })
+        showMenu("📌 Olay işaretle", maddeler)
+    }
+
+    private fun raporKopyala() {
+        try {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Test raporu", TestLog.rapor(surumAdi())))
+            toast("📋 Rapor panoya kopyalandı")
+        } catch (e: Exception) {
+            hataKaydet("rapor-kopya", e)
+            toast("Rapor kopyalanamadı")
+        }
+    }
+
+    private fun raporPaylas() {
+        try {
+            val i = Intent(Intent.ACTION_SEND)
+            i.type = "text/plain"
+            i.putExtra(Intent.EXTRA_SUBJECT, "Projeindir Bot test raporu")
+            i.putExtra(Intent.EXTRA_TEXT, TestLog.rapor(surumAdi()))
+            val c = Intent.createChooser(i, "Raporu paylaş")
+            c.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(c)
+        } catch (e: Exception) {
+            hataKaydet("rapor-paylas", e)
+            toast("Rapor paylaşılamadı")
+        }
+    }
+
+    // ================= Çanta rotası (MykoMobile, yalnızca "Test" yetkili hesap) =================
+    // Canlı X,Y koordinatı (HP/MP barının altı) okunur. Kaydedilen iz boyunca joystick ile Inn Hostes'e
+    // yürünür; Open → "Inn Hostes Open" → envanterde eşyaya iki kez dokunarak bankaya atılır → kapat →
+    // yürünen iz tersten izlenerek slota dönülür. Her aşamada zaman aşımı ve doğrulama vardır;
+    // doğrulanamazsa kör basış yapılmaz, kontrollü durulur ve nedeni günlüğe yazılır.
+
+    private val rotaThread = HandlerThread("rota").apply { start() }
+    private val rh = Handler(rotaThread.looper)
+
+    private val rotaIz = ArrayList<IntArray>()          // kayıtlı rota: slot -> Inn Hostes
+    private val rotaYeni = ArrayList<IntArray>()        // kayıt sırasında biriken iz
+    private var rotaKayitSon: IntArray? = null
+    @Volatile private var rotaKayit = false
+    @Volatile private var konumX = -1
+    @Volatile private var konumY = -1
+    @Volatile private var konumAt = 0L
+    private var konumOkunuyor = false
+    private var konumDonguAktif = false
+    private var konumAdayX = -1
+    private var konumAdayY = -1
+    private var konumAdaySay = 0
+    private var konumHataSay = 0
+    private var konumLogAt = 0L
+    private val konumGecmis = ArrayList<DoubleArray>()
+    @Volatile private var rotaMesgul = false            // true: farm adımları dokunmaz
+    @Volatile private var rotaCalisiyor = false
+    private var cantaDoluBayrak = false
+    private var rotaAsama = 0
+    private var rotaMod = 0                              // 0 = tam çanta rotası, 1 = sadece yürüme testi
+    private var rotaBas = 0L
+    private var rotaTekrar = false
+    private var rotaSayisi = 0
+    private var rotaIsaret = 0                           // 0 ölçülmedi; +1 sağ itme yön açısını artırır, -1 azaltır
+    private var rotaHizliDonus = false
+    private var rotaBasKonum: IntArray? = null
+    private val rotaYurunen = ArrayList<IntArray>()      // giderken izlenen gerçek yol (dönüş için)
+    private var rotaYurunenSon: IntArray? = null
+    private var bankaT: Sablon? = null
+    private var miktarT: Sablon? = null
+    private var rotaOpenT: Sablon? = null
+    private var bIdx = 0
+    private var bTasinan = 0
+
+    // ---- yürüme durumu ----
+    private var yuruAktif = false
+    private var yuruYol: List<IntArray> = emptyList()
+    private var yuruIdx = 0
+    private var yuruMod = 0                              // 0 = kalibre-1 (ileri), 1 = kalibre-2 (ileri+sağ), 2 = izle
+    private var yuruBas = 0L
+    private var yuruZamanAsimi = 150_000L
+    private var yuruTol = 4.0
+    private var yuruKonumYokSay = 0
+    private var yuruModBas = 0L
+    private var yuruP0: IntArray? = null
+    private var yuruV0 = 0.0
+    private var yuruOnceMesafe = 0.0
+    private var yuruOnceAt = 0L
+    private var yuruKurtarma = 0
+    private var yuruGeriBitis = 0L
+    private var yuruSonuc: ((Boolean, String) -> Unit)? = null
+
+    // ---- joystick (tek dokunuş akışı: parça parça sürdürülen jest) ----
+    private var jStroke: GestureDescription.StrokeDescription? = null
+    private var jLx = 0f
+    private var jLy = 0f
+    private var jUcusta = false
+    @Volatile private var jAktif = false
+    private var jHata = 0
+    @Volatile private var jDx = 0f
+    @Volatile private var jDy = 0f
+
+    // ---------------- kalıcı iz ----------------
+    private fun rotaYukle() {
+        val s = getSharedPreferences("rota", MODE_PRIVATE).getString("iz", "") ?: ""
+        val liste = ArrayList<IntArray>()
+        for (p in s.split(";")) {
+            val a = p.split(",")
+            if (a.size == 2) {
+                val x = a[0].toIntOrNull()
+                val y = a[1].toIntOrNull()
+                if (x != null && y != null) liste.add(intArrayOf(x, y))
+            }
+        }
+        rh.post {
+            rotaIz.clear()
+            rotaIz.addAll(liste)
+        }
+    }
+
+    private fun rotaKaydet() {
+        val sb = StringBuilder()
+        for (p in rotaIz) {
+            if (sb.isNotEmpty()) sb.append(';')
+            sb.append(p[0]).append(',').append(p[1])
+        }
+        getSharedPreferences("rota", MODE_PRIVATE).edit().putString("iz", sb.toString()).apply()
+    }
+
+    private fun rotaHazirMi(): Boolean = rotaIz.size >= 2 && !Config.koMu(this) && ScreenSampler.running
+
+    // ---------------- canlı koordinat okuma ----------------
+    private val konumDongusu = object : Runnable {
+        override fun run() {
+            if (!konumDonguAktif) return
+            try {
+                konumOku()
+            } catch (e: Exception) {
+                hataKaydet("konum", e)
+            }
+            rh.postDelayed(this, 250)
+        }
+    }
+
+    private fun konumBaslat() {
+        if (konumDonguAktif) return
+        konumDonguAktif = true
+        konumHataSay = 0
+        rh.post(konumDongusu)
+    }
+
+    private fun konumDurdur() {
+        konumDonguAktif = false
+    }
+
+    private fun konumGerekliMi(): Boolean =
+        rotaKayit || rotaCalisiyor || (running && testCalisiyor && cfg.rotaAcik && !Config.koMu(this))
+
+    private fun konumOkunamadi(neden: String) {
+        konumHataSay++
+        if (konumHataSay % 20 == 1) TestLog.olay("KONUM_OKUNAMADI", neden, "")
+    }
+
+    private fun konumOku() {
+        if (konumOkunuyor || !ScreenSampler.running || screenW <= 0) return
+        val x1 = (screenW * 0.0745f).toInt()
+        val y1 = (screenH * 0.1245f).toInt()
+        val x2 = (screenW * 0.1400f).toInt()
+        val y2 = (screenH * 0.1660f).toInt()
+        val r = ScreenSampler.bolge(x1, y1, x2, y2) ?: return
+        val w = r.first
+        val hh = r.second
+        val px = r.third
+        if (w < 8 || hh < 4) return
+        val sc = IntArray(px.size)
+        var mx = 0
+        for (i in px.indices) {
+            val c = px[i]
+            val rr = (c shr 16) and 0xff
+            val g = (c shr 8) and 0xff
+            val b = c and 0xff
+            val v = if (g - b > 20 && g >= rr - 10) g else 0
+            sc[i] = v
+            if (v > mx) mx = v
+        }
+        if (mx < 150) {
+            konumOkunamadi("yazı bulunamadı")
+            return
+        }
+        val mn = (mx * 0.35f).toInt()
+        val out = IntArray(px.size)
+        for (i in px.indices) {
+            val n = ((sc[i] - mn).toFloat() / (mx - mn).toFloat()).coerceIn(0f, 1f)
+            val gri = (255f - 255f * n).toInt()
+            out[i] = (0xFF shl 24) or (gri shl 16) or (gri shl 8) or gri
+        }
+        val bm = Bitmap.createBitmap(out, w, hh, Bitmap.Config.ARGB_8888)
+        val buyuk = Bitmap.createScaledBitmap(bm, w * 5, hh * 5, true)
+        konumOkunuyor = true
+        BotKontrol.metin(buyuk) { metin ->
+            rh.post {
+                konumOkunuyor = false
+                konumIsle(metin)
+            }
+        }
+    }
+
+    private val konumRegex = Regex("(\\d{2,4})\\D{1,3}(\\d{2,4})")
+
+    private fun konumIsle(metin: String?) {
+        if (metin == null) {
+            konumOkunamadi("OCR boş döndü")
+            return
+        }
+        val t = metin.replace('\n', ' ').replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
+        var x = -1
+        var y = -1
+        val m = konumRegex.find(t)
+        if (m != null) {
+            x = m.groupValues[1].toIntOrNull() ?: -1
+            y = m.groupValues[2].toIntOrNull() ?: -1
+        } else {
+            val d = t.filter { it.isDigit() }
+            if (d.length == 6) {
+                x = d.substring(0, 3).toIntOrNull() ?: -1
+                y = d.substring(3).toIntOrNull() ?: -1
+            }
+        }
+        if (x < 0 || y < 0 || x > 1999 || y > 1999) {
+            konumOkunamadi("ayrıştırılamadı: $t")
+            return
+        }
+        val simdi = SystemClock.uptimeMillis()
+        val bx = konumX
+        val by = konumY
+        if (bx >= 0 && simdi - konumAt < 3000L && (Math.abs(x - bx) > 40 || Math.abs(y - by) > 40)) {
+            // ani sıçrama: aynı aday iki kez gelirse kabul et (okuma hatasına karşı)
+            if (x == konumAdayX && y == konumAdayY) {
+                konumAdaySay++
+            } else {
+                konumAdayX = x
+                konumAdayY = y
+                konumAdaySay = 1
+            }
+            if (konumAdaySay < 2) {
+                TestLog.olay("KONUM_SUPHELI", "$x,$y (önceki $bx,$by)", "")
+                return
+            }
+        }
+        konumAdayX = -1
+        konumAdaySay = 0
+        konumKabul(x, y, simdi)
+    }
+
+    private fun konumKabul(x: Int, y: Int, simdi: Long) {
+        konumX = x
+        konumY = y
+        konumAt = simdi
+        konumHataSay = 0
+        konumGecmis.add(doubleArrayOf(simdi.toDouble(), x.toDouble(), y.toDouble()))
+        while (konumGecmis.size > 40) konumGecmis.removeAt(0)
+        if (simdi - konumLogAt > 5000L) {
+            konumLogAt = simdi
+            TestLog.olay("KONUM", "$x,$y", "")
+        }
+        if (rotaKayit) {
+            val son = rotaKayitSon
+            if (son == null || Math.hypot((x - son[0]).toDouble(), (y - son[1]).toDouble()) >= 3.0) {
+                val p = intArrayOf(x, y)
+                rotaYeni.add(p)
+                rotaKayitSon = p
+            }
+        }
+        if (yuruAktif && rotaAsama == 2) {
+            val son = rotaYurunenSon
+            if (son == null || Math.hypot((x - son[0]).toDouble(), (y - son[1]).toDouble()) >= 3.0) {
+                val p = intArrayOf(x, y)
+                rotaYurunen.add(p)
+                rotaYurunenSon = p
+            }
+        }
+    }
+
+    /** Karakterin yönü (harita koordinatında atan2(dy, dx)); hareket yoksa null */
+    private fun yonHesapla(): Double? {
+        val simdi = SystemClock.uptimeMillis().toDouble()
+        val son = konumGecmis.lastOrNull() ?: return null
+        var ilk: DoubleArray? = null
+        for (p in konumGecmis) {
+            if (simdi - p[0] <= 1500.0) {
+                ilk = p
+                break
+            }
+        }
+        if (ilk == null) return null
+        val dx = son[1] - ilk[1]
+        val dy = son[2] - ilk[2]
+        if (Math.hypot(dx, dy) < 2.5) return null
+        return Math.atan2(dy, dx)
+    }
+
+    // ---------------- rota kaydı (elle yürü, bot koordinatları iz olarak biriktirir) ----------------
+    private fun rotaKayitBasla() {
+        rh.post {
+            if (!ScreenSampler.running) {
+                toast("Ekran okuma kapalı: önce botu bir kez başlat (ekran izni), sonra durdur")
+                return@post
+            }
+            rotaYeni.clear()
+            rotaKayitSon = null
+            rotaKayit = true
+            konumBaslat()
+            TestLog.olay("ROTA_KAYIT", "kayıt başladı", "")
+            toast("🔴 Rota kaydı başladı: slottan Inn Hostes'e yürü, sonra ⋯ → Test modu → Kaydı bitir")
+        }
+    }
+
+    private fun rotaKayitBitir() {
+        rh.post {
+            rotaKayit = false
+            if (rotaYeni.size >= 3) {
+                rotaIz.clear()
+                rotaIz.addAll(rotaYeni)
+                rotaKaydet()
+                var uz = 0.0
+                for (i in 1 until rotaIz.size) {
+                    uz += Math.hypot((rotaIz[i][0] - rotaIz[i - 1][0]).toDouble(), (rotaIz[i][1] - rotaIz[i - 1][1]).toDouble())
+                }
+                val ilk = rotaIz[0]
+                val son = rotaIz[rotaIz.size - 1]
+                TestLog.olay("ROTA_KAYDEDILDI", "${rotaIz.size} nokta", "uzunluk=${uz.toInt()} baslangic=${ilk[0]},${ilk[1]} bitis=${son[0]},${son[1]}")
+                toast("✅ Rota kaydedildi: ${rotaIz.size} nokta, yaklaşık ${uz.toInt()} birim")
+            } else {
+                toast("Kayıt çok kısa (${rotaYeni.size} nokta), rota değişmedi")
+            }
+            if (!konumGerekliMi()) konumDurdur()
+        }
+    }
+
+    private fun rotaSil() {
+        rh.post {
+            rotaIz.clear()
+            rotaKaydet()
+            TestLog.olay("ROTA_SILINDI", "kayıtlı rota silindi", "")
+            toast("🗑 Rota silindi")
+        }
+    }
+
+    private fun konumTesti() {
+        rh.post {
+            if (!ScreenSampler.running) {
+                toast("Ekran okuma kapalı: önce botu bir kez başlat (ekran izni), sonra durdur")
+                return@post
+            }
+            konumBaslat()
+            rh.postDelayed({
+                val simdi = SystemClock.uptimeMillis()
+                if (konumX >= 0 && simdi - konumAt < 2000L) {
+                    toast("📍 Okunan konum: $konumX,$konumY — ekrandakiyle aynı mı?")
+                } else {
+                    toast("📍 Konum okunamadı. Günlükte KONUM_OKUNAMADI satırına bak")
+                }
+                if (!konumGerekliMi()) konumDurdur()
+            }, 1500)
+        }
+    }
+
+    // ---------------- joystick sürücüsü ----------------
+    private fun jTaban(): FloatArray = floatArrayOf(screenW * 0.22f, screenH * 0.60f)
+
+    private fun jBaslat() {
+        jAktif = true
+        jStroke = null
+        jHata = 0
+        jDx = 0f
+        jDy = 0f
+        rh.post { jPompa() }
+    }
+
+    private fun jSur(dx: Float, dy: Float) {
+        jDx = dx
+        jDy = dy
+    }
+
+    private fun jBirak() {
+        jAktif = false
+        rh.post { jPompa() }
+    }
+
+    private fun jPompa() {
+        if (jUcusta) return
+        val onceki = jStroke
+        val devam = jAktif
+        if (onceki == null && !devam) return
+        val tb = jTaban()
+        var tx = (tb[0] + jDx).coerceIn(2f, screenW - 3f)
+        var ty = (tb[1] + jDy).coerceIn(2f, screenH - 3f)
+        val yol = Path()
+        var st: GestureDescription.StrokeDescription? = null
+        try {
+            if (onceki == null) {
+                if (Math.abs(tx - tb[0]) < 0.6f && Math.abs(ty - tb[1]) < 0.6f) tx = tb[0] + 0.7f
+                yol.moveTo(tb[0], tb[1])
+                yol.lineTo(tx, ty)
+                st = GestureDescription.StrokeDescription(yol, 0, 60, true)
+            } else {
+                if (Math.abs(tx - jLx) < 0.6f && Math.abs(ty - jLy) < 0.6f) tx = jLx + 0.7f
+                yol.moveTo(jLx, jLy)
+                yol.lineTo(tx, ty)
+                st = onceki.continueStroke(yol, 0, 60, devam)
+            }
+        } catch (e: Exception) {
+            hataKaydet("joystick", e)
+            jStroke = null
+            jHata++
+            if (jHata >= 6) rotaIptal("joystick jesti oluşturulamadı")
+            return
+        }
+        val stf = st ?: return
+        jLx = tx
+        jLy = ty
+        jStroke = if (devam) stf else null
+        jUcusta = true
+        val g = try {
+            GestureDescription.Builder().addStroke(stf).build()
+        } catch (e: Exception) {
+            null
+        }
+        if (g == null) {
+            jUcusta = false
+            jStroke = null
+            return
+        }
+        val ok = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                jUcusta = false
+                jHata = 0
+                if (jAktif || jStroke != null) rh.post { jPompa() }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                jUcusta = false
+                jStroke = null
+                jHata++
+                if (jHata >= 6) {
+                    jAktif = false
+                    rotaIptal("joystick dokunuşu sürekli iptal oluyor (çoklu dokunuş desteklenmiyor olabilir)")
+                } else if (jAktif) {
+                    rh.postDelayed({ jPompa() }, 60)
+                }
+            }
+        }, rh)
+        if (!ok) {
+            jUcusta = false
+            jStroke = null
+            jHata++
+            if (jHata >= 6) rotaIptal("joystick jesti gönderilemedi") else if (jAktif) rh.postDelayed({ jPompa() }, 80)
+        }
+    }
+
+    // ---------------- yürüme denetleyicisi (iz takibi) ----------------
+    private val yuruDongusu = object : Runnable {
+        override fun run() {
+            if (!yuruAktif) return
+            try {
+                yuruAdimi()
+            } catch (e: Exception) {
+                hataKaydet("yurume", e)
+                yuruBitir(false, "hata: ${e.javaClass.simpleName}")
+            }
+            if (yuruAktif) rh.postDelayed(this, 150)
+        }
+    }
+
+    private fun yuruBaslat(yol: List<IntArray>, tol: Double, zamanAsimi: Long, sonuc: (Boolean, String) -> Unit) {
+        yuruYol = yol
+        yuruIdx = 0
+        yuruTol = tol
+        yuruBas = SystemClock.uptimeMillis()
+        yuruZamanAsimi = zamanAsimi
+        yuruMod = if (rotaIsaret != 0) 2 else 0
+        yuruP0 = null
+        yuruKonumYokSay = 0
+        yuruOnceAt = 0L
+        yuruOnceMesafe = 0.0
+        yuruKurtarma = 0
+        yuruGeriBitis = 0L
+        yuruSonuc = sonuc
+        yuruAktif = true
+        jBaslat()
+        rh.post(yuruDongusu)
+    }
+
+    private fun yuruBitir(basari: Boolean, neden: String) {
+        if (!yuruAktif) return
+        yuruAktif = false
+        jBirak()
+        TestLog.olay(if (basari) "YURU_BITTI" else "YURU_HATA", neden, "konum=$konumX,$konumY")
+        val cb = yuruSonuc
+        yuruSonuc = null
+        cb?.invoke(basari, neden)
+    }
+
+    private fun yuruAdimi() {
+        val now = SystemClock.uptimeMillis()
+        if (now - yuruBas > yuruZamanAsimi) {
+            yuruBitir(false, "yürüme zaman aşımı")
+            return
+        }
+        if (!oyundaMi()) {
+            yuruBitir(false, "oyun ön planda değil")
+            return
+        }
+        val kx = konumX
+        val ky = konumY
+        if (kx < 0 || now - konumAt > 2500L) {
+            yuruKonumYokSay++
+            jSur(0f, 0f)
+            if (yuruKonumYokSay > 40) yuruBitir(false, "konum 6 sn okunamadı")
+            return
+        }
+        yuruKonumYokSay = 0
+        val rr = screenH * 0.10f
+        if (yuruMod == 0) {
+            // Kalibrasyon 1: düz ileri; başlangıç yönünü ölç
+            if (yuruP0 == null) {
+                yuruP0 = intArrayOf(kx, ky)
+                yuruModBas = now
+            }
+            jSur(0f, -rr)
+            val p0 = yuruP0 ?: return
+            val d = Math.hypot((kx - p0[0]).toDouble(), (ky - p0[1]).toDouble())
+            if (d >= 4.0) {
+                yuruV0 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
+                yuruP0 = intArrayOf(kx, ky)
+                yuruMod = 1
+                yuruModBas = now
+            } else if (now - yuruModBas > 4500L) {
+                yuruBitir(false, "kalibrasyon: karakter yürümüyor (joystick çalışmıyor olabilir)")
+            }
+            return
+        }
+        if (yuruMod == 1) {
+            // Kalibrasyon 2: ileri + sağ; hangi yöne döndüğünü ölç
+            jSur(rr * 0.9f, -rr)
+            val p0 = yuruP0 ?: return
+            val d = Math.hypot((kx - p0[0]).toDouble(), (ky - p0[1]).toDouble())
+            if (d >= 5.0) {
+                val v1 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
+                var dl = v1 - yuruV0
+                while (dl > Math.PI) dl -= 2 * Math.PI
+                while (dl < -Math.PI) dl += 2 * Math.PI
+                if (Math.abs(dl) < 0.12) {
+                    yuruBitir(false, "kalibrasyon: dönüş ölçülemedi")
+                } else {
+                    rotaIsaret = if (dl > 0) 1 else -1
+                    rotaHizliDonus = Math.abs(dl) > 0.9
+                    TestLog.olay("KALIBRASYON", "isaret=$rotaIsaret", "donus_rad=${"%.2f".format(dl)} hizli=$rotaHizliDonus")
+                    yuruMod = 2
+                }
+            } else if (now - yuruModBas > 5000L) {
+                yuruBitir(false, "kalibrasyon: dönüş ölçülemedi (zaman)")
+            }
+            return
+        }
+        // Normal iz takibi
+        val yol = yuruYol
+        val son = yol[yol.size - 1]
+        val dSon = Math.hypot((son[0] - kx).toDouble(), (son[1] - ky).toDouble())
+        if (dSon <= yuruTol) {
+            yuruBitir(true, "hedefe varıldı (kalan ${dSon.toInt()} birim)")
+            return
+        }
+        // izin ilerisindeki en yakın noktayı bul (en fazla 12 nokta ileri; geri dönmez)
+        var enYakin = yuruIdx
+        var enD = 1e9
+        val bit = minOf(yol.size - 1, yuruIdx + 12)
+        for (i in yuruIdx..bit) {
+            val dd = Math.hypot((yol[i][0] - kx).toDouble(), (yol[i][1] - ky).toDouble())
+            if (dd < enD) {
+                enD = dd
+                enYakin = i
+            }
+        }
+        yuruIdx = enYakin
+        var hi = yuruIdx
+        while (hi < yol.size - 1 && Math.hypot((yol[hi][0] - kx).toDouble(), (yol[hi][1] - ky).toDouble()) < 8.0) hi++
+        val tx = yol[hi][0]
+        val ty = yol[hi][1]
+        // takılma: 8 sn'de en az 1.5 birim yaklaşmadıysa kısa geri + dönüş dene
+        if (now - yuruOnceAt > 8000L) {
+            if (yuruOnceAt != 0L && yuruOnceMesafe - dSon < 1.5) {
+                yuruKurtarma++
+                yuruGeriBitis = now + 1300L
+                TestLog.olay("YURU_TAKILDI", "ilerleme yok, kurtarma $yuruKurtarma", "konum=$kx,$ky kalan=${dSon.toInt()}")
+                if (yuruKurtarma > 3) {
+                    yuruBitir(false, "yürürken takıldı (3 kurtarma denemesi)")
+                    return
+                }
+            }
+            yuruOnceAt = now
+            yuruOnceMesafe = dSon
+        }
+        if (now < yuruGeriBitis) {
+            jSur(rr * 0.5f * (if (yuruKurtarma % 2 == 0) 1f else -1f), rr * 0.7f)
+            return
+        }
+        val th = yonHesapla()
+        if (th == null) {
+            jSur(0f, -rr)
+            return
+        }
+        val phi = Math.atan2((ty - ky).toDouble(), (tx - kx).toDouble())
+        var e = phi - th
+        while (e > Math.PI) e -= 2 * Math.PI
+        while (e < -Math.PI) e += 2 * Math.PI
+        // Simülasyonla ayarlı: ölü bölge 0.15 rad, kilit 0.6 (büyük hatada tam), bölen pi/2
+        var steer = 0.0
+        if (Math.abs(e) >= 0.15) {
+            val kilit = if (!rotaHizliDonus && Math.abs(e) >= 0.9) 1.0 else 0.6
+            steer = (e / (Math.PI / 2)).coerceIn(-kilit, kilit)
+        }
+        val ileri = if (Math.abs(e) > 1.2) 0.4 else 1.0
+        jSur((rotaIsaret * steer * rr).toFloat(), (-ileri * rr).toFloat())
+    }
+
+    // ---------------- çanta rotası akışı ----------------
+    private fun rotaBaslat(mod: Int) {
+        rh.post { rotaBaslatIc(mod) }
+    }
+
+    private fun rotaBaslatIc(mod: Int) {
+        if (rotaCalisiyor) {
+            toast("Rota zaten çalışıyor")
+            return
+        }
+        if (Config.koMu(this)) {
+            toast("Çanta rotası şimdilik sadece MykoMobile için")
+            return
+        }
+        if (rotaIz.size < 2) rotaYukle()
+        if (rotaIz.size < 2) {
+            toast("Önce rota kaydet: ⋯ → Test modu → Rota kaydını başlat")
+            return
+        }
+        if (!ScreenSampler.running) {
+            toast("Ekran okuma kapalı: önce botu bir kez başlat")
+            return
+        }
+        if (!oyundaMi()) {
+            toast("Önce oyunu aç")
+            return
+        }
+        if (!running) cfg = Config.load(this)
+        updateScreenSize()
+        val g0 = screenW
+        rotaOpenT = Preset.loadTemplateF(this, "open.png", g0 / 2712f, 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", g0 / 2576f, 18, 0.5f, 0.5f)
+        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", g0 / 1280f, 22, 0.5f, 0.5f)
+        if (mod == 0 && (rotaOpenT == null || bankaT == null)) {
+            toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
+            return
+        }
+        rotaMod = mod
+        rotaCalisiyor = true
+        rotaMesgul = true
+        rotaBas = SystemClock.uptimeMillis()
+        rotaTekrar = false
+        bTasinan = 0
+        bIdx = 0
+        rotaYurunen.clear()
+        rotaYurunenSon = null
+        rotaAsama = 1
+        TestLog.olay("ROTA_BASLADI", if (mod == 0) "çanta rotası" else "yürüme testi", "iz_noktasi=${rotaIz.size}")
+        konumBaslat()
+        rotaKonumBekle(0)
+    }
+
+    private fun rotaKonumBekle(n: Int) {
+        if (!rotaCalisiyor) return
+        val simdi = SystemClock.uptimeMillis()
+        if (konumX >= 0 && simdi - konumAt < 1500L) {
+            val bk = intArrayOf(konumX, konumY)
+            rotaBasKonum = bk
+            rotaYurunen.add(bk)
+            rotaYurunenSon = bk
+            // farm adımının son dokunuşu bitsin
+            rh.postDelayed({ rotaGit() }, 700)
+            return
+        }
+        if (n > 16) {
+            rotaIptal("konum okunamadı (HP/MP barının altındaki koordinat)")
+            return
+        }
+        rh.postDelayed({ rotaKonumBekle(n + 1) }, 250)
+    }
+
+    private fun rotaGit() {
+        if (!rotaCalisiyor) return
+        val bk = rotaBasKonum ?: return
+        var k = 0
+        var kd = 1e9
+        for (i in rotaIz.indices) {
+            val d = Math.hypot((rotaIz[i][0] - bk[0]).toDouble(), (rotaIz[i][1] - bk[1]).toDouble())
+            if (d < kd) {
+                kd = d
+                k = i
+            }
+        }
+        if (kd > 60.0) {
+            rotaIptal("kayıtlı rotadan çok uzaktasın (en yakın nokta ${kd.toInt()} birim)")
+            return
+        }
+        val yol = ArrayList<IntArray>()
+        yol.add(bk)
+        for (i in k until rotaIz.size) yol.add(rotaIz[i])
+        rotaAsama = 2
+        TestLog.olay("ROTA_GIDIS", "Inn Hostes'e yürünüyor", "baslangic=${bk[0]},${bk[1]} ilk_nokta=$k nokta=${yol.size}")
+        yuruBaslat(yol, 4.0, 150_000L) { ok, neden ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                if (!ok) {
+                    rotaIptal("gidiş: $neden")
+                } else if (rotaMod == 1) {
+                    TestLog.olay("YURU_TESTI_TAMAM", "hedefe varıldı", "sure_ms=${SystemClock.uptimeMillis() - rotaBas}")
+                    toast("✅ Yürüme testi tamam: Inn Hostes noktasına varıldı")
+                    rotaBitirSessiz()
+                } else {
+                    rh.postDelayed({ rotaOpenAra(0) }, 500)
+                }
+            }
+        }
+    }
+
+    private fun rotaOpenAra(deneme: Int) {
+        if (!rotaCalisiyor) return
+        rotaAsama = 3
+        val op = rotaOpenT
+        val f = ScreenSampler.grab()
+        if (op != null && f != null) {
+            val pos = findT(f, op)
+            if (pos != null) {
+                val t = sablonHedef(op, pos)
+                TestLog.olay("ROTA_OPEN", "Open görüldü, basılıyor", "deneme=$deneme")
+                tap(t.x, t.y, t.r) { rh.postDelayed({ rotaMenuAc() }, 1200) }
+                return
+            }
+        }
+        if (deneme > 24) {
+            rotaIptal("Open butonu görünmedi (Inn Hostes yakında değil mi?)")
+            return
+        }
+        rh.postDelayed({ rotaOpenAra(deneme + 1) }, 300)
+    }
+
+    private fun rotaMenuAc() {
+        if (!rotaCalisiyor) return
+        rotaAsama = 4
+        TestLog.olay("ROTA_MENU", "Inn Hostes Open basılıyor", "")
+        tap(screenW * 0.9006f, screenH * 0.4185f, 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
+    }
+
+    private fun bankaPencereVar(): Boolean {
+        val t = bankaT ?: return false
+        val f = ScreenSampler.grab() ?: return false
+        val gx = (screenW * 0.6405f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val gy = (screenH * 0.0475f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        return ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 24) != null
+    }
+
+    private fun rotaPencereBekle(deneme: Int) {
+        if (!rotaCalisiyor) return
+        rotaAsama = 5
+        if (bankaPencereVar()) {
+            bIdx = 0
+            bTasinan = 0
+            rotaAsama = 6
+            TestLog.olay("ROTA_BANKA_ACIK", "banka penceresi açıldı", "")
+            rh.postDelayed({ bankaBosaltAdim() }, 400)
+            return
+        }
+        if (deneme == 8 && !rotaTekrar) {
+            // 2.4 sn'dir pencere yok: Open/menü basışı kaçmış olabilir, bir kez baştan dene
+            rotaTekrar = true
+            TestLog.olay("ROTA_TEKRAR", "banka açılmadı, Open'dan yeniden deneniyor", "")
+            rotaOpenAra(0)
+            return
+        }
+        if (deneme > 20) {
+            rotaIptal("banka penceresi açılmadı")
+            return
+        }
+        rh.postDelayed({ rotaPencereBekle(deneme + 1) }, 300)
+    }
+
+    /** Envanter hücresinde eşya var mı: boş hücre düz koyu (değişim ~1), dolu hücrede belirgin (>=30) */
+    private fun hucreDolu(r: Int, c: Int): Boolean {
+        val cx = screenW * ((1605f + 100f * c) / 2576f)
+        val cy = screenH * ((770f + 95f * r) / 1159f)
+        val yar = screenW * (26f / 2576f)
+        val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return false
+        val px = reg.third
+        if (px.isEmpty()) return false
+        val lum = DoubleArray(px.size)
+        var top = 0.0
+        for (i in px.indices) {
+            val p = px[i]
+            val l = (((p shr 16) and 0xff) + ((p shr 8) and 0xff) + (p and 0xff)) / 3.0
+            lum[i] = l
+            top += l
+        }
+        val ort = top / px.size
+        var v = 0.0
+        for (l in lum) v += (l - ort) * (l - ort)
+        return Math.sqrt(v / px.size) > 8.0
+    }
+
+    private fun bankaBosaltAdim() {
+        if (!rotaCalisiyor) return
+        val satir = cfg.rotaSatir.coerceIn(1, 4)
+        if (!bankaPencereVar()) {
+            rotaIptal("banka penceresi boşaltırken kapandı")
+            return
+        }
+        while (bIdx < satir * 7) {
+            val r = bIdx / 7
+            val c = bIdx % 7
+            bIdx++
+            if (hucreDolu(r, c)) {
+                val x = screenW * ((1605f + 100f * c) / 2576f)
+                val y = screenH * ((770f + 95f * r) / 1159f)
+                bTasinan++
+                // eşyaya iki kez dokunmak doğrudan bankaya atar
+                tap(x, y, 0f) {
+                    rh.postDelayed({
+                        tap(x, y, 0f) { rh.postDelayed({ miktarKontrol() }, 550) }
+                    }, 110)
+                }
+                return
+            }
+        }
+        TestLog.olay("ROTA_BOSALTILDI", "taşınan=$bTasinan satir=$satir", "")
+        rotaKapat()
+    }
+
+    /** İstiflenebilir eşyada çıkan "miktar gir" penceresinde Confirm'e bas */
+    private fun miktarKontrol() {
+        if (!rotaCalisiyor) return
+        val t = miktarT
+        val f = ScreenSampler.grab()
+        if (t != null && f != null) {
+            val gx = (screenW * 0.6500f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+            val gy = (screenH * 0.5000f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+            val pos = ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 20)
+            if (pos != null) {
+                val hd = sablonHedef(t, pos)
+                TestLog.olay("ROTA_MIKTAR", "miktar penceresi: Confirm basılıyor", "")
+                tap(hd.x, hd.y, hd.r) { rh.postDelayed({ bankaBosaltAdim() }, 450) }
+                return
+            }
+        }
+        rh.postDelayed({ bankaBosaltAdim() }, 120)
+    }
+
+    private fun rotaKapat() {
+        if (!rotaCalisiyor) return
+        rotaAsama = 7
+        TestLog.olay("ROTA_KAPAT", "banka penceresi kapatılıyor", "")
+        tap(screenW * 0.8603f, screenH * 0.0707f, 0f) { rh.postDelayed({ rotaKapatDogrula(0) }, 600) }
+    }
+
+    private fun rotaKapatDogrula(deneme: Int) {
+        if (!rotaCalisiyor) return
+        if (!bankaPencereVar()) {
+            rotaDon()
+            return
+        }
+        if (deneme == 3) {
+            tap(screenW * 0.8603f, screenH * 0.0707f, 0f) { }
+        }
+        if (deneme > 8) {
+            rotaIptal("banka penceresi kapanmadı")
+            return
+        }
+        rh.postDelayed({ rotaKapatDogrula(deneme + 1) }, 300)
+    }
+
+    private fun rotaDon() {
+        if (!rotaCalisiyor) return
+        val bk = rotaBasKonum ?: return
+        val geri = ArrayList<IntArray>()
+        for (i in rotaYurunen.indices.reversed()) geri.add(rotaYurunen[i])
+        geri.add(bk)
+        if (geri.size < 2) geri.add(intArrayOf(bk[0], bk[1]))
+        rotaAsama = 8
+        TestLog.olay("ROTA_DONUS", "slota dönülüyor", "nokta=${geri.size} hedef=${bk[0]},${bk[1]}")
+        yuruBaslat(geri, 5.0, 150_000L) { ok, neden ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                if (ok) rotaBitir() else rotaIptal("dönüş: $neden")
+            }
+        }
+    }
+
+    private fun rotaBitir() {
+        val sure = SystemClock.uptimeMillis() - rotaBas
+        TestLog.olay("ROTA_TAMAM", "çanta rotası tamamlandı", "sure_ms=$sure tasinan=$bTasinan")
+        rotaSayisi++
+        rotaBitirSessiz()
+        toast("🎒 Çanta boşaltıldı ($bTasinan eşya), farma devam")
+    }
+
+    private fun rotaBitirSessiz() {
+        rotaCalisiyor = false
+        rotaMesgul = false
+        cantaDoluBayrak = false
+        doluKutuAt = 0L
+        collectStreak = 0
+        lootPhase = Loot.BOS
+        if (!konumGerekliMi()) konumDurdur()
+    }
+
+    private fun rotaIptal(neden: String) {
+        if (!rotaCalisiyor && !yuruAktif && !jAktif) return
+        TestLog.olay("ROTA_IPTAL", neden, "asama=$rotaAsama konum=$konumX,$konumY")
+        yuruAktif = false
+        yuruSonuc = null
+        jBirak()
+        rotaCalisiyor = false
+        rotaMesgul = false
+        if (running) stopMacro("Çanta rotası durdu: $neden") else toast("Çanta rotası durdu: $neden")
+    }
+
     private fun stopMacro(reason: String? = null) {
+        val calisiyordu = running
         if (koAktif) try { KoOyun.barKaydet(this, screenW, screenH) } catch (_: Exception) {}
         // Minor acik kaldiysa kapat (mana akip gitmesin) - sadece oyun gercekten ondeyse dokun,
         // yoksa (oyun kapandi/arka planda) baska bir uygulamaya yanlislikla dokunmus oluruz
@@ -3149,6 +4344,15 @@ class MacroService : AccessibilityService() {
             }
         }
         running = false
+        if (rotaCalisiyor) {
+            TestLog.olay("ROTA_IPTAL", "bot durduruldu", "asama=$rotaAsama")
+            yuruAktif = false
+            yuruSonuc = null
+            jBirak()
+            rotaCalisiyor = false
+            rotaMesgul = false
+        }
+        if (calisiyordu) oturumKapat(reason)
         padKaldir()
         h.removeCallbacksAndMessages(null)
         ui.removeCallbacks(statusTick)
@@ -3179,25 +4383,48 @@ class MacroService : AccessibilityService() {
             // Makro olmesin (OOM gibi Error'lar dahil): hatayi kaydet, 1 sn sonra devam et
             hataKaydet("adım", e)
             tapping = false
+            hataPatlamasi()
             if (running) stepPlanla( 1000)
         }
     }
 
     private fun stepIc() {
         if (!running) return
+        sonIlerleme = SystemClock.uptimeMillis()
         // Bot kontrol penceresi isleniyor: o sirada oyuna dokunma
         if (kontrolde) { stepPlanla(300); return }
+        // Canta rotasi calisiyor: farm adimlari dokunmaz (joystick/NPC adimlari rota motorunda)
+        if (rotaMesgul) { stepPlanla(300); return }
         // Oyun arkadaysa / ekran kapaliysa / goruntu yoksa DOKUNMA
         val engel = dokunmaEngeli(SystemClock.uptimeMillis())
         if (engel != null) {
+            if (duraklamaBas == 0L) {
+                duraklamaBas = SystemClock.uptimeMillis()
+                TestLog.olay("DURAKLAMA", engelAd(engel), "")
+            }
+            // Duraklama sirasinda gecen sure "can dusuk kaldi" gibi sayaclara islemesin: donuste haksiz durma olmasin
+            gecisSayaclariniSifirla()
             bekleNeden = engel
             stepPlanla( 500)
             return
         }
+        if (duraklamaBas != 0L) {
+            val sure = SystemClock.uptimeMillis() - duraklamaBas
+            duraklamaBas = 0L
+            TestLog.olay("TOPARLANDI", "duraklama bitti, bot devam ediyor", "duraklama_ms=$sure")
+        }
         bekleNeden = ""
         val now = SystemClock.uptimeMillis()
-        if (now >= endAt) {
+        if (SystemClock.elapsedRealtime() >= endAtReal) {
+            TestLog.olay("SURE_BITTI", "ayarlanan çalışma süresi doldu", "dk=${cfg.minutes}")
             stopMacro("Süre bitti, bot durdu"); return
+        }
+        // Çanta doldu + rota kayıtlı + test hesabı: Inn Hostes'e git, boşalt, dön
+        if (testCalisiyor && cfg.rotaAcik && cantaDoluBayrak && !rotaCalisiyor && !tapping &&
+            lootPhase == Loot.BOS && rotaHazirMi()) {
+            TestLog.olay("CANTA_ROTA_TETIK", "çanta dolu, rota başlatılıyor", "")
+            rotaBaslat(0)
+            stepPlanla(300); return
         }
         // Genie hizlandirma: ekran okuma yok, pot/minor/kutu/mob secme yok; sadece skill + seri kilic
         if (genieAktif()) { genieAdim(now); return }
@@ -3237,6 +4464,7 @@ class MacroService : AccessibilityService() {
             }
         }
         if (!pkSaf()) {   // PK "sadece tus basma": ekran okuyan korumalar kapali
+            if (dcBekleBas != 0L && baglantiBekle(now)) return
             if (korumaKontrol(now)) return
             if (safetyStop(now)) return
         }
@@ -3266,6 +4494,7 @@ class MacroService : AccessibilityService() {
             koAktif -> adaylar.take(1).map { it.second }
             else -> adaylar.map { it.second }
         }
+        if (TestLog.acik && list.isNotEmpty()) eylemLogla(if (koAktif) adaylar.take(1) else adaylar)
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
             stepPlanla( if (lootPhase != Loot.BOS) 60L else if (pkAktif) 70L else 200L)
@@ -3292,6 +4521,7 @@ class MacroService : AccessibilityService() {
     private val botKontrolGozcu = object : Runnable {
         override fun run() {
             if (!running) return
+            if (rotaMesgul) { h.postDelayed(this, 2500); return }
             try {
                 // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
                 if (!koAktif && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
@@ -3342,6 +4572,9 @@ class MacroService : AccessibilityService() {
     }
 
     private fun kontrolKaydet(ne: String) {
+        val sure = if (kontrolPencereBas != 0L) SystemClock.uptimeMillis() - kontrolPencereBas else 0L
+        kontrolPencereBas = 0L
+        TestLog.olay("KONTROL_CEVAPLANDI", ne, "pencere_ms=$sure")
         val p = getSharedPreferences("botkontrol", MODE_PRIVATE)
         val n = p.getInt("sayi", 0) + 1
         p.edit().putInt("sayi", n).putString("son", "$ne @ ${System.currentTimeMillis() / 1000}").apply()
@@ -3349,6 +4582,10 @@ class MacroService : AccessibilityService() {
 
     private fun kontrolIsle(r: BotKontrol.Sonuc) {
         if (!running) return
+        if (r !is BotKontrol.Sonuc.Yok && kontrolPencereBas == 0L) {
+            kontrolPencereBas = SystemClock.uptimeMillis()
+            TestLog.olay("KONTROL_PENCERESI", "bot kontrol penceresi görüldü", if (r is BotKontrol.Sonuc.Soru) "soru" else "ok")
+        }
         when (r) {
             is BotKontrol.Sonuc.Ok -> {
                 // 1. pencere: botu durdur, OK'a bas, 5 sn bekle, sonra 2. pencereyi (soru) ara
@@ -3465,6 +4702,7 @@ class MacroService : AccessibilityService() {
     private val kutuGozcu = object : Runnable {
         override fun run() {
             if (!running) return
+            if (rotaMesgul) { h.postDelayed(this, 300); return }   // rota: NPC'deki Open'a kutu gozcusu basmasin
             try {
                 if (!genieAktif()) gozcuIc()   // Genie modunda kutu toplama yok
             } catch (e: Exception) {
@@ -3529,6 +4767,17 @@ class MacroService : AccessibilityService() {
             if (f != null && findT(f, d) != null) {
                 dcSay++
                 if (dcSay >= 2) {
+                    if (testCalisiyor && cfg.testDcSn > 0) {
+                        // Test modu: hemen durma; pencere kaybolursa devam et, gelmezse kontrollü dur
+                        if (dcBekleBas == 0L) {
+                            dcBekleBas = now
+                            dcBekleSonBak = now
+                            dcOk = 0
+                            TestLog.olay("BAGLANTI_KOPTU", "kopma penceresi görüldü", "bekleme_sn=${cfg.testDcSn}")
+                        }
+                        return false
+                    }
+                    TestLog.olay("BAGLANTI_KOPTU", "kopma penceresi görüldü", "bot durduruldu")
                     stopMacro("Bağlantı koptu (Disconnect). Bot durdu")
                     return true
                 }
@@ -3547,6 +4796,35 @@ class MacroService : AccessibilityService() {
                 }
             } else {
                 hpBosSince = 0L
+            }
+        }
+        // KO: can 0 (ölüm) ve uzun süre düşük can. Bar okunamıyorsa (-1) ya da bu oturumda hiç sağlıklı can
+        // görülmediyse hiçbir şey yapma (yanlış bar yeri yüzünden haksız durma olmasın).
+        if (koAktif && now - koHpBak > 1000L) {
+            koHpBak = now
+            val hpD = KoOyun.doluluk(screenW, screenH, false)
+            if (hpD > 0.05f) koHpGordu = true
+            if (hpD >= 0f && koHpGordu) {
+                if (hpD < 0.01f) {
+                    if (koHpSifirSince == 0L) koHpSifirSince = now
+                    else if (now - koHpSifirSince > 5000L) {
+                        TestLog.olay("OLUM", "can 0 görüldü", "sure_ms=${now - koHpSifirSince}")
+                        stopMacro("Karakter ölmüş görünüyor (can 0). Bot durdu")
+                        return true
+                    }
+                } else {
+                    koHpSifirSince = 0L
+                }
+                if (cfg.hpStop > 0 && hpD < cfg.hpYuzde / 100f) {
+                    if (koHpDusukSince == 0L) koHpDusukSince = now
+                    else if (now - koHpDusukSince > cfg.hpStop * 1000L) {
+                        TestLog.olay("CAN_DUSUK", "uzun süre düşük can", "sure_ms=${now - koHpDusukSince}")
+                        stopMacro("Can ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
+                        return true
+                    }
+                } else {
+                    koHpDusukSince = 0L
+                }
             }
         }
         return false
@@ -4145,10 +5423,12 @@ class MacroService : AccessibilityService() {
             // Akilli mod: hedef barina bak
             val alive = targetAlive(bar)
             if (oncekiCanli && !alive) {
+                TestLog.olay("HEDEF_KAYBI", if (now - iptalAt > 2500) "hedef öldü/kayboldu" else "hedef X ile bırakıldı", "sure_ms=${now - hedefBaslangic}")
                 if (now - iptalAt > 2500) kesilen++   // X ile birakilan mob kesildi sayilmaz
                 if (now >= menzilBekleUntil) nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
             }
             if (alive && !oncekiCanli) {
+                TestLog.olay("HEDEF_ALINDI", "yeni hedef", "")
                 // Yeni hedef: ilerleme sayacini ve mesafe sayacini baslat
                 sonYuzde = hedefYuzde()
                 ilerlemeAt = now
@@ -4274,7 +5554,9 @@ class MacroService : AccessibilityService() {
                         if (kilitKotu >= 8) {
                             kilitBekleUntil = now + 8000
                             kilitKotu = 6
+                            TestLog.olay("KILIT_BEKLE", "kilitli mob bulunamadı, 8 sn bekleniyor", "")
                         }
+                        TestLog.olay("KILIT_RED", "yanlış mob, hedef bırakıldı", "kilitKotu=$kilitKotu")
                         nextTarget = now + rand(400, 600)
                         iptalAt = now
                         val x = if (o != null) iptalNoktasi(o) else koIptal()
@@ -4522,6 +5804,7 @@ class MacroService : AccessibilityService() {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f, genis = true, bekleme = now - lastOpenAt < 600)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
+                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait}")
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
@@ -4559,6 +5842,7 @@ class MacroService : AccessibilityService() {
     private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
+        TestLog.olay("KUTU_OPEN", "Open basıldı", "")
         phaseUntil = now + cfg.collectWait
         nextLootScan = now + rand(100, 150)
         val t = sablonHedef(op, pos)
@@ -4584,6 +5868,7 @@ class MacroService : AccessibilityService() {
      */
     private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
         collectStreak++
+        TestLog.olay("KUTU_COLLECT", "Collect All", "seri=$collectStreak")
         lootPhase = Loot.SONRAKI_KUTU
         phaseUntil = now + 700
         nextLootScan = now + rand(130, 190)
@@ -4592,6 +5877,8 @@ class MacroService : AccessibilityService() {
             doluKutuX = lastOpenX
             doluKutuY = lastOpenY
             doluKutuAt = now
+            cantaDoluBayrak = true
+            TestLog.olay("CANTA_DOLU", "Collect All kapanmadı: envanter dolu", "")
             collectedSinceOpen = true   // bu Open icin islem bitti; tutarlilik (openBlocked icin)
             return closeHedef(co, pos)
         }
@@ -4980,27 +6267,4 @@ class MacroService : AccessibilityService() {
         }, h)
         if (!ok) h.postDelayed({ done() }, 300)
     }
-
-    
-
-
-    private fun bankaSureSecDialog() {
-        val sureler = arrayOf("2 Dk", "3 Dk", "5 Dk", "10 Dk", "15 Dk", "20 Dk")
-        val degerler = intArrayOf(2, 3, 5, 10, 15, 20)
-        val sp = getSharedPreferences("kanka_makro_prefs", android.content.Context.MODE_PRIVATE)
-
-        val builder = android.app.AlertDialog.Builder(this)
-        builder.setTitle("Banka Kontrol Aralığı")
-        builder.setItems(sureler) { dialog, which ->
-            val secilen = degerler[which]
-            sp.edit().putInt("banka_sure_dk", secilen).apply()
-            otoBankaKopru?.kontrolAraligiDakika = secilen
-            toast("Kontrol süresi $secilen dakika olarak ayarlandı.")
-            dialog.dismiss()
-        }
-        val d = builder.create()
-        d.window?.setType(android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-        d.show()
-    }
-
 }

@@ -136,6 +136,15 @@ class Config {
     var padSkillDurur = true  // PK: joystick'e dokunurken bot tuslari bekler (yuruyus akici olur), birakinca devam eder
     var padKamera = false     // PK: ayrica kamera joystick'i (oyunun joystick'i zaten sag/sol ile de cevirir)
     var padAcik = true        // PK: ekranda yurume/kamera pedleri (parmak bota takilmadan hareket eder)
+    // ---- Test modu (yalnizca yonetimin "Test" yetkisi verdigi hesapta etkin) ----
+    var testModu = false      // oturum gunlugu + test ayarlari acik mi
+    var testBasamak = 0       // 0 = normal hiz ayari; 1..4 = test hiz merdiveni
+    var testAltMs = 700       // basis araligi alt siniri A (ms): hicbir basamak bunun altina inmez
+    var testSureDk = 0        // 0 = ayardaki sure; >0 = test suresi (dakika)
+    var testStallDk = 10      // bu kadar dakika hic mob/kutu/pot ilerlemesi yoksa kontrollu dur (0 = kapali)
+    var testDcSn = 120        // baglanti kopunca en fazla bu kadar sn bekle, gelirse devam et (0 = hemen dur)
+    var rotaAcik = false      // Canta rotasi (test hesabi, Myko): canta dolunca Inn Hostes'e git, bosalt, don
+    var rotaSatir = 3         // envanterin ilk kac satiri bosaltilsin (1..4)
     var pkOkuma = false       // PK: can/mana/hedef ekrandan okunsun mu (kapali = sadece tus basma)
     var genieModu = false     // Genie hizlandirma: oyunun Genie'si acikken sadece skill + seri kilic
     var genieKilicMs = 150    // Genie modunda kilica basma araligi (ms)
@@ -193,7 +202,9 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
+            .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
+            .put("testSureDk", testSureDk).put("testStallDk", testStallDk).put("testDcSn", testDcSn).put("rotaAcik", rotaAcik).put("rotaSatir", rotaSatir).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -477,6 +488,14 @@ class Config {
                 c.padKamera = o.optBoolean("padKamera", false)
                 c.padAcik = o.optBoolean("padAcik", true)
                 c.pkOkuma = o.optBoolean("pkOkuma", false)
+                c.testModu = o.optBoolean("testModu", false)
+                c.testBasamak = o.optInt("testBasamak", 0).coerceIn(0, 4)
+                c.testAltMs = o.optInt("testAltMs", 700).coerceIn(20, 5000)
+                c.testSureDk = o.optInt("testSureDk", 0).coerceIn(0, 10080)
+                c.testStallDk = o.optInt("testStallDk", 10).coerceIn(0, 240)
+                c.testDcSn = o.optInt("testDcSn", 120).coerceIn(0, 3600)
+                c.rotaAcik = o.optBoolean("rotaAcik", false)
+                c.rotaSatir = o.optInt("rotaSatir", 3).coerceIn(1, 4)
                 c.genieModu = o.optBoolean("genieModu", false)
                 c.genieKilicMs = o.optInt("genieKilicMs", 150).coerceIn(50, 2000)
                 c.oncelik = o.optString("oncelik", "").ifEmpty {

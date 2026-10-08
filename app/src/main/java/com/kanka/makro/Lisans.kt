@@ -50,6 +50,12 @@ object Lisans {
     /** Yonetici ve lisans su an gecerliyse true */
     fun yoneticiMi(): Boolean = yonetici && gecerliSimdi()
 
+    /**
+     * Test hesabı: SADECE yönetimin admin panelinde açıkça "Test" yetkisi verdiği hesap.
+     * Yönetici olmak yetmez (ozellikVar'daki yönetici istisnası bilerek kullanılmaz).
+     */
+    fun testHesabi(): Boolean = gecerliSimdi() && ozellikler.contains("test")
+
     @Suppress("DEPRECATION")
     fun surumKodu(ctx: Context): Int = try {
         val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
@@ -244,7 +250,7 @@ object Lisans {
                     sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
                     if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
                         ozKume = ozS.split(",").map { it.trim() }
-                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" }.toSet()
+                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" || it == "test" }.toSet()
                     }
                 } catch (e: Exception) {
                 }

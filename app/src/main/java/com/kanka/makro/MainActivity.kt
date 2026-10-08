@@ -611,7 +611,8 @@ class MainActivity : Activity() {
             val g = k / 86400
             val sa = (k % 86400) / 3600
             val kalan = if (g > 0) "$g gün $sa saat" else "$sa saat ${(k % 3600) / 60} dk"
-            lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı"
+            lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı" +
+                (if (Lisans.testHesabi()) "\n🧪 YÖNETİM TEST HESABI (oyunda ⋯ → Test modu)" else "")
         } else if (gnc) {
             lisansDurum.text = "⬆ " + Lisans.guncelleMesaj.ifEmpty { "Yeni sürüm çıktı. Devam etmek için güncelle." }
         } else {

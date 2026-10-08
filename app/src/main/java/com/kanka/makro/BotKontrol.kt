@@ -35,6 +35,13 @@ object BotKontrol {
         class Soru(val cevap: Int, val kutu: FloatArray?, val im: FloatArray?) : Sonuc()
     }
 
+    /** Bitmap'teki metni oldugu gibi oku (canli koordinat okuma icin) */
+    fun metin(bm: Bitmap, sonuc: (String?) -> Unit) {
+        okuyucu.process(InputImage.fromBitmap(bm, 0))
+            .addOnSuccessListener { t -> sonuc(t.text) }
+            .addOnFailureListener { sonuc(null) }
+    }
+
     /** Islemi hesapla (+ - x / ; derin islem yok) */
     fun hesapla(metin: String): Int? {
         val m = islem.find(metin.replace("—", "-").replace("–", "-")) ?: return null
