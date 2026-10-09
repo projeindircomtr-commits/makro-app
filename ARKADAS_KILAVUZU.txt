@@ -28,3 +28,10 @@ PANEL YAZILARI
 Panel bot başlayınca küçülmez. "🔍 oyun ekranı aranıyor" = bot oyun ekranını bulamadı.
 "Oyun ekranı tanınmadı" uyarısı çıkarsa: MykoMobile açılış ekranındaysan Start'a bas, karakter seçimindeysen karakterle oyuna gir.
 Menüde "❓ Kısa kılavuz" ve "⏻ Botu tamamen kapat" vardır.
+
+KURULUM SIRASI (panel seni yönlendirir)
+1) Oyunu aç, karakterinle oyunun içine gir. Panelde sadece "🔍 EKRANI TANI" görünür, ona bas.
+   İlk seferde ekran kaydı izni sorulur, izin ver.
+2) "✅ Ekran tanındı" yazısı çıkınca "EKRANI TANI" kaybolur, "▶ BAŞLAT" gelir.
+3) İstersen hemen ▶ BAŞLAT'a bas, istersen önce ☰ Menü → "📋 Kurulum adımları"ndan tuşlarını ve (yetkin varsa) çanta boşaltma yollarını ayarla.
+Oyundan çıkıp dönersen ekran yeniden tanıtılır.

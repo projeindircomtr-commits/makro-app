@@ -405,7 +405,11 @@ class MacroService : AccessibilityService() {
             closeEditor()
             kartKapat()
             panel?.visibility = View.GONE
+            if (!running && ekranTanindi) {
+                ekranTanindi = false   // oyundan çıkıldı: dönünce ekran yeniden tanınsın
+            }
         }
+        if (oyundaMi()) panelGuncelle()
     }
 
     private fun oyunPaketiMi(p: String): Boolean {
@@ -931,12 +935,14 @@ class MacroService : AccessibilityService() {
         drag.setOnTouchListener(dragListener(drag))
         val play = btn("▶ BAŞLAT") { toggle() }
         playBtn = play
+        val tani = btn("🔍 EKRANI TANI") { ekranTani() }.apply { setTextColor(0xFF7CFF7C.toInt()) }
+        taniBtn = tani
         val st = TextView(this).apply {
             text = "Hazır"
             setTextColor(0xFFB0FFB0.toInt())
             textSize = 12f
             setPadding(dp(6), 0, dp(10), 0)
-            maxWidth = dp(260)
+            maxWidth = dp(150)
             setSingleLine(true)
             includeFontPadding = false
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -944,12 +950,13 @@ class MacroService : AccessibilityService() {
         statusTv = st
         val mb = btn("Farm") { modMenu() }.apply { setTextColor(0xFFE0B04A.toInt()) }
         modBtn = mb
-        val daraltBtn = btn("—") { panelDaralt(true) }
-        for (v in listOf(drag, play, mb, st, daraltBtn)) {
+        val daraltBtn = btn("🔽 Küçült") { panelDaralt(true) }.apply { setTextColor(0xFFB8C7FF.toInt()) }
+        for (v in listOf(drag, play, tani, mb, st, daraltBtn)) {
             v.setSingleLine(true)
             v.includeFontPadding = false
         }
         genis.addView(drag)
+        genis.addView(tani)
         genis.addView(play)
         genis.addView(mb)
         genis.addView(btn("☰ Menü") { showMainMenu() })
@@ -966,9 +973,96 @@ class MacroService : AccessibilityService() {
             wm.addView(root, params)
             panel = root
             panelDar = false
+            panelGuncelle()
         } catch (e: Exception) {
             toast("Panel açılamadı: ${e.message}")
         }
+    }
+
+    // ================= Kurulum sırası: 1) Ekranı tanı  2) Ayarlar (isteğe bağlı)  3) Başlat =================
+    private var taniBtn: TextView? = null
+    @Volatile private var ekranTanindi = false
+    @Volatile private var taniCalisiyor = false
+    private var captureSonraTani = false
+
+    /** Ekran tanınmadıkça panelde sadece "EKRANI TANI" görünür; tanınınca o kaybolur, BAŞLAT ve mod gelir. */
+    private fun panelGuncelle() {
+        ui.post {
+            val hazir = ekranTanindi || running
+            taniBtn?.visibility = if (hazir) View.GONE else View.VISIBLE
+            playBtn?.visibility = if (hazir) View.VISIBLE else View.GONE
+            modBtn?.visibility = if (hazir) View.VISIBLE else View.GONE
+            if (!running && !taniCalisiyor) {
+                if (hazir) durumYaz("✅ Ekran tanındı", true)
+                else durumYaz("① Ekranı tanıt", false)
+            }
+        }
+    }
+
+    private fun ekranTani() {
+        if (taniCalisiyor) return
+        if (!oyundaMi()) {
+            toast("Önce oyunu (${Config.oyunAd(this)}) aç, karakterinle oyunun içine gir")
+            return
+        }
+        if (!ScreenSampler.running) {
+            captureSonraTani = true
+            requestCaptureThenStart()
+            return
+        }
+        taniCalisiyor = true
+        durumYaz("🔍 Ekran taranıyor...", false)
+        taniDene(0)
+    }
+
+    private fun taniDene(n: Int) {
+        rh.post {
+            val ok = try {
+                updateScreenSize()
+                if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this)) ScreenSampler.grab() != null
+                else Preset.olcekBul(this) != null
+            } catch (e: Exception) {
+                false
+            }
+            ui.post {
+                if (ok) {
+                    taniCalisiyor = false
+                    ekranTanindi = true
+                    TestLog.olay("EKRAN_TANINDI", "oyun ekranı tanındı", "ekran ${screenW}x$screenH")
+                    toast("✅ Ekran tanındı. Şimdi ▶ BAŞLAT'a basabilir ya da ☰ Menü'den ayar yapabilirsin")
+                    panelGuncelle()
+                } else if (n < 5) {
+                    ui.postDelayed({ taniDene(n + 1) }, 800)
+                } else {
+                    taniCalisiyor = false
+                    TestLog.olay("EKRAN_TANINMADI", "tanıma denemesi başarısız", "ekran ${screenW}x$screenH")
+                    durumYaz("❌ Ekran tanınmadı", false)
+                    ekranUyari()
+                }
+            }
+        }
+    }
+
+    /** Durdurma sonrası: durum yazısı ■ BOT DURDU kalsın, düğmeler hazır haline dönsün */
+    private fun panelGuncelle2() {
+        val hazir = ekranTanindi || running
+        taniBtn?.visibility = if (hazir) View.GONE else View.VISIBLE
+        playBtn?.visibility = if (hazir) View.VISIBLE else View.GONE
+        modBtn?.visibility = if (hazir) View.VISIBLE else View.GONE
+    }
+
+    private fun kurulumListesi() {
+        if (slotIz.size < 2) slotYukle()
+        if (rotaIz.size < 2) rotaYukle()
+        val tusOk = cfg.points.isNotEmpty() || Config.load(this).points.isNotEmpty()
+        val liste = ArrayList<Pair<String, () -> Unit>>()
+        liste.add((if (ekranTanindi) "✅ 1) Ekran tanındı" else "⬜ 1) Ekranı tanı") to { if (!ekranTanindi) ekranTani() else toast("Ekran zaten tanındı") })
+        liste.add((if (tusOk) "✅ 2) Tuşlar hazır (değiştirmek için dokun)" else "⬜ 2) Tuşlarını ayarla") to { openEditor() })
+        if (Lisans.testHesabi()) {
+            liste.add((if (townHazirMi()) "✅ 3) Çanta boşaltma yolları hazır" else "⬜ 3) Çanta boşaltma yollarını kaydet") to { townSihirbaz() })
+        }
+        liste.add("▶ Botu başlat" to { if (ekranTanindi) toggle() else toast("Önce ekranı tanıt (🔍 EKRANI TANI)") })
+        showMenu("Kurulum adımları", liste)
     }
 
     /** Panel ↔ ikon geçişi. Daraltınca arka plan şeffaf, sadece logo görünür. */
@@ -1098,10 +1192,12 @@ class MacroService : AccessibilityService() {
             "Menü",
             if (Config.genieMi(this)) listOf<Pair<String, () -> Unit>>(
                 // Genie Hizlandir: sadece ayar, kilic tusu ve uygulama
+                "📋 Kurulum adımları" to { kurulumListesi() },
                 "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() },
                 "⚙ Uygulamayı aç" to { openApp() }
             ) else listOf<Pair<String, () -> Unit>>(
+                "📋 Kurulum adımları" to { kurulumListesi() },
                 "⚙ Ayarlar" to { ayarKarti() },
                 "🛠 Tuşları düzenle" to { openEditor() }
             ) + yoneticiListesi + testListesi + listOf<Pair<String, () -> Unit>>(
@@ -2407,6 +2503,8 @@ class MacroService : AccessibilityService() {
             pazarKarti(); return
         }
         pazarCalisiyor = true
+        ekranTanindi = true
+        panelGuncelle()
         playBtn?.text = "⏸ DURDUR"
         pzDurum("🏪 Başlıyor")
         pzH.post(pazarDongu)
@@ -2951,15 +3049,21 @@ class MacroService : AccessibilityService() {
                     ui.postDelayed({
                         if (pendingStart) {
                             pendingStart = false
-                            startMacro()
+                            if (captureSonraTani) {
+                                captureSonraTani = false
+                                ekranTani()
+                            } else {
+                                startMacro()
+                            }
                         }
                     }, 1500)
                     return
                 }
                 if (SystemClock.uptimeMillis() > deadline) {
                     pendingStart = false
-                    statusTv?.text = "Hazır"
-                    toast("Ekran izni verilmedi, bot başlamadı")
+                    captureSonraTani = false
+                    toast("Ekran izni verilmedi")
+                    panelGuncelle()
                     return
                 }
                 ui.postDelayed(this, 400)
@@ -3193,6 +3297,8 @@ class MacroService : AccessibilityService() {
         bekleNeden = ""
 
         sonLisansKontrol = SystemClock.uptimeMillis()
+        ekranTanindi = true   // bot başladıysa ekran okunuyor demektir: ▶/⏸ düğmesi görünür kalsın
+        panelGuncelle()
         playBtn?.text = "⏸ DURDUR"
         // Panel küçülmez: "● BOT ÇALIŞIYOR" yazısı ve ⏸ DURDUR düğmesi hep görünür
         ui.post {
@@ -5108,6 +5214,7 @@ class MacroService : AccessibilityService() {
             durumYaz("■ BOT DURDU", false)
             // Durunca panel tekrar açılsın (ayar / menü için)
             panelDaralt(false)
+            panelGuncelle2()
         }
         if (reason == null && calisiyordu) toast("⏹ BOT DURDU")
         if (reason != null) {
