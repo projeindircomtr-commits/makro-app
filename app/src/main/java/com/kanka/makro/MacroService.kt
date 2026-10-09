@@ -4360,6 +4360,7 @@ class MacroService : AccessibilityService() {
         if (!rotaCalisiyor) return
         rotaAsama = 4
         TestLog.olay("ROTA_MENU", "Inn Hostes Open basılıyor", "")
+        bankaOncekiTam = tamSnap()
         tap(screenW * 0.9006f, screenH * 0.4185f, 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
     }
 
@@ -4379,6 +4380,7 @@ class MacroService : AccessibilityService() {
             bTasinan = 0
             rotaAsama = 6
             TestLog.olay("ROTA_BANKA_ACIK", "banka penceresi açıldı", "")
+            panelKutuLogla("BANKA", bankaOncekiTam, tamSnap())
             rh.postDelayed({ bankaBosaltAdim() }, 400)
             return
         }
@@ -4635,6 +4637,8 @@ class MacroService : AccessibilityService() {
         townDonusDeneme = 0
         townInnDeneme = 0
         townCantaBiliniyor = cantaBiliniyor
+        altDugmeKonum[0] = null
+        altDugmeKonum[1] = null
         rotaAsama = 11
         TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti → önce envanter sayılacak" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
         konumBaslat()
@@ -4663,12 +4667,112 @@ class MacroService : AccessibilityService() {
         return t.toDouble() / a.size
     }
 
+    // ---------------- pencere kutusu ölçümü (açılan paneli ekran farkından bul; yerleşim bilgisi toplamak için) ----------------
+    private var panelOncekiTam: Triple<Int, Int, IntArray>? = null
+    private var bankaOncekiTam: Triple<Int, Int, IntArray>? = null
+
+    private fun tamSnap(): Triple<Int, Int, IntArray>? = try { ScreenSampler.bolge(0, 0, screenW, screenH) } catch (e: Exception) { null }
+
+    private fun panelKutuLogla(ad: String, once: Triple<Int, Int, IntArray>?, sonra: Triple<Int, Int, IntArray>?) {
+        try {
+            if (once == null || sonra == null || once.first != sonra.first || once.second != sonra.second) return
+            val w = sonra.first
+            val h = sonra.second
+            val a = once.third
+            val b = sonra.third
+            val sut = IntArray(w)
+            val sat = IntArray(h)
+            for (y in 0 until h) for (x in 0 until w) {
+                val p = a[y * w + x]
+                val q = b[y * w + x]
+                val d = Math.abs(((p shr 16) and 0xff) - ((q shr 16) and 0xff)) + Math.abs(((p shr 8) and 0xff) - ((q shr 8) and 0xff)) + Math.abs((p and 0xff) - (q and 0xff))
+                if (d > 60) { sut[x]++; sat[y]++ }
+            }
+            fun ilk(d: IntArray, esik: Int): Int { for (i in d.indices) if (d[i] >= esik) return i; return -1 }
+            fun son(d: IntArray, esik: Int): Int { for (i in d.indices.reversed()) if (d[i] >= esik) return i; return -1 }
+            val x1 = ilk(sut, (h * 0.12f).toInt().coerceAtLeast(3))
+            val x2 = son(sut, (h * 0.12f).toInt().coerceAtLeast(3))
+            val y1 = ilk(sat, (w * 0.12f).toInt().coerceAtLeast(3))
+            val y2 = son(sat, (w * 0.12f).toInt().coerceAtLeast(3))
+            if (x1 < 0 || y1 < 0) {
+                TestLog.olay("PANEL_KUTU", "$ad: kutu bulunamadı", "ekran ${screenW}x$screenH")
+                return
+            }
+            fun f(v: Int, t: Int) = "%.4f".format(v.toFloat() / t)
+            TestLog.olay("PANEL_KUTU", "$ad: sol=${f(x1, w)} ust=${f(y1, h)} sag=${f(x2, w)} alt=${f(y2, h)} (ekran orani)", "ekran ${screenW}x$screenH")
+        } catch (e: Exception) {
+            hataKaydet("panelKutu", e)
+        }
+    }
+
+    // ---------------- alt çubuk düğmelerini ADIYLA bul (her telefon/tablet ekran oranı için) ----------------
+    private val altDugmeKonum = arrayOfNulls<FloatArray>(2)   // 0 = Inventory, 1 = Town
+
+    private fun altDugmeIsimleri(tur: Int): List<String> =
+        if (tur == 0) listOf("inventory", "inventor", "envanter", "inven")
+        else listOf("town", "kasaba", "şehir", "sehir")
+
+    /**
+     * Alt çubukta düğmenin yazısını OCR ile bulup oraya basar. Bulunamazsa telefon için ölçülmüş
+     * oransal konuma basar (eski davranış). tekrar=true: önbelleği yok say, yeniden ara.
+     */
+    private fun altDugmeTap(tur: Int, tekrar: Boolean, sonra: () -> Unit) {
+        val eskiX = screenW * (if (tur == 0) 0.7313f else 0.6133f)
+        val eskiY = screenH * TOWN_DUGME_Y
+        val c = altDugmeKonum[tur]
+        if (c != null && !tekrar) {
+            tap(c[0], c[1], 0f, sonra)
+            return
+        }
+        val bm = try { ScreenSampler.tamKare() } catch (e: Exception) { null }
+        if (bm == null) {
+            tap(eskiX, eskiY, 0f, sonra)
+            return
+        }
+        val y0 = (bm.height * 0.74f).toInt().coerceIn(0, bm.height - 2)
+        val sh = bm.height - y0
+        val kes = try {
+            val k = Bitmap.createBitmap(bm, 0, y0, bm.width, sh)
+            Bitmap.createScaledBitmap(k, k.width * 2, k.height * 2, true)
+        } catch (e: Exception) { null }
+        if (kes == null) {
+            tap(eskiX, eskiY, 0f, sonra)
+            return
+        }
+        val isimler = altDugmeIsimleri(tur)
+        BotKontrol.satirlar(kes) { liste ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                var en: FloatArray? = null
+                var enAd = ""
+                if (liste != null) for ((txt, r) in liste) {
+                    val t = txt.trim().lowercase()
+                    if (t.length > 14) continue
+                    if (isimler.none { t == it || (t.length <= it.length + 3 && t.contains(it)) }) continue
+                    // kes: 2x ölçek, bm: yarım çözünürlük (SCALE) -> ekran pikseli
+                    val xs = (r.exactCenterX() / 2f) / ScreenSampler.SCALE
+                    val ys = ((r.exactCenterY() / 2f) + y0) / ScreenSampler.SCALE
+                    if (en == null || ys > en[1]) { en = floatArrayOf(xs, ys); enAd = txt }
+                }
+                if (en != null) {
+                    altDugmeKonum[tur] = en
+                    TestLog.olay("DUGME_BULUNDU", "${if (tur == 0) "Inventory" else "Town"} adıyla bulundu: '$enAd'", "x=${en[0].toInt()} y=${en[1].toInt()} (ekran ${screenW}x$screenH)")
+                    tap(en[0], en[1], 0f, sonra)
+                } else {
+                    TestLog.olay("DUGME_BULUNAMADI", "${if (tur == 0) "Inventory" else "Town"} yazısı alt çubukta okunamadı, oransal konuma basılıyor", "ekran ${screenW}x$screenH")
+                    tap(eskiX, eskiY, 0f, sonra)
+                }
+            }
+        }
+    }
+
     private fun townEnvanterAc() {
         if (!rotaCalisiyor) return
         rotaAsama = 11
         townEnvSay = 0
         townPanelOnce = townPanelImza()
-        tap(screenW * 0.7313f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townEnvAcikMi() }, 900) }
+        panelOncekiTam = tamSnap()
+        altDugmeTap(0, false) { rh.postDelayed({ townEnvAcikMi() }, 900) }
     }
 
     private fun townEnvAcikMi() {
@@ -4682,6 +4786,7 @@ class MacroService : AccessibilityService() {
                 val kararli = townFark(s1, s2)
                 if (kararli in 0.0..10.0) {
                     townPanelAcik = s2
+                    panelKutuLogla("ENVANTER", panelOncekiTam, tamSnap())
                     townEnvOlc()
                 } else {
                     townEnvSay++
@@ -4698,7 +4803,7 @@ class MacroService : AccessibilityService() {
         if (!rotaCalisiyor) return
         if (townEnvSay == 3) {
             // 2.7 sn'dir açılmadı: basış kaçmış olabilir, bir kez daha bas
-            tap(screenW * 0.7313f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townEnvAcikMi() }, 900) }
+            altDugmeTap(0, true) { rh.postDelayed({ townEnvAcikMi() }, 900) }
             return
         }
         if (townEnvSay > 6) {
@@ -4753,7 +4858,7 @@ class MacroService : AccessibilityService() {
         townAtDeneme = 0
         townOnceki = if (konumX >= 0) intArrayOf(konumX, konumY) else null
         TestLog.olay("TOWN_BASILDI", if (donus) "slota dönmek için" else "bankaya gitmek için", "konum=$konumX,$konumY")
-        tap(screenW * 0.6133f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townDogrula(0, donus) }, 2500) }
+        altDugmeTap(1, false) { rh.postDelayed({ townDogrula(0, donus) }, 2500) }
     }
 
     private fun townDogrula(n: Int, donus: Boolean) {
@@ -4776,7 +4881,7 @@ class MacroService : AccessibilityService() {
         if (n == 6 && townAtDeneme == 0) {
             townAtDeneme = 1
             TestLog.olay("TOWN_TEKRAR", "Town noktasına varılmadı, bir kez daha basılıyor", "konum=$konumX,$konumY")
-            tap(screenW * 0.6133f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townDogrula(7, donus) }, 2500) }
+            altDugmeTap(1, true) { rh.postDelayed({ townDogrula(7, donus) }, 2500) }
             return
         }
         if (n > 16) {
