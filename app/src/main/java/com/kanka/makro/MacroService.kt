@@ -4230,10 +4230,9 @@ class MacroService : AccessibilityService() {
         }
         if (!running) cfg = Config.load(this)
         updateScreenSize()
-        val g0 = screenW
-        rotaOpenT = Preset.loadTemplateF(this, "open.png", g0 / 2712f, 20, 0.5f, 0.5f)
-        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", g0 / 2576f, 18, 0.5f, 0.5f)
-        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", g0 / 1280f, 22, 0.5f, 0.5f)
+        rotaOpenT = Preset.loadTemplateF(this, "open.png", minOf(screenW / 2712f, screenH / 1220f), 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
+        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
         if (mod == 0 && (rotaOpenT == null || bankaT == null)) {
             toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
             return
@@ -4361,14 +4360,14 @@ class MacroService : AccessibilityService() {
         rotaAsama = 4
         TestLog.olay("ROTA_MENU", "Inn Hostes Open basılıyor", "")
         bankaOncekiTam = tamSnap()
-        tap(screenW * 0.9006f, screenH * 0.4185f, 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
+        tap(uiX(2320f), uiYOrta(485f), 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
     }
 
     private fun bankaPencereVar(): Boolean {
         val t = bankaT ?: return false
         val f = ScreenSampler.grab() ?: return false
-        val gx = (screenW * 0.6405f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-        val gy = (screenH * 0.0475f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val gx = (uiX(1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val gy = (uiYUst(55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         return ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 24) != null
     }
 
@@ -4402,9 +4401,9 @@ class MacroService : AccessibilityService() {
     private fun hucreDolu(r: Int, c: Int): Boolean = hucreDoluX(1605f, r, c)
 
     private fun hucreDoluX(x0: Float, r: Int, c: Int): Boolean {
-        val cx = screenW * ((x0 + 100f * c) / 2576f)
-        val cy = screenH * ((770f + 95f * r) / 1159f)
-        val yar = screenW * (26f / 2576f)
+        val cx = uiX(x0 + 100f * c)
+        val cy = uiYOrta(770f + 95f * r)
+        val yar = 26f * uiS()
         val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return false
         val px = reg.third
         if (px.isEmpty()) return false
@@ -4434,8 +4433,8 @@ class MacroService : AccessibilityService() {
             val c = bIdx % 7
             bIdx++
             if (hucreDolu(r, c)) {
-                val x = screenW * ((1605f + 100f * c) / 2576f)
-                val y = screenH * ((770f + 95f * r) / 1159f)
+                val x = uiX(1605f + 100f * c)
+                val y = uiYOrta(770f + 95f * r)
                 bTasinan++
                 // eşyaya iki kez dokunmak doğrudan bankaya atar
                 tap(x, y, 0f) {
@@ -4456,8 +4455,8 @@ class MacroService : AccessibilityService() {
         val t = miktarT
         val f = ScreenSampler.grab()
         if (t != null && f != null) {
-            val gx = (screenW * 0.6500f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-            val gy = (screenH * 0.5000f * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+            val gx = (uiX(1674f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+            val gy = (uiYOrta(579.5f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
             val pos = ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 20)
             if (pos != null) {
                 val hd = sablonHedef(t, pos)
@@ -4473,7 +4472,7 @@ class MacroService : AccessibilityService() {
         if (!rotaCalisiyor) return
         rotaAsama = 7
         TestLog.olay("ROTA_KAPAT", "banka penceresi kapatılıyor", "")
-        tap(screenW * 0.8603f, screenH * 0.0707f, 0f) { rh.postDelayed({ rotaKapatDogrula(0) }, 600) }
+        tap(uiX(2216f), uiYUst(82f), 0f) { rh.postDelayed({ rotaKapatDogrula(0) }, 600) }
     }
 
     private fun rotaKapatDogrula(deneme: Int) {
@@ -4483,7 +4482,7 @@ class MacroService : AccessibilityService() {
             return
         }
         if (deneme == 3) {
-            tap(screenW * 0.8603f, screenH * 0.0707f, 0f) { }
+            tap(uiX(2216f), uiYUst(82f), 0f) { }
         }
         if (deneme > 8) {
             rotaIptal("banka penceresi kapanmadı")
@@ -4549,6 +4548,7 @@ class MacroService : AccessibilityService() {
     private val slotIz = ArrayList<IntArray>()           // kayıtlı yol: Town noktası -> slot (son nokta = slot)
     @Volatile private var kayitHedef = 0                  // 0 = Inn rotası, 1 = Town→slot yolu
     private var townSonKontrol = 0L
+    private var townBayrakSon = -1_000_000L                  // son 'çanta dolu işareti' kontrolü (ilkinde bekleme yok)
     private var townCantaBiliniyor = false
     private var townAtDeneme = 0
     private var townOnceki: IntArray? = null
@@ -4618,10 +4618,9 @@ class MacroService : AccessibilityService() {
         }
         if (!running) cfg = Config.load(this)
         updateScreenSize()
-        val g0 = screenW
-        rotaOpenT = Preset.loadTemplateF(this, "open.png", g0 / 2712f, 20, 0.5f, 0.5f)
-        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", g0 / 2576f, 18, 0.5f, 0.5f)
-        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", g0 / 1280f, 22, 0.5f, 0.5f)
+        rotaOpenT = Preset.loadTemplateF(this, "open.png", minOf(screenW / 2712f, screenH / 1220f), 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
+        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
         if (rotaOpenT == null || bankaT == null) {
             toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
             return
@@ -4648,7 +4647,7 @@ class MacroService : AccessibilityService() {
 
     // ---------------- envanter kontrolü ----------------
     private fun townPanelImza(): IntArray? {
-        val r = ScreenSampler.bolge((screenW * 0.62f).toInt(), (screenH * 0.10f).toInt(), (screenW * 0.92f).toInt(), (screenH * 0.55f).toInt()) ?: return null
+        val r = ScreenSampler.bolge(uiX(1597f).toInt(), uiYUst(116f).toInt(), uiX(2370f).toInt(), uiYOrta(637f).toInt()) ?: return null
         val px = r.third
         val n = px.size / 7
         if (n <= 0) return null
@@ -4666,6 +4665,15 @@ class MacroService : AccessibilityService() {
         for (i in a.indices) t += Math.abs(a[i] - b[i])
         return t.toDouble() / a.size
     }
+
+    // ---------------- ekrana göre ölçekleme (referans: 2576x1159 oyun arayüzü) ----------------
+    // Ölçek: arayüz ekrana sığacak şekilde küçük olan orana göre ölçeklenir. Yatayda sağa yaslı,
+    // dikeyde panel/menü konumları merkezden, üst düğmeler (X) yukarıdan hesaplanır.
+    // Referans ekranla aynı orandaki cihazlarda bu, eski oransal hesapla birebir aynıdır.
+    private fun uiS(): Float = minOf(screenW / 2576f, screenH / 1159f)
+    private fun uiX(xr: Float): Float = screenW - (2576f - xr) * uiS()
+    private fun uiYUst(yr: Float): Float = yr * uiS()
+    private fun uiYOrta(yr: Float): Float = screenH / 2f + (yr - 579.5f) * uiS()
 
     // ---------------- pencere kutusu ölçümü (açılan paneli ekran farkından bul; yerleşim bilgisi toplamak için) ----------------
     private var panelOncekiTam: Triple<Int, Int, IntArray>? = null
@@ -4827,7 +4835,7 @@ class MacroService : AccessibilityService() {
 
     private fun townEnvKapat(n: Int, tam: Boolean) {
         if (!rotaCalisiyor) return
-        tap(screenW * 0.9065f, screenH * 0.0833f, 0f) {
+        tap(uiX(2335f), uiYUst(96.5f), 0f) {
             rh.postDelayed({
                 if (!rotaCalisiyor) return@postDelayed
                 val simdi = townPanelImza()
@@ -5161,8 +5169,9 @@ class MacroService : AccessibilityService() {
         }
         // Town döngüsü: her N dk envanteri kontrol et (ya da çanta dolu işareti), doluysa Town→Inn→banka→Town→slot
         if (testCalisiyor && cfg.townAcik && !rotaCalisiyor && !tapping && lootPhase == Loot.BOS &&
-            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townSonKontrol >= 120_000L) || townVakit())) {
+            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townBayrakSon >= 120_000L) || townVakit())) {
             val bil = cantaDoluBayrak
+            if (bil) townBayrakSon = SystemClock.elapsedRealtime()
             TestLog.olay("TOWN_TETIK", if (bil) "çanta dolu işareti" else "süre doldu: ${cfg.townDk} dk", "")
             townSonKontrol = SystemClock.elapsedRealtime()
             cantaDoluBayrak = false
