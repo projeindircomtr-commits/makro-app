@@ -183,3 +183,19 @@ ROTA_MIKTAR, ROTA_BOSALTILDI, ROTA_KAPAT, ROTA_DONUS, ROTA_TAMAM, ROTA_IPTAL, CA
   doğrulanmalıdır**. Miktar penceresi şablonu videodan çıkarıldı.
 - Eşyaya "iki kez dokun = bankaya" bilgisi kullanıcıdan alındı; her eşya için taşınıp taşınmadığı raporda sayılır.
 - Banka dolarsa ya da eşya kilitliyse bot eşyayı geçer, sayıyı raporlar.
+
+## 10. Town merkezli otonom çanta döngüsü (taslak, derlenmedi / telefonda denenmedi)
+
+Akış: her N dk envanter kontrolü → doluysa Town → kayıtlı Town→Inn yolunu yürü → Open → Inn Hostes Open → banka boşaltma → Town → kayıtlı Town→slot yolunu yürü → slot sapması içindeyse farma devam (atak).
+
+Kurulum: ⋯ → Test modu → Town döngüsü: (1) Town'a bas, Town→Inn yolunu kaydet; (2) Town'a bas, Town→slot yolunu kaydet; (3) kontrol süresi + slot sapma payı; (4) otomatik döngü AÇIK.
+
+Testler:
+- B1 Envanter ölçümü: "Döngüyü şimdi dene" → günlükte ENVANTER_OLCUM gerçek duruma uyuyor mu; ENVANTER_ACILMADI çıkmamalı.
+- B2 Town doğrulama: TOWN_VARILDI sapması ≤ 12 birim.
+- B3 Town→Inn yürüme: TOWN_INN_YURU, YURU_BITTI, Open'ın görünmesi; TOWN_INN_TEKRAR sayısı.
+- B4 Banka boşaltma (mevcut akış).
+- B5 Town→slot yürüme: TOWN_TAMAM sapması ≤ slot sapma payı + 2; TOWN_DONUS_TEKRAR / ROTA_IPTAL sayısı.
+- B6 Uzun koşu: 30 dk aralıkla en az 3 tur.
+
+Bilinen riskler: yürüme joystick'e bağlı (önceki testte rotasyon sorunu görüldü); envanter açık mı kontrolü ekran farkına dayanır; Town tekrar basış bekleme süresi bilinmiyor.

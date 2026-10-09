@@ -18,6 +18,7 @@ import android.provider.MediaStore
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
@@ -3099,9 +3100,11 @@ class MacroService : AccessibilityService() {
         running = true
         oturumBaslat()
         cantaDoluBayrak = false
-        if (testCalisiyor && cfg.rotaAcik && !koAktif) {
+        if (testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !koAktif) {
             rotaYukle()
+            slotYukle()
             konumBaslat()
+            townSonKontrol = SystemClock.elapsedRealtime()
         }
         if (pkAktif && cfg.padAcik) padKur()
         oyunPaketi = sonPaket   // su an ondeki uygulama = oyun
@@ -3375,6 +3378,7 @@ class MacroService : AccessibilityService() {
             },
             "🗑 Rotayı sil (${rotaIz.size} nokta)" to { rotaSil() },
             "🚶 Yürüme testi (Inn Hostes'e git)" to { rotaBaslat(1) },
+            "🏙 Town döngüsü (otonom çanta) ▶" to { townMenu() },
             "🎒 Çanta rotasını şimdi çalıştır" to { rotaBaslat(0) },
             (if (c.rotaAcik) "✅ Otomatik çanta rotası: AÇIK" else "⬜ Otomatik çanta rotası: KAPALI") to { ayar { it.rotaAcik = !it.rotaAcik } },
             "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
@@ -3550,7 +3554,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun konumGerekliMi(): Boolean =
-        rotaKayit || rotaCalisiyor || (running && testCalisiyor && cfg.rotaAcik && !Config.koMu(this))
+        rotaKayit || rotaCalisiyor || (running && testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !Config.koMu(this))
 
     private fun konumOkunamadi(neden: String) {
         konumHataSay++
@@ -3696,25 +3700,34 @@ class MacroService : AccessibilityService() {
     }
 
     // ---------------- rota kaydı (elle yürü, bot koordinatları iz olarak biriktirir) ----------------
-    private fun rotaKayitBasla() {
+    private fun rotaKayitBasla(hedef: Int = 0) {
         rh.post {
             if (!ScreenSampler.running) {
                 toast("Ekran okuma kapalı: önce botu bir kez başlat (ekran izni), sonra durdur")
                 return@post
             }
+            kayitHedef = hedef
             rotaYeni.clear()
             rotaKayitSon = null
             rotaKayit = true
             konumBaslat()
             TestLog.olay("ROTA_KAYIT", "kayıt başladı", "")
-            toast("🔴 Rota kaydı başladı: slottan Inn Hostes'e yürü, sonra ⋯ → Test modu → Kaydı bitir")
+            toast(if (hedef == 1) "🔴 Kayıt başladı: önce Town'a bas, Town'da doğunca slota yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)" else "🔴 Rota kaydı başladı: Town'a bas, Town'da doğunca Inn Hostes'e yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)")
         }
     }
 
     private fun rotaKayitBitir() {
         rh.post {
             rotaKayit = false
-            if (rotaYeni.size >= 3) {
+            if (rotaYeni.size >= 3 && kayitHedef == 1) {
+                slotIz.clear()
+                slotIz.addAll(rotaYeni)
+                slotKaydet()
+                val ilk = slotIz[0]
+                val son = slotIz[slotIz.size - 1]
+                TestLog.olay("SLOT_YOLU_KAYDEDILDI", "${slotIz.size} nokta", "town=${ilk[0]},${ilk[1]} slot=${son[0]},${son[1]}")
+                toast("✅ Town→slot yolu kaydedildi: ${slotIz.size} nokta (slot ${son[0]},${son[1]})")
+            } else if (rotaYeni.size >= 3) {
                 rotaIz.clear()
                 rotaIz.addAll(rotaYeni)
                 rotaKaydet()
@@ -4190,8 +4203,10 @@ class MacroService : AccessibilityService() {
     }
 
     /** Envanter hücresinde eşya var mı: boş hücre düz koyu (değişim ~1), dolu hücrede belirgin (>=30) */
-    private fun hucreDolu(r: Int, c: Int): Boolean {
-        val cx = screenW * ((1605f + 100f * c) / 2576f)
+    private fun hucreDolu(r: Int, c: Int): Boolean = hucreDoluX(1605f, r, c)
+
+    private fun hucreDoluX(x0: Float, r: Int, c: Int): Boolean {
+        val cx = screenW * ((x0 + 100f * c) / 2576f)
         val cy = screenH * ((770f + 95f * r) / 1159f)
         val yar = screenW * (26f / 2576f)
         val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return false
@@ -4283,6 +4298,10 @@ class MacroService : AccessibilityService() {
 
     private fun rotaDon() {
         if (!rotaCalisiyor) return
+        if (rotaMod == 2) {
+            townAt(true)
+            return
+        }
         val bk = rotaBasKonum ?: return
         val geri = ArrayList<IntArray>()
         for (i in rotaYurunen.indices.reversed()) geri.add(rotaYurunen[i])
@@ -4325,6 +4344,348 @@ class MacroService : AccessibilityService() {
         rotaCalisiyor = false
         rotaMesgul = false
         if (running) stopMacro("Çanta rotası durdu: $neden") else toast("Çanta rotası durdu: $neden")
+    }
+
+    // ================= Town merkezli otonom çanta döngüsü (MykoMobile, yalnızca "Test" yetkili hesap) =================
+    // Akış: her N dakikada Envanter'e bas → 28 hücreyi oku → doluysa: Town → kayıtlı Town→Inn yolunu yürü → Open → Inn Hostes Open → eşyalara iki kez dokun (mevcut banka akışı) →
+    // bankayı kapat → Town → kayıtlı Town→slot yolunu yürü → slot sapması içinde ise farma devam.
+    // Her aşamada doğrulama + zaman aşımı vardır; doğrulanamazsa kör basış yapılmaz, kontrollü durulur.
+    private val slotIz = ArrayList<IntArray>()           // kayıtlı yol: Town noktası -> slot (son nokta = slot)
+    @Volatile private var kayitHedef = 0                  // 0 = Inn rotası, 1 = Town→slot yolu
+    private var townSonKontrol = 0L
+    private var townCantaBiliniyor = false
+    private var townAtDeneme = 0
+    private var townDonusDeneme = 0
+    private var townEnvSay = 0
+    private var townPanelOnce: IntArray? = null
+    private var townPanelAcik: IntArray? = null
+    private var townInnDeneme = 0
+
+    private val TOWN_DUGME_Y = 0.9635f
+    private val TOWN_TOL = 12.0
+    private val TOWN_BOS_ESIK = 3
+
+    private fun slotYukle() {
+        val s = getSharedPreferences("rota", MODE_PRIVATE).getString("slotiz", "") ?: ""
+        val liste = ArrayList<IntArray>()
+        for (p in s.split(";")) {
+            val a = p.split(",")
+            if (a.size == 2) {
+                val x = a[0].toIntOrNull()
+                val y = a[1].toIntOrNull()
+                if (x != null && y != null) liste.add(intArrayOf(x, y))
+            }
+        }
+        rh.post {
+            slotIz.clear()
+            slotIz.addAll(liste)
+        }
+    }
+
+    private fun slotKaydet() {
+        val sb = StringBuilder()
+        for (p in slotIz) {
+            if (sb.isNotEmpty()) sb.append(';')
+            sb.append(p[0]).append(',').append(p[1])
+        }
+        getSharedPreferences("rota", MODE_PRIVATE).edit().putString("slotiz", sb.toString()).apply()
+    }
+
+    private fun townHazirMi(): Boolean = slotIz.size >= 2 && rotaIz.size >= 2 && !Config.koMu(this) && ScreenSampler.running
+
+    private fun townVakit(): Boolean =
+        cfg.townDk > 0 && SystemClock.elapsedRealtime() - townSonKontrol >= cfg.townDk * 60_000L
+
+    private fun townBaslat(cantaBiliniyor: Boolean) {
+        rh.post { townBaslatIc(cantaBiliniyor) }
+    }
+
+    private fun townBaslatIc(cantaBiliniyor: Boolean) {
+        if (rotaCalisiyor) return
+        if (Config.koMu(this) || !ScreenSampler.running || !oyundaMi()) {
+            townSonKontrol = SystemClock.elapsedRealtime()
+            return
+        }
+        if (slotIz.size < 2) slotYukle()
+        if (rotaIz.size < 2) rotaYukle()
+        if (slotIz.size < 2 || rotaIz.size < 2) {
+            toast("Önce iki yolu kaydet (Town→Inn ve Town→slot): ⋯ → Test modu → Town döngüsü")
+            return
+        }
+        if (!running) cfg = Config.load(this)
+        updateScreenSize()
+        val g0 = screenW
+        rotaOpenT = Preset.loadTemplateF(this, "open.png", g0 / 2712f, 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", g0 / 2576f, 18, 0.5f, 0.5f)
+        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", g0 / 1280f, 22, 0.5f, 0.5f)
+        if (rotaOpenT == null || bankaT == null) {
+            toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
+            return
+        }
+        rotaMod = 2
+        rotaCalisiyor = true
+        rotaMesgul = true
+        rotaBas = SystemClock.uptimeMillis()
+        rotaTekrar = false
+        bTasinan = 0
+        bIdx = 0
+        townAtDeneme = 0
+        townDonusDeneme = 0
+        townInnDeneme = 0
+        townCantaBiliniyor = cantaBiliniyor
+        rotaAsama = 11
+        TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
+        konumBaslat()
+        if (cantaBiliniyor) rh.postDelayed({ townAt(false) }, 700)
+        else rh.postDelayed({ townEnvanterAc() }, 700)
+    }
+
+    // ---------------- envanter kontrolü ----------------
+    private fun townPanelImza(): IntArray? {
+        val r = ScreenSampler.bolge((screenW * 0.62f).toInt(), (screenH * 0.10f).toInt(), (screenW * 0.92f).toInt(), (screenH * 0.55f).toInt()) ?: return null
+        val px = r.third
+        val n = px.size / 7
+        if (n <= 0) return null
+        val o = IntArray(n)
+        for (i in 0 until n) {
+            val p = px[i * 7]
+            o[i] = (((p shr 16) and 0xff) + ((p shr 8) and 0xff) + (p and 0xff)) / 3
+        }
+        return o
+    }
+
+    private fun townFark(a: IntArray?, b: IntArray?): Double {
+        if (a == null || b == null || a.size != b.size || a.isEmpty()) return -1.0
+        var t = 0L
+        for (i in a.indices) t += Math.abs(a[i] - b[i])
+        return t.toDouble() / a.size
+    }
+
+    private fun townEnvanterAc() {
+        if (!rotaCalisiyor) return
+        rotaAsama = 11
+        townEnvSay = 0
+        townPanelOnce = townPanelImza()
+        tap(screenW * 0.7313f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townEnvAcikMi() }, 900) }
+    }
+
+    private fun townEnvAcikMi() {
+        if (!rotaCalisiyor) return
+        val s1 = townPanelImza()
+        val fark = townFark(townPanelOnce, s1)
+        if (fark >= 18.0) {
+            rh.postDelayed({
+                if (!rotaCalisiyor) return@postDelayed
+                val s2 = townPanelImza()
+                val kararli = townFark(s1, s2)
+                if (kararli in 0.0..10.0) {
+                    townPanelAcik = s2
+                    townEnvOlc()
+                } else {
+                    townEnvSay++
+                    townEnvBekle()
+                }
+            }, 250)
+            return
+        }
+        townEnvSay++
+        townEnvBekle()
+    }
+
+    private fun townEnvBekle() {
+        if (!rotaCalisiyor) return
+        if (townEnvSay == 3) {
+            // 2.7 sn'dir açılmadı: basış kaçmış olabilir, bir kez daha bas
+            tap(screenW * 0.7313f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townEnvAcikMi() }, 900) }
+            return
+        }
+        if (townEnvSay > 6) {
+            TestLog.olay("ENVANTER_ACILMADI", "envanter penceresi doğrulanamadı, farma devam", "")
+            townBitirDolmadan(false)
+            return
+        }
+        rh.postDelayed({ townEnvAcikMi() }, 700)
+    }
+
+    private fun townEnvOlc() {
+        if (!rotaCalisiyor) return
+        val satir = cfg.rotaSatir.coerceIn(1, 4)
+        var dolu = 0
+        for (r in 0 until satir) for (c in 0 until 7) if (hucreDoluX(1710f, r, c)) dolu++
+        val bos = satir * 7 - dolu
+        val tam = bos <= TOWN_BOS_ESIK
+        TestLog.olay("ENVANTER_OLCUM", "dolu=$dolu/${satir * 7} bos=$bos", "esik_bos<=$TOWN_BOS_ESIK karar=${if (tam) "DOLU" else "yer var"}")
+        townEnvKapat(0, tam)
+    }
+
+    private fun townEnvKapat(n: Int, tam: Boolean) {
+        if (!rotaCalisiyor) return
+        tap(screenW * 0.9065f, screenH * 0.0833f, 0f) {
+            rh.postDelayed({
+                if (!rotaCalisiyor) return@postDelayed
+                val simdi = townPanelImza()
+                val acikKaldi = townFark(townPanelAcik, simdi).let { it in 0.0..8.0 }
+                if (acikKaldi && n < 2) {
+                    townEnvKapat(n + 1, tam)
+                } else if (acikKaldi) {
+                    rotaIptal("envanter penceresi kapanmadı")
+                } else if (tam) {
+                    townAt(false)
+                } else {
+                    townBitirDolmadan(true)
+                }
+            }, 700)
+        }
+    }
+
+    private fun townBitirDolmadan(olculdu: Boolean) {
+        townSonKontrol = SystemClock.elapsedRealtime()
+        if (olculdu) TestLog.olay("TOWN_ATLANDI", "çanta dolu değil, farma devam", "sonraki_kontrol_dk=${cfg.townDk}")
+        rotaBitirSessiz()
+    }
+
+    // ---------------- Town ----------------
+    private fun townAt(donus: Boolean) {
+        if (!rotaCalisiyor) return
+        rotaAsama = if (donus) 16 else 12
+        townAtDeneme = 0
+        TestLog.olay("TOWN_BASILDI", if (donus) "slota dönmek için" else "bankaya gitmek için", "konum=$konumX,$konumY")
+        tap(screenW * 0.6133f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townDogrula(0, donus) }, 2500) }
+    }
+
+    private fun townDogrula(n: Int, donus: Boolean) {
+        if (!rotaCalisiyor) return
+        val t0 = slotIz[0]
+        val simdi = SystemClock.uptimeMillis()
+        if (konumX >= 0 && simdi - konumAt < 1500L) {
+            val d = Math.hypot((konumX - t0[0]).toDouble(), (konumY - t0[1]).toDouble())
+            if (d <= TOWN_TOL) {
+                TestLog.olay("TOWN_VARILDI", "Town noktasında", "konum=$konumX,$konumY sapma=${d.toInt()}")
+                if (donus) rh.postDelayed({ townSlotaYuru() }, 500) else rh.postDelayed({ townInneYuru() }, 500)
+                return
+            }
+        }
+        if (n == 6 && townAtDeneme == 0) {
+            townAtDeneme = 1
+            TestLog.olay("TOWN_TEKRAR", "Town noktasına varılmadı, bir kez daha basılıyor", "konum=$konumX,$konumY")
+            tap(screenW * 0.6133f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townDogrula(7, donus) }, 2500) }
+            return
+        }
+        if (n > 16) {
+            rotaIptal("Town noktasına varılamadı (konum $konumX,$konumY, beklenen ${t0[0]},${t0[1]})")
+            return
+        }
+        rh.postDelayed({ townDogrula(n + 1, donus) }, 600)
+    }
+
+    // ---------------- Town noktasından Inn hostess'e yürüyüş (kayıtlı koordinat yolu) ----------------
+    private fun townInneYuru() {
+        if (!rotaCalisiyor) return
+        rotaAsama = 13
+        val yol = ArrayList<IntArray>(rotaIz)
+        TestLog.olay("TOWN_INN_YURU", "Town→Inn yolu yürünüyor", "nokta=${yol.size} konum=$konumX,$konumY")
+        yuruBaslat(yol, 4.0, 150_000L) { ok, neden ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                if (ok) {
+                    rh.postDelayed({ rotaOpenAra(0) }, 500)
+                } else if (townInnDeneme < 1) {
+                    townInnDeneme++
+                    TestLog.olay("TOWN_INN_TEKRAR", "Inn'e yürüme başarısız, Town'dan yeniden: $neden", "konum=$konumX,$konumY")
+                    jBirak()
+                    townAt(false)
+                } else {
+                    rotaIptal("Inn'e yürüme: $neden")
+                }
+            }
+        }
+    }
+
+    // ---------------- slota dönüş ----------------
+    private fun townSlotaYuru() {
+        if (!rotaCalisiyor) return
+        rotaAsama = 15
+        val yol = ArrayList<IntArray>(slotIz)
+        val tol = cfg.slotSapma.coerceIn(2, 20).toDouble()
+        TestLog.olay("TOWN_SLOTA_YURU", "Town→slot yolu yürünüyor", "nokta=${yol.size} sapma=$tol")
+        yuruBaslat(yol, tol, 150_000L) { ok, neden ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                if (ok) townSlotDogrula() else townDonusHata(neden)
+            }
+        }
+    }
+
+    private fun townSlotDogrula() {
+        if (!rotaCalisiyor) return
+        val s = slotIz.last()
+        val sapma = cfg.slotSapma.coerceIn(2, 20) + 2.0
+        val taze = konumX >= 0 && SystemClock.uptimeMillis() - konumAt < 2500L
+        val d = if (taze) Math.hypot((konumX - s[0]).toDouble(), (konumY - s[1]).toDouble()) else 1e9
+        if (d <= sapma) {
+            TestLog.olay("TOWN_TAMAM", "slota varıldı, farma devam", "konum=$konumX,$konumY sapma=${d.toInt()} sure_ms=${SystemClock.uptimeMillis() - rotaBas} tasinan=$bTasinan")
+            rotaSayisi++
+            townSonKontrol = SystemClock.elapsedRealtime()
+            rotaBitirSessiz()
+            toast("🎒 Çanta boşaltıldı ($bTasinan eşya), slota dönüldü")
+        } else {
+            townDonusHata("slot sapması aşıldı (${if (taze) d.toInt().toString() else "konum yok"} birim)")
+        }
+    }
+
+    private fun townDonusHata(neden: String) {
+        if (!rotaCalisiyor) return
+        if (townDonusDeneme < 1) {
+            townDonusDeneme++
+            TestLog.olay("TOWN_DONUS_TEKRAR", "slota yürüme başarısız, Town'dan yeniden: $neden", "konum=$konumX,$konumY")
+            jBirak()
+            townAt(true)
+        } else {
+            rotaIptal("slota dönüş: $neden")
+        }
+    }
+
+    private fun townMenu() {
+        val c = Config.load(this)
+        val dkListe = listOf(10, 20, 30, 40, 50, 60, 90, 120)
+        val sapmaListe = listOf(2, 3, 4, 6, 8, 12)
+        fun sonraki(liste: List<Int>, simdi: Int): Int {
+            val i = liste.indexOf(simdi)
+            return liste[(if (i < 0) 0 else i + 1) % liste.size]
+        }
+        fun ayar(degis: (Config) -> Unit) {
+            val cf = Config.load(this)
+            degis(cf)
+            cf.save(this)
+            townMenu()
+        }
+        val maddeler = listOf<Pair<String, () -> Unit>>(
+            (if (rotaKayit && kayitHedef == 0) "⏹ 1) Yolu kaydet (bitir) — Inn'e vardın mı?" else "🔴 1) Town→Inn yolunu kaydet (${rotaIz.size} nokta)") to {
+                if (rotaKayit) rotaKayitBitir() else rotaKayitBasla(0)
+                removeOverlay()
+            },
+            (if (rotaKayit && kayitHedef == 1) "⏹ 2) Yolu kaydet (bitir) — slota vardın mı?" else "🔴 2) Town→slot yolunu kaydet (${slotIz.size} nokta)") to {
+                if (rotaKayit) rotaKayitBitir() else rotaKayitBasla(1)
+                removeOverlay()
+            },
+            "🗑 Town→slot yolunu sil" to { slotSil() },
+            "⏱ 3) Envanter kontrolü: her ${c.townDk} dk" to { ayar { it.townDk = sonraki(dkListe, it.townDk) } },
+            "🎯 Slot sapma payı: ${c.slotSapma} birim" to { ayar { it.slotSapma = sonraki(sapmaListe, it.slotSapma) } },
+            "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
+            (if (c.townAcik) "✅ 4) Otomatik çanta döngüsü: AÇIK" else "⬜ 4) Otomatik çanta döngüsü: KAPALI") to { ayar { it.townAcik = !it.townAcik } },
+            "▶ Döngüyü şimdi dene (envanteri kontrol et)" to { removeOverlay(); townBaslat(false) },
+            "Geri" to { testMenu() }
+        )
+        showMenu("🏙 Town döngüsü", maddeler)
+    }
+
+    private fun slotSil() {
+        rh.post {
+            slotIz.clear()
+            slotKaydet()
+            TestLog.olay("SLOT_YOLU_SILINDI", "kayıtlı Town→slot yolu silindi", "")
+            toast("🗑 Town→slot yolu silindi")
+        }
     }
 
     private fun stopMacro(reason: String? = null) {
@@ -4419,8 +4780,18 @@ class MacroService : AccessibilityService() {
             TestLog.olay("SURE_BITTI", "ayarlanan çalışma süresi doldu", "dk=${cfg.minutes}")
             stopMacro("Süre bitti, bot durdu"); return
         }
+        // Town döngüsü: her N dk envanteri kontrol et (ya da çanta dolu işareti), doluysa Town→Inn→banka→Town→slot
+        if (testCalisiyor && cfg.townAcik && !rotaCalisiyor && !tapping && lootPhase == Loot.BOS &&
+            townHazirMi() && (cantaDoluBayrak || townVakit())) {
+            val bil = cantaDoluBayrak
+            TestLog.olay("TOWN_TETIK", if (bil) "çanta dolu işareti" else "süre doldu: ${cfg.townDk} dk", "")
+            townSonKontrol = SystemClock.elapsedRealtime()
+            cantaDoluBayrak = false
+            townBaslat(bil)
+            stepPlanla(300); return
+        }
         // Çanta doldu + rota kayıtlı + test hesabı: Inn Hostes'e git, boşalt, dön
-        if (testCalisiyor && cfg.rotaAcik && cantaDoluBayrak && !rotaCalisiyor && !tapping &&
+        if (testCalisiyor && cfg.rotaAcik && !cfg.townAcik && cantaDoluBayrak && !rotaCalisiyor && !tapping &&
             lootPhase == Loot.BOS && rotaHazirMi()) {
             TestLog.olay("CANTA_ROTA_TETIK", "çanta dolu, rota başlatılıyor", "")
             rotaBaslat(0)

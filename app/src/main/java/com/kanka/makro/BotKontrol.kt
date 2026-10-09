@@ -42,6 +42,20 @@ object BotKontrol {
             .addOnFailureListener { sonuc(null) }
     }
 
+    /** Bitmap'teki metin satirlarini kutulariyla oku (liste icinde satir bulmak icin) */
+    fun satirlar(bm: Bitmap, sonuc: (List<Pair<String, Rect>>?) -> Unit) {
+        okuyucu.process(InputImage.fromBitmap(bm, 0))
+            .addOnSuccessListener { t ->
+                val l = ArrayList<Pair<String, Rect>>()
+                for (b in t.textBlocks) for (s in b.lines) {
+                    val r = s.boundingBox
+                    if (r != null) l.add(Pair(s.text, r))
+                }
+                sonuc(l)
+            }
+            .addOnFailureListener { sonuc(null) }
+    }
+
     /** Islemi hesapla (+ - x / ; derin islem yok) */
     fun hesapla(metin: String): Int? {
         val m = islem.find(metin.replace("—", "-").replace("–", "-")) ?: return null

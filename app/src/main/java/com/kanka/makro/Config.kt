@@ -145,6 +145,9 @@ class Config {
     var testDcSn = 120        // baglanti kopunca en fazla bu kadar sn bekle, gelirse devam et (0 = hemen dur)
     var rotaAcik = false      // Canta rotasi (test hesabi, Myko): canta dolunca Inn Hostes'e git, bosalt, don
     var rotaSatir = 3         // envanterin ilk kac satiri bosaltilsin (1..4)
+    var townAcik = false      // Town dongusu (test hesabi, Myko): her N dkda cantayi kontrol et, doluysa Town->Inn->banka->Town->slot
+    var townDk = 30           // envanter kontrol araligi (dakika)
+    var slotSapma = 4         // slota varis toleransi (koordinat birimi)
     var pkOkuma = false       // PK: can/mana/hedef ekrandan okunsun mu (kapali = sadece tus basma)
     var genieModu = false     // Genie hizlandirma: oyunun Genie'si acikken sadece skill + seri kilic
     var genieKilicMs = 150    // Genie modunda kilica basma araligi (ms)
@@ -204,7 +207,7 @@ class Config {
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
             .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
-            .put("testSureDk", testSureDk).put("testStallDk", testStallDk).put("testDcSn", testDcSn).put("rotaAcik", rotaAcik).put("rotaSatir", rotaSatir).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
+            .put("testSureDk", testSureDk).put("testStallDk", testStallDk).put("testDcSn", testDcSn).put("rotaAcik", rotaAcik).put("rotaSatir", rotaSatir).put("townAcik", townAcik).put("townDk", townDk).put("slotSapma", slotSapma).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -496,6 +499,9 @@ class Config {
                 c.testDcSn = o.optInt("testDcSn", 120).coerceIn(0, 3600)
                 c.rotaAcik = o.optBoolean("rotaAcik", false)
                 c.rotaSatir = o.optInt("rotaSatir", 3).coerceIn(1, 4)
+                c.townAcik = o.optBoolean("townAcik", false)
+                c.townDk = o.optInt("townDk", 30).coerceIn(1, 240)
+                c.slotSapma = o.optInt("slotSapma", 4).coerceIn(2, 20)
                 c.genieModu = o.optBoolean("genieModu", false)
                 c.genieKilicMs = o.optInt("genieKilicMs", 150).coerceIn(50, 2000)
                 c.oncelik = o.optString("oncelik", "").ifEmpty {
