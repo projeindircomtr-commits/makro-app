@@ -130,7 +130,7 @@ object Preset {
     private fun ara(f: ScreenSampler.Frame, i: Isaret): LongArray {
         val src = Bitmap.createBitmap(i.px!!, i.w, i.h, Bitmap.Config.ARGB_8888)
         val maxX = (f.w * i.xPay).toInt().coerceAtLeast(1)
-        val maxY = (f.h * 0.06f).toInt().coerceAtLeast(1)
+        val maxY = (f.h * 0.10f).toInt().coerceAtLeast(1)
         var bestD = Long.MAX_VALUE
         var bestS = 0f
         var bx = 0

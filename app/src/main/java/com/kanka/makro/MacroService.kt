@@ -301,6 +301,21 @@ class MacroService : AccessibilityService() {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val p = event.packageName?.toString() ?: return
         if (gormezdenGel(p)) return
+        val sinif = event.className?.toString() ?: ""
+        if (sinif.contains("notif", true) || sinif.contains("headsup", true) || sinif.contains("toast", true) ||
+            sinif.contains("popup", true) || sinif.contains("floating", true)) return
+        if (oyunPaketiOnde() && p != sonPaket && !oyunPaketiMi(p)) {
+            // Oyun öndeyken başka bir pencere belirdi (bildirim, balon, arama çubuğu...). Hemen "oyundan çıkıldı"
+            // sayma: yarım saniye sonra gerçekten aktif pencere hâlâ o mu diye bak.
+            ui.postDelayed({
+                val aktif = try { rootInActiveWindow?.packageName?.toString() } catch (e: Exception) { null }
+                if (aktif != null && !gormezdenGel(aktif)) {
+                    sonPaket = aktif
+                    oyunGorunurluk()
+                }
+            }, 600)
+            return
+        }
         sonPaket = p
         ui.post { oyunGorunurluk() }
     }
@@ -393,9 +408,46 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    private fun oyunPaketiMi(p: String): Boolean {
+        val oyun = oyunPaketiBul()
+        return (oyun != null && p == oyun) || (oyunPaketi.isNotEmpty() && p == oyunPaketi)
+    }
+
+    /** Panel durum yazısı: çalışırken yeşil, dururken kırmızımsı */
+    private fun durumYaz(t: String, calisiyor: Boolean) {
+        statusTv?.text = t
+        statusTv?.setTextColor(if (calisiyor) 0xFF7CFF7C.toInt() else 0xFFFF9E9E.toInt())
+    }
+
+    /** Ekran tanınamadıysa nedenini yazıdan anlayıp kullanıcıya ne yapacağını söyler */
+    private fun ekranUyari() {
+        val bm = try { ScreenSampler.tamKare() } catch (e: Exception) { null }
+        if (bm == null) {
+            toast("🎮 Ekran görüntüsü alınamıyor. Ekran okuma iznini kontrol et.")
+            return
+        }
+        BotKontrol.metin(bm) { t ->
+            val k = (t ?: "").lowercase()
+            val mesaj = when {
+                k.contains("homepage") || (k.contains("start") && k.contains("option")) ->
+                    "🎮 Şu an oyun başlatıcı ekranındasın. 'Start'a bas, karakterinle oyuna gir; bot kendisi devam eder."
+                k.contains("server") || k.contains("select") || k.contains("login") || k.contains("create") ->
+                    "🎮 Karakter/sunucu seçim ekranındasın. Karakterinle oyunun içine gir; bot kendisi devam eder."
+                else ->
+                    "🎮 Oyun ekranı bulunamadı. Karakterinle oyunun içine gir (sol üstte can/mana barı görünsün); bot kendisi devam eder."
+            }
+            toast(mesaj)
+            TestLog.olay("EKRAN_TANINMADI", mesaj, "")
+        }
+    }
+
+    private fun oyunPaketiOnde(): Boolean = sonPaket.isNotEmpty() && oyunPaketiMi(sonPaket)
+
     /** Bu paketler one gelse de "oyundan cikildi" sayilmaz */
     private fun gormezdenGel(p: String): Boolean =
         p == packageName || p == "com.android.systemui" || p == "android" ||
+            p.contains("systemui") || p.contains("notification") || p.contains("miui.notification") ||
+            p.contains("xmsf") || p.contains("cocktail") || p.contains("edgepanel") || p.contains("assistant") ||
             p.contains("inputmethod") || p.contains("keyboard") || p.contains(".ime") ||
             p.contains("permissioncontroller") || p.contains("securitycenter") ||
             // Ekran goruntusu / kayit onizlemesi one gelince panel kaybolmasin
@@ -877,14 +929,14 @@ class MacroService : AccessibilityService() {
         }
         val drag = btn("⠿") {}
         drag.setOnTouchListener(dragListener(drag))
-        val play = btn("▶") { toggle() }
+        val play = btn("▶ BAŞLAT") { toggle() }
         playBtn = play
         val st = TextView(this).apply {
             text = "Hazır"
             setTextColor(0xFFB0FFB0.toInt())
             textSize = 12f
             setPadding(dp(6), 0, dp(10), 0)
-            maxWidth = dp(200)
+            maxWidth = dp(260)
             setSingleLine(true)
             includeFontPadding = false
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -900,7 +952,7 @@ class MacroService : AccessibilityService() {
         genis.addView(drag)
         genis.addView(play)
         genis.addView(mb)
-        genis.addView(btn("⋯") { showMainMenu() })
+        genis.addView(btn("☰ Menü") { showMainMenu() })
         genis.addView(st)
         genis.addView(daraltBtn)
         panelGenisIcerik = genis
@@ -995,6 +1047,36 @@ class MacroService : AccessibilityService() {
         ortadaGoster(box, cols * bw + (cols - 1) * dp(6) + dp(16))
     }
 
+    private fun kilavuzGoster() {
+        showMenu(
+            "KISA KILAVUZ\n\n1) Oyunu aç, 'Start'a bas, karakterinle oyuna gir\n2) Farm yapacağın yere git\n3) ▶ BAŞLAT'a bas: üstte '● BOT ÇALIŞIYOR' yazar\n4) Durdurmak için ⏸ DURDUR\n\nÇanta dolunca otomatik boşaltmak için: ☰ Menü → Otomatik çanta boşaltma",
+            listOf("✅ Anladım" to {})
+        )
+    }
+
+    private fun tamKapatSor() {
+        showMenu(
+            "Bot tamamen kapatılsın mı?\n\nPanel kaybolur, ekran okuma durur ve erişilebilirlik servisi kapanır. Tekrar kullanmak için uygulamadan açman gerekir.",
+            listOf(
+                "✅ Evet, tamamen kapat" to { botuTamamenKapat() },
+                "↩ Vazgeç" to {}
+            )
+        )
+    }
+
+    private fun botuTamamenKapat() {
+        try { if (pazarCalisiyor) pazarDurdur() } catch (_: Exception) {}
+        try { if (running) stopMacro() } catch (_: Exception) {}
+        try { stopService(Intent(this, CaptureService::class.java)) } catch (_: Exception) {}
+        try { ScreenSampler.clear() } catch (_: Exception) {}
+        removeOverlay()
+        toast("⏻ Bot tamamen kapatıldı")
+        ui.postDelayed({
+            try { panel?.let { safeRemove(it) }; panel = null } catch (_: Exception) {}
+            try { disableSelf() } catch (_: Exception) {}
+        }, 600)
+    }
+
     private fun showMainMenu() {
         if (running) {
             toast("Menü için önce botu durdur (⏸)"); return
@@ -1010,14 +1092,8 @@ class MacroService : AccessibilityService() {
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Lisans.testHesabi())
             listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) else emptyList()
-        val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
-            "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
-            "📦 Kutu butonu kaydet" to { showLootChooser() },
-            "🧪 Ekran testi" to { ekranTesti() },
-            "🌡 Sistem kaydı" to { sistemKaydiGoster() },
-            "🎥 Kamera testi" to { kameraTesti() },
-            "📐 Alan testi" to { alanTesti() }
-        ) else emptyList()
+        // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
+        val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
         showMenu(
             "Menü",
             if (Config.genieMi(this)) listOf<Pair<String, () -> Unit>>(
@@ -1036,6 +1112,7 @@ class MacroService : AccessibilityService() {
                     c.save(this)
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
+                "❓ Kısa kılavuz" to { kilavuzGoster() },
                 "⚙ Uygulamayı aç" to {
                     try {
                         startActivity(
@@ -1043,7 +1120,8 @@ class MacroService : AccessibilityService() {
                         )
                     } catch (e: Exception) {
                     }
-                }
+                },
+                "⏻ Botu tamamen kapat" to { tamKapatSor() }
             )
         )
     }
@@ -2329,7 +2407,7 @@ class MacroService : AccessibilityService() {
             pazarKarti(); return
         }
         pazarCalisiyor = true
-        playBtn?.text = "⏸"
+        playBtn?.text = "⏸ DURDUR"
         pzDurum("🏪 Başlıyor")
         pzH.post(pazarDongu)
     }
@@ -2337,7 +2415,7 @@ class MacroService : AccessibilityService() {
     private fun pazarDurdur() {
         pazarCalisiyor = false
         pzH.removeCallbacksAndMessages(null)
-        playBtn?.text = "▶"
+        playBtn?.text = "▶ BAŞLAT"
         statusTv?.text = "🏪 Durdu"
     }
 
@@ -2918,8 +2996,9 @@ class MacroService : AccessibilityService() {
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
-            statusTv?.text = townDurum() + (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
-                "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
+            val neYazi = if (ne == "🔍") "🔍 oyun ekranı aranıyor" else ne
+            durumYaz("● ÇALIŞIYOR " + townDurum() + (if (pkAktif) "PK " else "") + "$neYazi %d:%02d".format(left / 60, left % 60) +
+                "  🗡$kesilen 📦$toplanan", true)
             ui.postDelayed(this, 1000)
         }
     }
@@ -3114,9 +3193,13 @@ class MacroService : AccessibilityService() {
         bekleNeden = ""
 
         sonLisansKontrol = SystemClock.uptimeMillis()
-        playBtn?.text = "⏸"
-        // Bot aktifken panel gizlenir, solda sadece ikon kalır
-        ui.post { panelDaralt(true) }
+        playBtn?.text = "⏸ DURDUR"
+        // Panel küçülmez: "● BOT ÇALIŞIYOR" yazısı ve ⏸ DURDUR düğmesi hep görünür
+        ui.post {
+            panelDaralt(false)
+            durumYaz("● BOT BAŞLADI", true)
+        }
+        toast("▶ BOT BAŞLADI")
         stepPlanla( 700)
         h.postDelayed(kutuGozcu, 900)
         h.postDelayed(botKontrolGozcu, 3000)
@@ -4841,11 +4924,12 @@ class MacroService : AccessibilityService() {
         h.removeCallbacksAndMessages(null)
         ui.removeCallbacks(statusTick)
         ui.post {
-            playBtn?.text = "▶"
-            statusTv?.text = "Durdu"
+            playBtn?.text = "▶ BAŞLAT"
+            durumYaz("■ BOT DURDU", false)
             // Durunca panel tekrar açılsın (ayar / menü için)
             panelDaralt(false)
         }
+        if (reason == null && calisiyordu) toast("⏹ BOT DURDU")
         if (reason != null) {
             toast(reason)
             vibrate()
@@ -4941,9 +5025,7 @@ class MacroService : AccessibilityService() {
                         olcekUygula(yo, yedek = true)
                     } else {
                         bekleNeden = "🔍"
-                        if (taramaHata % 10 == 3) {
-                            toast("Ekran tanınamadı. Oyun ekranda ve HP barı görünüyor mu? ⋯ → 🧪 Ekran testi")
-                        }
+                        if (taramaHata % 10 == 3) ekranUyari()
                         stepPlanla(1500)
                         return
                     }
