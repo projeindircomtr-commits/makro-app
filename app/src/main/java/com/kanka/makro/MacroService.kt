@@ -3537,6 +3537,9 @@ class MacroService : AccessibilityService() {
     private var yuruAKomut = 0.0
     private var yuruADegis = 0L
     private var yuruSapmaLog = 0L
+    private var yuruC0 = 0.0
+    private var yuruKorrX = -1
+    private var yuruKorrY = -1
 
     // ---- joystick (tek dokunuş akışı: parça parça sürdürülen jest) ----
     private var jStroke: GestureDescription.StrokeDescription? = null
@@ -3730,6 +3733,23 @@ class MacroService : AccessibilityService() {
     }
 
     /** Karakterin yönü (harita koordinatında atan2(dy, dx)); hareket yoksa null */
+    private fun yonUzun(pencereMs: Double, minD: Double): Double? {
+        val simdi = SystemClock.uptimeMillis().toDouble()
+        val son = konumGecmis.lastOrNull() ?: return null
+        var ilk: DoubleArray? = null
+        for (p in konumGecmis) {
+            if (simdi - p[0] <= pencereMs) {
+                ilk = p
+                break
+            }
+        }
+        if (ilk == null) return null
+        val dx = son[1] - ilk[1]
+        val dy = son[2] - ilk[2]
+        if (Math.hypot(dx, dy) < minD) return null
+        return Math.atan2(dy, dx)
+    }
+
     private fun yonHesapla(): Double? {
         val simdi = SystemClock.uptimeMillis().toDouble()
         val son = konumGecmis.lastOrNull() ?: return null
@@ -4082,6 +4102,7 @@ class MacroService : AccessibilityService() {
                 } else {
                     yuruS = if (dl > 0) 1 else -1
                     yuruC = yuruV0 + yuruS * Math.PI / 2
+                    yuruC0 = yuruC
                     yuruADegis = now
                     TestLog.olay("KALIBRASYON", "işaret=$yuruS ofset=${"%.2f".format(yuruC)} rad", "yukari_yon=${"%.2f".format(yuruV0)} sag_yon=${"%.2f".format(w2)}")
                     yuruMod = 2
@@ -4120,9 +4141,9 @@ class MacroService : AccessibilityService() {
         }
         val tx = yol[hi][0]
         val ty = yol[hi][1]
-        if (konumAt != yuruSapmaLog) {
-            // her yeni konum okumasında bir satır (zaman aralığı yok): hiçbir okuma kaybolmaz
-            yuruSapmaLog = konumAt
+        if (kx * 10000L + ky != yuruSapmaLog) {
+            // konum değiştikçe bir satır (oyun koordinatı ~1.2 sn'de bir değişir; tekrar eden okumalar yazılmaz)
+            yuruSapmaLog = kx * 10000L + ky
             TestLog.olay("YURU_IZ", "iz=${"%.1f".format(enD)} kalan=${dSon.toInt()}", "k=$kx,$ky h=$tx,$ty c=${"%.2f".format(yuruC)}")
         }
         // takılma: 8 sn'de en az 1.5 birim yaklaşmadıysa kısa geri + dönüş dene
@@ -4150,10 +4171,19 @@ class MacroService : AccessibilityService() {
         if (Math.abs(aciSar(a - yuruAKomut)) > 0.35) yuruADegis = now
         yuruAKomut = a
         // kamera ofsetini hareketten yavaşça düzelt (komut en az 1.8 sn sabit kaldıysa)
-        val th = yonHesapla()
-        if (th != null && now - yuruADegis > 1100L) {
-            val cm = th - yuruS * a
-            yuruC += 0.30 * aciSar(cm - yuruC)
+        // Oyun koordinatı ~1.2 sn'de bir değişiyor ve tam sayı: düzeltme tick başına değil, YENİ konumda ve
+        // uzun taban çizgisiyle (>=5 birim / 3 sn) yapılır; kalibre değerden en fazla 0.5 rad uzaklaşabilir.
+        if (kx != yuruKorrX || ky != yuruKorrY) {
+            yuruKorrX = kx
+            yuruKorrY = ky
+            if (now - yuruADegis > 1500L) {
+                val th = yonUzun(3000.0, 5.0)
+                if (th != null) {
+                    val cm = th - yuruS * a
+                    yuruC += 0.25 * aciSar(cm - yuruC)
+                    yuruC = yuruC0 + aciSar(yuruC - yuruC0).coerceIn(-0.5, 0.5)
+                }
+            }
         }
     }
 
