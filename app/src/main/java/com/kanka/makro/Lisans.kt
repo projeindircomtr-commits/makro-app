@@ -45,16 +45,10 @@ object Lisans {
 
     /** Bu hesap bu bolumu gorebilir mi? Farm ve KO Mobile (oyun secimi) herkese, yonetici hepsine acik */
     fun ozellikVar(kod: String): Boolean =
-        kod == "ko" || yoneticiMi() || (gecerliSimdi() && ozellikler.contains(kod))
+        kod == "farm" || kod == "ko" || yoneticiMi() || (gecerliSimdi() && ozellikler.contains(kod))
 
     /** Yonetici ve lisans su an gecerliyse true */
     fun yoneticiMi(): Boolean = yonetici && gecerliSimdi()
-
-    /**
-     * Test hesabı: SADECE yönetimin admin panelinde açıkça "Test" yetkisi verdiği hesap.
-     * Yönetici olmak yetmez (ozellikVar'daki yönetici istisnası bilerek kullanılmaz).
-     */
-    fun testHesabi(): Boolean = gecerliSimdi() && ozellikler.contains("test")
 
     @Suppress("DEPRECATION")
     fun surumKodu(ctx: Context): Int = try {
@@ -142,7 +136,7 @@ object Lisans {
         isim = p.getString("is", "") ?: ""
         yonetici = p.getBoolean("yn", false)
         ozellikler = (p.getString("oz", "farm") ?: "farm").split(",").map { it.trim() }
-            .filter { it.isNotEmpty() }.toSet()   // bos = hic bolum verilmemis (Farm da panelden verilir)
+            .filter { it.isNotEmpty() }.toSet().ifEmpty { setOf("farm") }
     }
 
     fun gecerliSimdi(): Boolean {
@@ -241,16 +235,14 @@ object Lisans {
             var ozKume = setOf("farm")
             val ozS = j.optString("ozellik", "")
             val imza2S = j.optString("imza2", "")
-            // Sunucu imzali "ozellik" gonderdiyse BOS olsa bile gecerlidir (admin hic bolum vermemis olabilir).
-            // Eski sunucuda alan yoktur: guvenli taraf sadece Farm.
-            if (j.has("ozellik") && imza2S.isNotEmpty()) {
+            if (ozS.isNotEmpty() && imza2S.isNotEmpty()) {
                 try {
                     val sig2 = Signature.getInstance("SHA256withECDSA")
                     sig2.initVerify(pk)
                     sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
                     if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
                         ozKume = ozS.split(",").map { it.trim() }
-                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" || it == "test" }.toSet()
+                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" }.toSet() + "farm"
                     }
                 } catch (e: Exception) {
                 }

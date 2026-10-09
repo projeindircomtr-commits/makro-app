@@ -11,8 +11,7 @@ data class Nokta(
     var x: Int,
     var y: Int,
     var cd: Float = 0f,
-    var on: Boolean = true,
-    var yuzde: Int = 0      // Heal: can bu yuzdenin altina inince bas
+    var on: Boolean = true
 )
 
 data class RenkNokta(val x: Int, val y: Int, val color: Int) {
@@ -132,23 +131,6 @@ class Config {
 
     // Minor (iyilestirme skili): can bu %'nin altindayken basilir
     var minorYuzde = 80
-    var oncelik = ONCELIK_VARSAYILAN   // ne once basilsin (virgullu sira)
-    var padSkillDurur = true  // PK: joystick'e dokunurken bot tuslari bekler (yuruyus akici olur), birakinca devam eder
-    var padKamera = false     // PK: ayrica kamera joystick'i (oyunun joystick'i zaten sag/sol ile de cevirir)
-    var padAcik = true        // PK: ekranda yurume/kamera pedleri (parmak bota takilmadan hareket eder)
-    // ---- Test modu (yalnizca yonetimin "Test" yetkisi verdigi hesapta etkin) ----
-    var testModu = false      // oturum gunlugu + test ayarlari acik mi
-    var testBasamak = 0       // 0 = normal hiz ayari; 1..4 = test hiz merdiveni
-    var testAltMs = 700       // basis araligi alt siniri A (ms): hicbir basamak bunun altina inmez
-    var testSureDk = 0        // 0 = ayardaki sure; >0 = test suresi (dakika)
-    var testStallDk = 10      // bu kadar dakika hic mob/kutu/pot ilerlemesi yoksa kontrollu dur (0 = kapali)
-    var testDcSn = 120        // baglanti kopunca en fazla bu kadar sn bekle, gelirse devam et (0 = hemen dur)
-    var rotaAcik = false      // Canta rotasi (test hesabi, Myko): canta dolunca Inn Hostes'e git, bosalt, don
-    var rotaSatir = 3         // envanterin ilk kac satiri bosaltilsin (1..4)
-    var pkOkuma = false       // PK: can/mana/hedef ekrandan okunsun mu (kapali = sadece tus basma)
-    var genieModu = false     // Genie hizlandirma: oyunun Genie'si acikken sadece skill + seri kilic
-    var genieKilicMs = 150    // Genie modunda kilica basma araligi (ms)
-    var mpOncelik = false     // KO: ikisi de dusukse once MP iksiri (minor manayla calistigi icin)
     var skillAraMs = 800      // PK: iki skill arasi oyunun ortak beklemesi (ms); videoda olculen ~0.8 sn
     var minorAktif = true   // Minor ac/kapa (oyun ici ayarlardan)
 
@@ -185,7 +167,7 @@ class Config {
         for (p in points) {
             arr.put(
                 JSONObject().put("name", p.name).put("type", p.type)
-                    .put("x", p.x).put("y", p.y).put("cd", p.cd.toDouble()).put("on", p.on).put("yuzde", p.yuzde)
+                    .put("x", p.x).put("y", p.y).put("cd", p.cd.toDouble()).put("on", p.on)
             )
         }
         o.put("points", arr)
@@ -202,9 +184,7 @@ class Config {
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
-            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
-            .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
-            .put("testSureDk", testSureDk).put("testStallDk", testStallDk).put("testDcSn", testDcSn).put("rotaAcik", rotaAcik).put("rotaSatir", rotaSatir).put("genieModu", genieModu).put("genieKilicMs", genieKilicMs).put("minorAktif", minorAktif)
+            .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("minorAktif", minorAktif)
             .put("menzilBekleSn", menzilBekleSn).put("alanAktif", alanAktif).put("alanW", alanW).put("alanH", alanH).put("alanCy", alanCy)
             .put("kilitler", JSONArray().apply { kilitler.forEach { put(it.toJson()) } })
         return o
@@ -235,14 +215,10 @@ class Config {
          * Kod silinmedi, sadece secim ekranlarinda gizleniyor.
          */
         /**
-         * Farm odaklı sürüm: sadece Farm (ve lisanslı Pazar) görünür.
-         * PK ve Genie tamamen kapalı — kod yolu korundu ama seçilemez.
+         * Bu hesap bu botu görebilir mi? Farm herkese açık; yönetici hepsini görür;
+         * diğerleri için admin panelinde seçilenler (sunucu imzalı) görünür.
          */
-        fun botGorunur(kod: String): Boolean = when (kod) {
-            "farm" -> true
-            "pk", "genie" -> false
-            else -> Lisans.ozellikVar(kod)
-        }
+        fun botGorunur(kod: String): Boolean = Lisans.ozellikVar(kod)
 
         fun pazarMi(ctx: Context): Boolean = bot(ctx) == "pazar"
 
@@ -251,32 +227,6 @@ class Config {
         }
 
         fun pkMi(ctx: Context): Boolean = bot(ctx) == "pk"
-
-        /** Genie Hizlandir modu: oyunun Genie'si acikken bot sadece kilica seri basar */
-        fun genieMi(ctx: Context): Boolean = bot(ctx) == "genie"
-
-        fun genieSec(ctx: Context) {
-            genel(ctx).edit().putBoolean("pk", false).putString("bot", "genie").commit()
-        }
-
-        /** Uyenin panelden aldigi modlar: Farm odaklı — pk/genie yok */
-        fun izinliModlar(): List<String> = listOf("farm").filter { botGorunur(it) }
-
-        /** Secili mod uyeye verilmemisse Farm'a gec (Pazar ayri yonetilir) */
-        fun modDuzelt(ctx: Context) {
-            val b = bot(ctx)
-            if (b == "pazar") return
-            // PK / Genie bu sürümde yok — ne olursa olsun Farm'a çek
-            if (b == "pk" || b == "genie" || !botGorunur(b)) {
-                modDegistir(ctx, false)
-                return
-            }
-            val izin = izinliModlar()
-            if (izin.isEmpty() || b in izin) return
-            when (izin.first()) {
-                else -> modDegistir(ctx, false)
-            }
-        }
 
         // ---------- Pazar: satilacak esyalar (ikon + fiyat) ve kontrol araligi ----------
         fun pazarEsyalar(ctx: Context): MutableList<PazarEsya> {
@@ -310,45 +260,10 @@ class Config {
 
         fun sinif(ctx: Context): String = genel(ctx).getString("pkSinif", "asas") ?: "asas"
 
-        /** Minor bu sürümde tamamen kapalı */
-        fun minorVar(ctx: Context): Boolean = false
+        /** Minor sadece Asas/Okcu'da (farm'da da acik) */
+        fun minorVar(ctx: Context): Boolean = !pkMi(ctx) || sinif(ctx) == "asas"
 
         fun sinifAd(ctx: Context): String = SINIFLAR.firstOrNull { it.first == sinif(ctx) }?.second ?: "🗡 Asas/Okçu"
-
-        /**
-         * Sinifa gore hangi tuslarin kaydedilmesi onerilir (Knight Online / MykoMobile sinif yapisi).
-         * Tus duzenleyicinin ustunde gosterilir; tuslari yine oyuncu kendisi kaydeder.
-         */
-        fun sinifOnerisi(ctx: Context): String? {
-            val pk = pkMi(ctx)
-            return when (if (pk) sinif(ctx) else "") {
-                "asas" -> "Asas/Okçu: ⚔ saldırı • 💚 Minor • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
-                "warrior" -> "Warrior: ⚔ saldırı • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
-                "priest" -> "Priest: ⚔ saldırı • 💗 heal skillerin (can %) • 🛡 buffların • ✨ atak skillerin • HP/MP pot — süreleri kendi skillerine göre gir"
-                "mage" -> "Mage: ⚔ saldırı • ✨ büyülerin • 🛡 buffların • HP/MP pot — süreleri kendi skillerine göre gir"
-                else -> null
-            }
-        }
-
-        /** Sinifin ilk kurulum ayari: mana tum siniflarda can demek */
-        fun sinifVarsayilan(c: Config, sinif: String) {
-            // Skill sureleri/isimleri sabit degil, oyuncu kendisi girer; sadece mana onceligi
-            c.mpOncelik = true
-            c.oncelik = "mp,hp,minor,heal,buff,kutu,atak"
-        }
-
-        const val ONCELIK_VARSAYILAN = "hp,mp,heal,buff,kutu,atak"
-        val ONCELIK_AD = linkedMapOf(
-            "hp" to "❤ HP pot", "mp" to "💧 MP pot", "minor" to "💚 Minor", "heal" to "💗 Heal",
-            "buff" to "🛡 Buff", "kutu" to "📦 Kutu", "atak" to "⚔ Skill / Saldırı"
-        )
-
-        /** Gecerli, eksiksiz oncelik listesi */
-        fun oncelikListe(s: String): MutableList<String> {
-            val l = s.split(",").map { it.trim() }.filter { it in ONCELIK_AD.keys }.distinct().toMutableList()
-            for (k in ONCELIK_AD.keys) if (k !in l) l.add(k)
-            return l
-        }
 
         /** Oyundaki panel icin kisa, emoji'siz sinif adi */
         fun sinifKisa(ctx: Context): String = when (sinif(ctx)) {
@@ -356,7 +271,6 @@ class Config {
         }
 
         private fun anahtar(ctx: Context) = when {
-            genieMi(ctx) -> if (oyun(ctx) == "ko") "cfg_ko_genie" else "cfg_genie"
             koMu(ctx) && pkMi(ctx) -> "cfg_ko_pk_" + sinif(ctx)
             koMu(ctx) -> "cfg_ko"
             pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
@@ -387,20 +301,12 @@ class Config {
         }
 
         /** Secili oyunun hazir ayarini yukle */
-        /**
-         * Secili oyunun EKRAN ayarlari (HP/MP/hedef bari, kutu butonu, sureler).
-         * Tuslar hazir gelmez: her oyuncu kendi skillerini, iksirlerini ve saldiri tusunu
-         * oyunda "Tuslari duzenle" ile kendisi kaydeder; mevcut tuslar korunur.
-         */
         fun hazirAyar(ctx: Context) {
-            val tuslar = load(ctx).points.map { it.copy() }
-            if (koMu(ctx)) KoOyun.apply(ctx) else Preset.apply(ctx)
-            val c = load(ctx)
-            // Ilk kurulum (hic tus yok) ve PK ise: sinifa gore baslangic ayarlari
-            if (tuslar.isEmpty() && pkMi(ctx)) sinifVarsayilan(c, sinif(ctx))
-            c.points.clear()
-            c.points.addAll(tuslar)
-            c.save(ctx)
+            when {
+                koMu(ctx) && pkMi(ctx) && sinif(ctx) == "asas" -> KoOyun.applyPkAsas(ctx)
+                koMu(ctx) -> KoOyun.apply(ctx)
+                else -> Preset.apply(ctx)
+            }
         }
 
         /**
@@ -414,8 +320,7 @@ class Config {
                 val ko = oyun(ctx) == "ko"
                 val k = (if (ko) "cfg_ko_pk_" else "cfg_pk_") + sinif(ctx)
                 // KO PK Asas'in kendi hazir ayari var: kopyalama, bos kalsin, ilk acilista yuklensin
-                // KO PK'nin her sinifa kendi hazir ayari var: kopyalama, ilk acilista yuklensin
-                if (prefs(ctx).getString(k, null) == null && !ko) {
+                if (prefs(ctx).getString(k, null) == null && !(ko && sinif(ctx) == "asas")) {
                     val kaynak = if (ko) prefs(ctx).getString("cfg_ko", null)
                     else prefs(ctx).getString("cfg_pk", null) ?: prefs(ctx).getString("cfg", null)
                     kaynak?.let { js ->
@@ -445,8 +350,7 @@ class Config {
                         Nokta(
                             p.getString("name"), p.getString("type"),
                             p.getInt("x"), p.getInt("y"),
-                            p.optDouble("cd", 0.0).toFloat(), p.optBoolean("on", true),
-                            p.optInt("yuzde", 0)
+                            p.optDouble("cd", 0.0).toFloat(), p.optBoolean("on", true)
                         )
                     )
                 }
@@ -483,24 +387,6 @@ class Config {
                 c.menzilSn = (if (eskiSn <= 0) 3 else eskiSn).coerceIn(1, 15)
                 c.minorYuzde = o.optInt("minorYuzde", 80).coerceIn(20, 99)
                 c.skillAraMs = o.optInt("skillAraMs", 800).coerceIn(0, 5000)
-                c.mpOncelik = o.optBoolean("mpOncelik", false)
-                c.padSkillDurur = o.optBoolean("padSkillDurur", true)
-                c.padKamera = o.optBoolean("padKamera", false)
-                c.padAcik = o.optBoolean("padAcik", true)
-                c.pkOkuma = o.optBoolean("pkOkuma", false)
-                c.testModu = o.optBoolean("testModu", false)
-                c.testBasamak = o.optInt("testBasamak", 0).coerceIn(0, 4)
-                c.testAltMs = o.optInt("testAltMs", 700).coerceIn(20, 5000)
-                c.testSureDk = o.optInt("testSureDk", 0).coerceIn(0, 10080)
-                c.testStallDk = o.optInt("testStallDk", 10).coerceIn(0, 240)
-                c.testDcSn = o.optInt("testDcSn", 120).coerceIn(0, 3600)
-                c.rotaAcik = o.optBoolean("rotaAcik", false)
-                c.rotaSatir = o.optInt("rotaSatir", 3).coerceIn(1, 4)
-                c.genieModu = o.optBoolean("genieModu", false)
-                c.genieKilicMs = o.optInt("genieKilicMs", 150).coerceIn(50, 2000)
-                c.oncelik = o.optString("oncelik", "").ifEmpty {
-                    if (c.mpOncelik) "mp,hp,minor,heal,buff,kutu,atak" else ONCELIK_VARSAYILAN
-                }
                 c.minorAktif = o.optBoolean("minorAktif", true)
                 c.menzilBekleSn = o.optInt("menzilBekleSn", 4).coerceIn(1, 15)
                 c.alanAktif = o.optBoolean("alanAktif", false)
@@ -545,10 +431,6 @@ class Config {
             "hp_pot" -> "HP pot"
             "mp_pot" -> "MP pot"
             "skill" -> "Skill"
-            "heal" -> "Heal"
-            "buff" -> "Buff"
-            "kutu" -> "Kutu"
-            "joy" -> "Joystick"
             else -> type
         }
     }

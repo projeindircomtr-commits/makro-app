@@ -83,8 +83,7 @@ class MainActivity : Activity() {
             Alan("Hedef barı varken: tekrar deneme (ms)", { it.tgtFast }, { c, v -> c.tgtFast = v }, 200, 10000)
         ),
         "Pot ve skill" to listOf(
-            Alan("Pot bekleme (ms) • KO'da HP/MP ortak iksir arası", { it.potCd }, { c, v -> c.potCd = v }, 300, 30000),
-                        Alan("Minor açılsın: can şunun altına inince (%)", { it.minorYuzde }, { c, v -> c.minorYuzde = v }, 20, 99),
+            Alan("Aynı pot için en az bekleme (ms)", { it.potCd }, { c, v -> c.potCd = v }, 300, 30000),
             Alan("Skill'e eklenen gecikme: en az (ms)", { it.skMin }, { c, v -> c.skMin = v }, 0, 10000),
             Alan("Skill'e eklenen gecikme: en çok (ms)", { it.skMax }, { c, v -> c.skMax = v }, 0, 20000)
         ),
@@ -125,10 +124,6 @@ class MainActivity : Activity() {
     private lateinit var lootSwitch: Switch
     private lateinit var modFarmBtn: Button
     private lateinit var modPkBtn: Button
-    private lateinit var modGenieBtn: Button
-    private val normalSatirlar = ArrayList<View>()
-    private lateinit var genieSatir: LinearLayout
-    private lateinit var genieMsTv: TextView
     private lateinit var ayarBaslik: TextView
     private lateinit var sinifSatir: LinearLayout
     private val sinifBtnler = HashMap<String, Button>()
@@ -271,18 +266,9 @@ class MainActivity : Activity() {
             setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { modSec(true) }
         }
-        modGenieBtn = Button(this).apply {
-            text = "🧞  GENIE"
-            textSize = 17f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(14), 0, dp(14))
-            setOnClickListener { genieModSec() }
-        }
         modSatir.addView(modFarmBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
-        modSatir.addView(modGenieBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
+        modSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        modSatir.addView(modPkBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         modKart.addView(modSatir)
         // PK karakter secimi
         sinifSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
@@ -301,8 +287,8 @@ class MainActivity : Activity() {
         }
         modKart.addView(sinifSatir)
         modKart.addView(TextView(this).apply {
-            text = "🌾 Farm Bot: mob seçer, skill basar, HP/MP pot kullanır, kutu toplar. " +
-                "Oyunda paneldeki ▶ ile istediğin zaman başlat / durdur."
+            text = "Farm: mob keser, kutu toplar.  PK: oyuncuya kılıçla saldırır, skilleri senin sıranla basar. " +
+                "Her modun tuş düzeni ve ayarları ayrı saklanır."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
@@ -339,10 +325,6 @@ class MainActivity : Activity() {
         oyunKart.addView(smallButton("📱 KO Mobile uygulamasını seç") { koPaketSec() })
 
         // --- Kurulum karti ---
-        // Mod karti oyun seciminin altinda dursun
-        root.removeView(modKart)
-        root.addView(modKart, root.indexOfChild(oyunKart) + 1)
-
         val setup = card(root)
         uyeBolumleri.add(setup)
         setup.addView(cardTitle("Kurulum (bir kere)"))
@@ -405,7 +387,6 @@ class MainActivity : Activity() {
         mRow.addView(minutesTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
         mRow.addView(smallButton("+") { changeMinutes(10) })
         quick.addView(mRow)
-        normalSatirlar.add(mRow)
 
         // Pot esikleri
         val hRow = row()
@@ -418,7 +399,6 @@ class MainActivity : Activity() {
         hRow.addView(hpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         hRow.addView(smallButton("+") { yuzdeDegis(true, 5) })
         quick.addView(hRow)
-        normalSatirlar.add(hRow)
 
         val pRow2 = row()
         pRow2.addView(label("💧 MP potu, mana şunun altına inince"), weight1())
@@ -430,7 +410,6 @@ class MainActivity : Activity() {
         pRow2.addView(mpTv, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.WRAP_CONTENT))
         pRow2.addView(smallButton("+") { yuzdeDegis(false, 5) })
         quick.addView(pRow2)
-        normalSatirlar.add(pRow2)
 
         // Mob kilidi
         val kRow = row()
@@ -444,9 +423,7 @@ class MainActivity : Activity() {
             toast("Kilitler kaldırıldı")
         })
         quick.addView(kRow)
-        normalSatirlar.add(kRow)
         quick.addView(TextView(this).apply {
-            normalSatirlar.add(this)
             text = "Mob kilitlemek için: oyunda mobu seç → panelde ⋯ → 🎯 Seçili mobu kilitle. Birden fazla mob kilitleyebilirsin."
             textSize = 12f
             setTextColor(MUTED)
@@ -462,7 +439,6 @@ class MainActivity : Activity() {
         sRow.addView(speedFast)
         sRow.addView(speedSeri)
         quick.addView(sRow)
-        normalSatirlar.add(sRow)
 
         val lRow = row()
         lRow.addView(label("Kutuları topla"), weight1())
@@ -477,7 +453,6 @@ class MainActivity : Activity() {
         }
         lRow.addView(lootSwitch)
         quick.addView(lRow)
-        normalSatirlar.add(lRow)
 
         val oRow = row()
         oRow.addView(label("Ekranı otomatik tanı"), weight1())
@@ -492,26 +467,12 @@ class MainActivity : Activity() {
         }
         oRow.addView(otoSwitch)
         quick.addView(oRow)
-        normalSatirlar.add(oRow)
         quick.addView(TextView(this).apply {
-            normalSatirlar.add(this)
             text = "Açıkken HP/MP barı, mobun can barı ve kutular her telefon ve tablette kendiliğinden bulunur."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), 0, 0, 0)
         })
-
-        // Genie Hizlandir: tek ayar, kilic araligi
-        genieSatir = row()
-        genieSatir.addView(label("🗡 Kılıç aralığı"), weight1())
-        genieSatir.addView(smallButton("−") { genieMsDegis(-50) })
-        genieMsTv = TextView(this).apply {
-            textSize = 17f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            background = degerKutusu(); setPadding(0, dp(6), 0, dp(6))
-        }
-        genieSatir.addView(genieMsTv, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT))
-        genieSatir.addView(smallButton("+") { genieMsDegis(50) })
-        quick.addView(genieSatir)
 
         // --- Site onizlemesi ---
         val site = card(root)
@@ -611,8 +572,7 @@ class MainActivity : Activity() {
             val g = k / 86400
             val sa = (k % 86400) / 3600
             val kalan = if (g > 0) "$g gün $sa saat" else "$sa saat ${(k % 3600) / 60} dk"
-            lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı" +
-                (if (Lisans.testHesabi()) "\n🧪 YÖNETİM TEST HESABI (oyunda ⋯ → Test modu)" else "")
+            lisansDurum.text = "✅ ${Lisans.isim}  •  $kalan kaldı"
         } else if (gnc) {
             lisansDurum.text = "⬆ " + Lisans.guncelleMesaj.ifEmpty { "Yeni sürüm çıktı. Devam etmek için güncelle." }
         } else {
@@ -625,7 +585,7 @@ class MainActivity : Activity() {
         val g = if (ok) View.VISIBLE else View.GONE
         for (v in uyeBolumleri) v.visibility = g
         // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
-        modKartView.visibility = if (ok && Config.izinliModlar().isNotEmpty()) View.VISIBLE else View.GONE
+        modKartView.visibility = if (ok && Config.botGorunur("pk")) View.VISIBLE else View.GONE
         oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
@@ -816,7 +776,6 @@ class MainActivity : Activity() {
     }
 
     private fun refresh() {
-        Config.modDuzelt(this)   // uyeye verilmeyen mod secili kalmasin
         cfg = Config.load(this)
         refreshSteps()
         minutesTv.text = "${cfg.minutes} dk"
@@ -836,23 +795,12 @@ class MainActivity : Activity() {
         oyunMykoBtn.setTextColor(if (!ko) 0xFF12161C.toInt() else Color.WHITE)
         oyunKoBtn.setTextColor(if (ko) 0xFF12161C.toInt() else Color.WHITE)
         val pk = Config.pkMi(this)
-        val genie = Config.genieMi(this)
-        val farm = !pk && !genie
-        modFarmBtn.visibility = if (Config.botGorunur("farm")) View.VISIBLE else View.GONE
-        modPkBtn.visibility = if (Config.botGorunur("pk")) View.VISIBLE else View.GONE
-        modGenieBtn.visibility = if (Config.botGorunur("genie")) View.VISIBLE else View.GONE
-        modFarmBtn.background = rounded(if (farm) ACCENT else LACI, 14)
+        modFarmBtn.background = rounded(if (!pk) ACCENT else LACI, 14)
         modPkBtn.background = rounded(if (pk) ACCENT else LACI, 14)
-        modGenieBtn.background = rounded(if (genie) ACCENT else LACI, 14)
-        modFarmBtn.setTextColor(if (farm) 0xFF12161C.toInt() else Color.WHITE)
+        modFarmBtn.setTextColor(if (!pk) 0xFF12161C.toInt() else Color.WHITE)
         modPkBtn.setTextColor(if (pk) 0xFF12161C.toInt() else Color.WHITE)
-        modGenieBtn.setTextColor(if (genie) 0xFF12161C.toInt() else Color.WHITE)
-        ayarBaslik.text = if (genie) "Ayarlar • Genie Hızlandır" + (if (ko) " • KO Mobile" else "")
-        else if (pk) "Ayarlar • PK • " + Config.sinifAd(this)
+        ayarBaslik.text = if (pk) "Ayarlar • PK • " + Config.sinifAd(this)
         else if (ko) "Ayarlar • Farm • KO Mobile" else "Ayarlar • Farm"
-        for (v in normalSatirlar) v.visibility = if (genie) View.GONE else View.VISIBLE
-        genieSatir.visibility = if (genie) View.VISIBLE else View.GONE
-        genieMsTv.text = "${cfg.genieKilicMs} ms"
         sinifSatir.visibility = if (pk) View.VISIBLE else View.GONE
         val sn = Config.sinif(this)
         for ((kod, b) in sinifBtnler) {
@@ -918,24 +866,8 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun genieModSec() {
-        if (Config.genieMi(this)) return
-        saveAll()
-        val servis = MacroService.instance
-        if (servis != null) servis.genieSecServis() else Config.genieSec(this)
-        modFarmBtn.postDelayed({ refresh() }, 150)
-    }
-
-    private fun genieMsDegis(d: Int) {
-        saveAll()
-        val c = Config.load(this)
-        c.genieKilicMs = (c.genieKilicMs + d).coerceIn(50, 2000)
-        c.save(this)
-        refresh()
-    }
-
     private fun modSec(pk: Boolean, sinif: String? = null) {
-        if (!Config.pazarMi(this) && !Config.genieMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
+        if (!Config.pazarMi(this) && Config.pkMi(this) == pk && (!pk || sinif == null || sinif == Config.sinif(this))) return
         saveAll()
         val servis = MacroService.instance
         if (servis != null) servis.modSec(pk, sinif) else Config.modDegistir(this, pk, sinif)
@@ -1084,8 +1016,11 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             toast("Oyun açılamadı"); return
         }
-        // Bot otomatik başlamaz: kullanıcı oyunda ▶'a basınca başlar
-        toast("Oyun açılıyor. Hazır olunca paneldeki ▶ ile botu başlat")
+        // Oyun yuklensin diye biraz bekle, sonra baslat
+        MacroService.instance?.let {
+            if (!it.isRunning()) it.startFromApp(4000)
+        }
+        toast("Bot 4 saniye sonra başlayacak")
     }
 
     // ================= Gelismis bolum =================
@@ -1094,9 +1029,9 @@ class MainActivity : Activity() {
         // Hazir ayar
         val pre = card(box)
         pre.addView(cardTitle("Hazır ayar"))
-        pre.addView(smallButton("⚡ Ekran ayarlarını yeniden yükle") {
+        pre.addView(smallButton("⚡ Hazır ayarları yeniden yükle") {
             AlertDialog.Builder(this)
-                .setMessage("Barlar, kutu butonu ve süreler ${Config.oyunAd(this)} için yeniden ayarlansın mı? Kaydettiğin tuşlar silinmez.")
+                .setMessage("Tüm tuşlar, barlar ve kutu butonları ${Config.oyunAd(this)} için yeniden ayarlansın mı?")
                 .setPositiveButton("Yükle") { _, _ ->
                     saveAll(); Config.hazirAyar(this); refresh(); toast("Yüklendi")
                 }
@@ -1228,7 +1163,7 @@ class MainActivity : Activity() {
                 textSize = 14f
                 setTextColor(Color.WHITE)
             }, weight1())
-            if (p.type == "skill" || (Config.pkMi(this) && p.type in listOf("hp_pot", "mp_pot", "minor", "heal", "buff"))) {
+            if (p.type == "skill") {
                 r.addView(TextView(this).apply { text = "sn"; textSize = 12f; setTextColor(MUTED) })
                 val e = EditText(this).apply {
                     inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -1323,7 +1258,7 @@ class MainActivity : Activity() {
         if (sameList) {
             for ((i, e) in cdEdits) {
                 val v = e.text.toString().replace(',', '.').toFloatOrNull() ?: continue
-                if (latest.points[i].type in listOf("skill", "hp_pot", "mp_pot", "minor", "heal", "buff")) latest.points[i].cd = v.coerceIn(0f, 3600f)
+                if (latest.points[i].type == "skill") latest.points[i].cd = v.coerceIn(0f, 3600f)
             }
             for ((i, cb) in onChecks) {
                 if (latest.points[i].type == "skill") latest.points[i].on = cb.isChecked

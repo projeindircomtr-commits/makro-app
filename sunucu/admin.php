@@ -168,20 +168,6 @@ button{color:#fff;border:0;padding:10px 12px;border-radius:9px;font-size:14px;ba
 .m{background:#2e9e5b33;border:1px solid #2e9e5b;padding:12px;border-radius:10px;word-break:break-all}
 .gri{color:#9aa4b2;font-size:13px}.kirmizi{color:#ff7b7b}.yesil{color:#6fdc9a}
 a{color:#e0b04a}
-/* Bolum secimi: dokunulabilir buyuk butonlar */
-.chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0}
-.chip{display:block}
-.chip input{display:none}
-.chip span{display:block;text-align:center;padding:11px 4px;border-radius:10px;background:#2d3846;color:#cfd6df;font-size:14px;border:1px solid #3b4a5c}
-.chip input:checked + span{background:#e0b04a;color:#12161c;font-weight:bold;border-color:#e0b04a}
-.uye-bas{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-.ad{font-size:19px;font-weight:bold}
-.rozet{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;margin-left:4px}
-.r-yesil{background:#2e9e5b33;color:#6fdc9a}.r-kirmizi{background:#b03a3a33;color:#ff7b7b}.r-mor{background:#6b4fa033;color:#c9b4ff}
-.bolum{border-top:1px solid #2a3442;margin-top:10px;padding-top:8px}
-.bolum-ad{color:#9aa4b2;font-size:12px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
-details summary{cursor:pointer;color:#9aa4b2;font-size:14px;padding:6px 0}
-.ara{width:100%;padding:12px;border-radius:10px;border:0;font-size:15px;margin:6px 0}
 </style></head><body>
 <h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a></h2>
 <?php if ($mesaj): ?><div class="m"><?= e($mesaj) ?></div><?php endif; ?>
@@ -237,14 +223,12 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 
 <div class="k"><b>🎛 Bölümler (kim ne görsün)</b>
 <?php $vo = explode(',', varsayilan_ozellik()); ?>
-<p class="gri" style="margin:4px 0">Yönetici hesabı her şeyi görür. Farm da artık üye üye verilir. Yeni üyeler şu an: <b><?= e(implode(', ', $vo)) ?></b></p>
+<p class="gri" style="margin:4px 0">Yönetici hesabı her şeyi görür, Farm herkese açıktır. Yeni üyeler şu an: <b><?= e(implode(', ', $vo)) ?></b></p>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
-<div class="chips">
-<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test'] as $kod => $ad): ?>
-<label class="chip"><input type="checkbox" name="oz[]" value="<?= $kod ?>" <?= in_array($kod, $vo, true) ? 'checked' : '' ?>><span><?= $ad ?></span></label>
-<?php endforeach; ?>
-</div>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" checked disabled> Farm</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $vo, true) ? 'checked' : '' ?>> PK</label>
+<label style="display:inline-block;margin:6px 14px 6px 0"><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $vo, true) ? 'checked' : '' ?>> Pazar</label>
 <button class="tam" name="is" value="ozellik_varsayilan" style="background:#2e9e5b;padding:13px">Yeni üyeler için varsayılan yap</button>
 <button class="tam" name="is" value="ozellik_hepsi" style="background:#8a6d1f;padding:13px" onclick="return confirm('Tüm üyelerin bölümleri değişsin mi?')">Tüm üyelere uygula</button>
 </form></div>
@@ -268,62 +252,33 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 <button class="tam" style="background:#2e9e5b;padding:13px">Ekle</button>
 </form></div>
 
-<?php
-$sayAktif = 0; $sayBitti = 0;
-foreach ($uyeler as $x) { if ((int)$x['aktif'] && (int)$x['bitis'] > time()) $sayAktif++; else $sayBitti++; }
-?>
-<div class="k"><b>👥 Üyeler</b> <span class="gri">• <?= count($uyeler) ?> üye • <span class="yesil"><?= $sayAktif ?> aktif</span> • <span class="kirmizi"><?= $sayBitti ?> kapalı/süresi bitmiş</span></span>
-<input class="ara" id="ara" placeholder="🔍 Üye ara (kullanıcı adı ya da isim)" oninput="uyeAra(this.value)">
-</div>
-<script>
-function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(function(d){d.style.display=d.dataset.ad.indexOf(q)>=0?'':'none';});}
-</script>
-
 <?php foreach ($uyeler as $u):
     $kalan = (int)$u['bitis'] - time();
     $durum = !(int)$u['aktif'] ? '<span class="kirmizi">Kapalı</span>'
         : ($kalan > 0 ? '<span class="yesil">' . e(kalan_yazi((int)$u['bitis'])) . '</span>' : '<span class="kirmizi">Süresi doldu</span>');
 ?>
-<div class="k uye" data-ad="<?= e(function_exists('mb_strtolower') ? mb_strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? '')) : strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? ''))) ?>">
-<div class="uye-bas">
-<div><span class="ad"><?= e($u['kullanici']) ?></span> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?></div>
-<div>
-<?= !empty($u['yonetici']) ? '<span class="rozet r-mor">★ Yönetici</span>' : '' ?>
-<?= !(int)$u['aktif'] ? '<span class="rozet r-kirmizi">Kapalı</span>'
-    : ($kalan > 0 ? '<span class="rozet r-yesil">Aktif</span>' : '<span class="rozet r-kirmizi">Süresi doldu</span>') ?>
-</div>
-</div>
-<div style="margin-top:4px"><?= $durum ?> <span class="gri">• bitiş <?= date('d.m.Y H:i', (int)$u['bitis']) ?></span></div>
-<div class="gri" style="margin-top:2px">Sürüm <?= !empty($u['surum']) ? (int)$u['surum'] : '-' ?> • Son giriş <?= $u['son_giris'] ? date('d.m H:i', (int)$u['son_giris']) : '-' ?> • Cihaz <?= $u['cihaz'] ? e($u['cihaz']) : 'bağlanmadı' ?></div>
+<div class="k">
+<b><?= e($u['kullanici']) ?></b> <?= !empty($u['yonetici']) ? '<span class="yesil">★ Yönetici</span>' : '' ?> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?><br>
+<?= $durum ?> <span class="gri">• bitiş <?= date('d.m.Y H:i', (int)$u['bitis']) ?></span><br>
+<span class="gri">Sürüm: <?= !empty($u['surum']) ? (int)$u['surum'] : '-' ?> • Cihaz: <?= $u['cihaz'] ? e($u['cihaz']) : 'henüz bağlanmadı' ?> • Son giriş: <?= $u['son_giris'] ? date('d.m H:i', (int)$u['son_giris']) : '-' ?></span><br>
 <?php if (!empty($u['son_hata'])): ?>
 <div style="background:#3a2226;border-left:3px solid #e06464;padding:6px 8px;margin:6px 0;border-radius:0 8px 8px 0;font-size:12px;word-break:break-all">
 ⚠ Son hata (<?= date('d.m H:i', (int)$u['son_hata_zaman']) ?>): <?= e($u['son_hata']) ?>
 </div>
 <?php endif; ?>
-
-<div class="bolum"><div class="bolum-ad">Süre</div>
 <?= form('uzat', (int)$u['id'], '+ Süre ekle', '#2e9e5b', true) ?>
-<?php if (empty($u['yonetici']) && (int)$u['bitis'] > time()): ?><?= form('sure_sifirla', (int)$u['id'], 'Süreyi 0 yap', '#b03a3a', false, 'Bu üyenin süresi bitsin mi?') ?><?php endif; ?>
-</div>
-
-<?php $uo = explode(',', uye_ozellik($u)); ?>
-<div class="bolum"><div class="bolum-ad">Bölümler (dokun: aç/kapat, sonra kaydet)</div>
-<form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
-<div class="chips">
-<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test'] as $kod => $ad): ?>
-<label class="chip"><input type="checkbox" name="oz[]" value="<?= $kod ?>" <?= in_array($kod, $uo, true) ? 'checked' : '' ?>><span><?= $ad ?></span></label>
-<?php endforeach; ?>
-</div>
-<button class="tam" style="background:#2b6cb0;padding:11px">Bölümleri kaydet</button></form>
-</div>
-
-<details class="bolum"><summary>⚙ Diğer işlemler (kapat, yönetici, cihaz, şifre, sil)</summary>
-<?= form('durum', (int)$u['id'], (int)$u['aktif'] ? 'Hesabı kapat' : 'Hesabı aç', '#8a6d1f') ?>
+<?= form('durum', (int)$u['id'], (int)$u['aktif'] ? 'Kapat' : 'Aç', '#8a6d1f') ?>
 <?= form('yonetici', (int)$u['id'], !empty($u['yonetici']) ? 'Yöneticiliği kaldır' : 'Yönetici yap', '#6b4fa0', false, 'Yönetici yetkisi değişsin mi?') ?>
+<?php if (empty($u['yonetici']) && (int)$u['bitis'] > time()): ?><?= form('sure_sifirla', (int)$u['id'], 'Süreyi 0 yap', '#b03a3a', false, 'Bu üyenin süresi bitsin mi?') ?><?php endif; ?>
+<?php $uo = explode(',', ozellik_temizle((string)($u['ozellik'] ?? ''))); ?>
+<form method="post" class="in" style="margin:6px 0"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+<span class="gri">Bölümler:</span> Farm
+<label><input type="checkbox" name="oz[]" value="pk" <?= in_array('pk', $uo, true) ? 'checked' : '' ?>> PK</label>
+<label><input type="checkbox" name="oz[]" value="pazar" <?= in_array('pazar', $uo, true) ? 'checked' : '' ?>> Pazar</label>
+<button style="background:#2d3846">Kaydet</button></form>
 <?= form('cihaz', (int)$u['id'], 'Cihaz sıfırla', '#2d3846', false, 'Cihaz bağlantısı sıfırlansın mı?') ?>
 <?= form('sifre', (int)$u['id'], 'Yeni şifre', '#2d3846', false, 'Yeni şifre oluşturulsun mu?') ?>
 <?= form('sil', (int)$u['id'], 'Sil', '#b33a3a', false, 'Bu üye silinsin mi?') ?>
-</details>
 </div>
 <?php endforeach; ?>
 <?php if (!$uyeler): ?><p class="gri">Henüz üye yok.</p><?php endif; ?>
