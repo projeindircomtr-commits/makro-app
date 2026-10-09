@@ -36,7 +36,7 @@ object TestLog {
     // Bellekte tutulan önemli olaylar (rutin eylemler hariç) ve ilk eylem örnekleri
     private val onemli = ArrayDeque<String>()
     private val eylemOrnek = ArrayList<String>()
-    private const val ONEMLI_MAX = 2000
+    private const val ONEMLI_MAX = 4000
 
     // Oturum bilgisi
     private var oturumAd = ""
@@ -249,9 +249,9 @@ object TestLog {
             val bas = if (dkSatir.size > 90) dkSatir.size - 90 else 0
             for (j in bas until dkSatir.size) sb.append(dkSatir[j]).append('\n')
 
-            sb.append("\nÖNEMLİ OLAYLAR (rutin eylemler hariç, son 300):\n")
+            sb.append("\nÖNEMLİ OLAYLAR (rutin eylemler hariç, son 900):\n")
             val liste = ArrayList(onemli)
-            val b2 = if (liste.size > 300) liste.size - 300 else 0
+            val b2 = if (liste.size > 900) liste.size - 900 else 0
             for (j in b2 until liste.size) sb.append(liste[j]).append('\n')
 
             if (eylemOrnek.isNotEmpty()) {

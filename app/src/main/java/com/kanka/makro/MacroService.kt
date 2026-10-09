@@ -4120,9 +4120,10 @@ class MacroService : AccessibilityService() {
         }
         val tx = yol[hi][0]
         val ty = yol[hi][1]
-        if (now - yuruSapmaLog > 5000L) {
-            yuruSapmaLog = now
-            TestLog.olay("YURU_IZ", "izden uzaklık=${"%.1f".format(enD)} kalan=${dSon.toInt()}", "konum=$kx,$ky hedef=$tx,$ty")
+        if (konumAt != yuruSapmaLog) {
+            // her yeni konum okumasında bir satır (zaman aralığı yok): hiçbir okuma kaybolmaz
+            yuruSapmaLog = konumAt
+            TestLog.olay("YURU_IZ", "iz=${"%.1f".format(enD)} kalan=${dSon.toInt()}", "k=$kx,$ky h=$tx,$ty c=${"%.2f".format(yuruC)}")
         }
         // takılma: 8 sn'de en az 1.5 birim yaklaşmadıysa kısa geri + dönüş dene
         if (now - yuruOnceAt > 8000L) {
@@ -4296,7 +4297,33 @@ class MacroService : AccessibilityService() {
             rotaIptal("Open butonu görünmedi (Inn Hostes yakında değil mi?)")
             return
         }
+        // Open görünmüyorsa Inn Hostes'e biraz daha yaklaş (iz biraz erken bitmiş olabilir)
+        if (deneme >= 2 && deneme % 3 == 2 && rotaMod != 1 && innYaklas()) {
+            rh.postDelayed({ rotaOpenAra(deneme + 1) }, 900)
+            return
+        }
         rh.postDelayed({ rotaOpenAra(deneme + 1) }, 300)
+    }
+
+    /** Kayıtlı Inn izinin son yönünde kısa bir adım atar (en fazla izin sonundan 12 birim ötesine kadar). */
+    private fun innYaklas(): Boolean {
+        val n = rotaIz.size
+        if (n < 2 || yuruAktif) return false
+        val kx = konumX
+        val ky = konumY
+        if (kx < 0 || SystemClock.uptimeMillis() - konumAt > 2500L) return false
+        val son = rotaIz[n - 1]
+        val onc = rotaIz[maxOf(0, n - 3)]
+        if (Math.hypot((son[0] - kx).toDouble(), (son[1] - ky).toDouble()) > 12.0) return false
+        val yon = Math.atan2((son[1] - onc[1]).toDouble(), (son[0] - onc[0]).toDouble())
+        TestLog.olay("INN_YAKLAS", "Open görünmedi, Inn'e doğru kısa adım", "konum=$kx,$ky")
+        jBaslat()
+        jDunya(yon, screenH * 0.10f)
+        rh.postDelayed({
+            jSur(0f, 0f)
+            jBirak()
+        }, 450L)
+        return true
     }
 
     private fun rotaMenuAc() {
