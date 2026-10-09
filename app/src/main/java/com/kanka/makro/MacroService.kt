@@ -277,7 +277,7 @@ class MacroService : AccessibilityService() {
         Lisans.yukle(this)
         TestLog.hazirla(this)
         rotaYukle()
-        TestLog.sistem = Lisans.testHesabi() && Config.load(this).testModu
+        TestLog.sistem = Lisans.testHesabi() && Config.load(this).let { it.testModu || it.townAcik }
         if (TestLog.sistem) {
             TestLog.olay("SERVIS_BASLADI", "erişilebilirlik servisi bağlandı", "sürüm=${surumAdi()}")
             val pr = getSharedPreferences("test_durum", MODE_PRIVATE)
@@ -1009,7 +1009,7 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Lisans.testHesabi())
-            listOf<Pair<String, () -> Unit>>("🧪 Test modu" to { testMenu() }) else emptyList()
+            listOf<Pair<String, () -> Unit>>("🏙 Çanta döngüsü" to { townMenu() }) else emptyList()
         val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
             "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
             "📦 Kutu butonu kaydet" to { showLootChooser() },
@@ -3016,7 +3016,7 @@ class MacroService : AccessibilityService() {
             cfg.maxDelay = cfg.maxDelay.coerceAtLeast(cfg.minDelay + 600)
         }
         // Test modu: SADECE yönetimin "Test" yetkisi verdiği hesapta ve modu açıkken
-        testCalisiyor = cfg.testModu && Lisans.testHesabi()
+        testCalisiyor = Lisans.testHesabi() && (cfg.testModu || cfg.townAcik)
         if (testCalisiyor) testAyarlariUygula()
         alanBitti = false
         alanArdArda = 0
@@ -3131,6 +3131,7 @@ class MacroService : AccessibilityService() {
 
     /** Test modu hız merdiveni ve süre. Alt sınır A hiçbir basamakta aşılmaz. */
     private fun testAyarlariUygula() {
+        if (!cfg.testModu) return   // hız merdiveni yalnızca eski test modunda; çanta döngüsü hızı değiştirmez
         if (cfg.testSureDk > 0) cfg.minutes = cfg.testSureDk
         val b = cfg.testBasamak
         if (b in 1..4) {
@@ -3175,7 +3176,7 @@ class MacroService : AccessibilityService() {
         if (testCalisiyor) {
             TestLog.oturumBasla(this, testAyarOzeti())
             agIzlemeBasla()
-            toast("🧪 TEST MODU AÇIK: oturum günlüğü kaydediliyor")
+            toast("🏙 Çanta döngüsü açık: olaylar kaydediliyor")
             getSharedPreferences("test_durum", MODE_PRIVATE).edit().putBoolean("oturum_acik", true).apply()
         }
     }
@@ -3341,53 +3342,9 @@ class MacroService : AccessibilityService() {
         }
     }
 
-    // ---- Test menüsü (yalnızca "Test" yetkili hesapta ⋯ menüsünde görünür) ----
+    // Eski test menüsü kaldırıldı: ⋯ menüsünde yalnızca "Çanta döngüsü" kalır (Test yetkili hesap)
     private fun testMenu() {
-        val c = Config.load(this)
-        fun sonraki(liste: List<Int>, simdi: Int): Int {
-            val i = liste.indexOf(simdi)
-            return liste[(if (i < 0) 0 else i + 1) % liste.size]
-        }
-        fun ayar(degis: (Config) -> Unit) {
-            val cf = Config.load(this)
-            degis(cf)
-            cf.save(this)
-            TestLog.sistem = Lisans.testHesabi() && cf.testModu
-            testMenu()
-        }
-        val basamakAd = listOf("Normal ayar", "Basamak 1", "Basamak 2", "Basamak 3", "Basamak 4 (alt sınır A)")
-        val altListe = listOf(1000, 700, 500, 400, 300, 200, 150, 100)
-        val sureListe = listOf(0, 60, 240, 720, 1440, 2880)
-        val stallListe = listOf(0, 5, 10, 20, 30)
-        val dcListe = listOf(0, 60, 120, 300)
-        val sureAd = if (c.testSureDk == 0) "ayardaki" else "${c.testSureDk} dk"
-        val stallAd = if (c.testStallDk == 0) "kapalı" else "${c.testStallDk} dk"
-        val dcAd = if (c.testDcSn == 0) "hemen dur" else "${c.testDcSn} sn"
-        val maddeler = listOf<Pair<String, () -> Unit>>(
-            (if (c.testModu) "✅ Test modu: AÇIK" else "⬜ Test modu: KAPALI") to { ayar { it.testModu = !it.testModu } },
-            "⚡ Hız: ${basamakAd[c.testBasamak]}" to { ayar { it.testBasamak = (it.testBasamak + 1) % 5 } },
-            "⏱ Alt sınır A: ${c.testAltMs} ms" to { ayar { it.testAltMs = sonraki(altListe, it.testAltMs) } },
-            "🕒 Test süresi: $sureAd" to { ayar { it.testSureDk = sonraki(sureListe, it.testSureDk) } },
-            "📉 İlerleme bekçisi: $stallAd" to { ayar { it.testStallDk = sonraki(stallListe, it.testStallDk) } },
-            "🔌 Bağlantı bekleme: $dcAd" to { ayar { it.testDcSn = sonraki(dcListe, it.testDcSn) } },
-            "📌 Olay işaretle" to { isaretMenu() },
-            "📍 Konum testi (okunan koordinat)" to { konumTesti() },
-            (if (rotaKayit) "⏹ Rota kaydını bitir" else "🔴 Rota kaydını başlat") to {
-                if (rotaKayit) rotaKayitBitir() else rotaKayitBasla()
-                removeOverlay()
-            },
-            "🗑 Rotayı sil (${rotaIz.size} nokta)" to { rotaSil() },
-            "🚶 Yürüme testi (Inn Hostes'e git)" to { rotaBaslat(1) },
-            "🏙 Town döngüsü (otonom çanta) ▶" to { townMenu() },
-            "🎒 Çanta rotasını şimdi çalıştır" to { rotaBaslat(0) },
-            (if (c.rotaAcik) "✅ Otomatik çanta rotası: AÇIK" else "⬜ Otomatik çanta rotası: KAPALI") to { ayar { it.rotaAcik = !it.rotaAcik } },
-            "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
-            "📋 Raporu kopyala" to { raporKopyala() },
-            "📤 Raporu paylaş" to { raporPaylas() },
-            "🗑 Günlüğü temizle" to { TestLog.temizle(); toast("Günlük temizlendi") },
-            "Kapat" to { removeOverlay() }
-        )
-        showMenu("🧪 Test modu (yönetim test hesabı)", maddeler)
+        townMenu()
     }
 
     private fun isaretMenu() {
@@ -4355,6 +4312,7 @@ class MacroService : AccessibilityService() {
     private var townSonKontrol = 0L
     private var townCantaBiliniyor = false
     private var townAtDeneme = 0
+    private var townOnceki: IntArray? = null
     private var townDonusDeneme = 0
     private var townEnvSay = 0
     private var townPanelOnce: IntArray? = null
@@ -4362,7 +4320,7 @@ class MacroService : AccessibilityService() {
     private var townInnDeneme = 0
 
     private val TOWN_DUGME_Y = 0.9635f
-    private val TOWN_TOL = 12.0
+    private val TOWN_TOL = 15.0
     private val TOWN_BOS_ESIK = 3
 
     private fun slotYukle() {
@@ -4549,18 +4507,24 @@ class MacroService : AccessibilityService() {
         if (!rotaCalisiyor) return
         rotaAsama = if (donus) 16 else 12
         townAtDeneme = 0
+        townOnceki = if (konumX >= 0) intArrayOf(konumX, konumY) else null
         TestLog.olay("TOWN_BASILDI", if (donus) "slota dönmek için" else "bankaya gitmek için", "konum=$konumX,$konumY")
         tap(screenW * 0.6133f, screenH * TOWN_DUGME_Y, 0f) { rh.postDelayed({ townDogrula(0, donus) }, 2500) }
     }
 
     private fun townDogrula(n: Int, donus: Boolean) {
         if (!rotaCalisiyor) return
-        val t0 = slotIz[0]
         val simdi = SystemClock.uptimeMillis()
         if (konumX >= 0 && simdi - konumAt < 1500L) {
-            val d = Math.hypot((konumX - t0[0]).toDouble(), (konumY - t0[1]).toDouble())
-            if (d <= TOWN_TOL) {
-                TestLog.olay("TOWN_VARILDI", "Town noktasında", "konum=$konumX,$konumY sapma=${d.toInt()}")
+            // Town noktası: kayıtlı yolların başlangıcına yakınsa VEYA Town'dan önceki konumdan belirgin uzaklaştıysa
+            var dMin = 1e9
+            for (yol in listOf(slotIz, rotaIz)) {
+                if (yol.isNotEmpty()) dMin = minOf(dMin, Math.hypot((konumX - yol[0][0]).toDouble(), (konumY - yol[0][1]).toDouble()))
+            }
+            val on = townOnceki
+            val tasindi = on != null && Math.hypot((konumX - on[0]).toDouble(), (konumY - on[1]).toDouble()) >= 15.0
+            if (dMin <= TOWN_TOL || (tasindi && n >= 3)) {
+                TestLog.olay("TOWN_VARILDI", "Town noktasında", "konum=$konumX,$konumY yol_basina_uzaklik=${dMin.toInt()} tasindi=$tasindi")
                 if (donus) rh.postDelayed({ townSlotaYuru() }, 500) else rh.postDelayed({ townInneYuru() }, 500)
                 return
             }
@@ -4572,7 +4536,7 @@ class MacroService : AccessibilityService() {
             return
         }
         if (n > 16) {
-            rotaIptal("Town noktasına varılamadı (konum $konumX,$konumY, beklenen ${t0[0]},${t0[1]})")
+            rotaIptal("Town'a gidilemedi (konum $konumX,$konumY; Town butonu çalışmadı ya da koordinat okunamadı)")
             return
         }
         rh.postDelayed({ townDogrula(n + 1, donus) }, 600)
@@ -4674,9 +4638,10 @@ class MacroService : AccessibilityService() {
             "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
             (if (c.townAcik) "✅ 4) Otomatik çanta döngüsü: AÇIK" else "⬜ 4) Otomatik çanta döngüsü: KAPALI") to { ayar { it.townAcik = !it.townAcik } },
             "▶ Döngüyü şimdi dene (envanteri kontrol et)" to { removeOverlay(); townBaslat(false) },
-            "Geri" to { testMenu() }
+            "📋 Raporu kopyala" to { raporKopyala() },
+            "Kapat" to { removeOverlay() }
         )
-        showMenu("🏙 Town döngüsü", maddeler)
+        showMenu("🏙 Çanta döngüsü", maddeler)
     }
 
     private fun slotSil() {

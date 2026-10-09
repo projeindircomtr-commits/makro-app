@@ -188,7 +188,7 @@ ROTA_MIKTAR, ROTA_BOSALTILDI, ROTA_KAPAT, ROTA_DONUS, ROTA_TAMAM, ROTA_IPTAL, CA
 
 Akış: her N dk envanter kontrolü → doluysa Town → kayıtlı Town→Inn yolunu yürü → Open → Inn Hostes Open → banka boşaltma → Town → kayıtlı Town→slot yolunu yürü → slot sapması içindeyse farma devam (atak).
 
-Kurulum: ⋯ → Test modu → Town döngüsü: (1) Town'a bas, Town→Inn yolunu kaydet; (2) Town'a bas, Town→slot yolunu kaydet; (3) kontrol süresi + slot sapma payı; (4) otomatik döngü AÇIK.
+Kurulum: ⋯ → Çanta döngüsü: (1) Town'a bas, Town→Inn yolunu kaydet; (2) Town'a bas, Town→slot yolunu kaydet; (3) kontrol süresi + slot sapma payı; (4) otomatik döngü AÇIK.
 
 Testler:
 - B1 Envanter ölçümü: "Döngüyü şimdi dene" → günlükte ENVANTER_OLCUM gerçek duruma uyuyor mu; ENVANTER_ACILMADI çıkmamalı.
