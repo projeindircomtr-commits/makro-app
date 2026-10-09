@@ -4636,10 +4636,10 @@ class MacroService : AccessibilityService() {
         townInnDeneme = 0
         townCantaBiliniyor = cantaBiliniyor
         rotaAsama = 11
-        TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
+        TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti → önce envanter sayılacak" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
         konumBaslat()
-        if (cantaBiliniyor) rh.postDelayed({ townAt(false) }, 700)
-        else rh.postDelayed({ townEnvanterAc() }, 700)
+        // Her durumda önce envanteri aç ve say: 'çanta dolu' işareti yanlış olabilir, gereksiz Town gezisi yapılmasın
+        rh.postDelayed({ townEnvanterAc() }, 700)
     }
 
     // ---------------- envanter kontrolü ----------------
@@ -5056,7 +5056,7 @@ class MacroService : AccessibilityService() {
         }
         // Town döngüsü: her N dk envanteri kontrol et (ya da çanta dolu işareti), doluysa Town→Inn→banka→Town→slot
         if (testCalisiyor && cfg.townAcik && !rotaCalisiyor && !tapping && lootPhase == Loot.BOS &&
-            townHazirMi() && (cantaDoluBayrak || townVakit())) {
+            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townSonKontrol >= 120_000L) || townVakit())) {
             val bil = cantaDoluBayrak
             TestLog.olay("TOWN_TETIK", if (bil) "çanta dolu işareti" else "süre doldu: ${cfg.townDk} dk", "")
             townSonKontrol = SystemClock.elapsedRealtime()
