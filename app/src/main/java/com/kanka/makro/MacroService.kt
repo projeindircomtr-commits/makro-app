@@ -3536,6 +3536,7 @@ class MacroService : AccessibilityService() {
     private var yuruC = 0.0                              // kamera/dünya ofseti (rad)
     private var yuruAKomut = 0.0
     private var yuruADegis = 0L
+    private var yuruSapmaLog = 0L
 
     // ---- joystick (tek dokunuş akışı: parça parça sürdürülen jest) ----
     private var jStroke: GestureDescription.StrokeDescription? = null
@@ -4110,10 +4111,19 @@ class MacroService : AccessibilityService() {
             }
         }
         yuruIdx = enYakin
+        // hedef: izin KENDİ üzerinde, en yakın noktadan ~6 birim ilerisi (karakterden değil) -> dar köprüde izden sapmaz
         var hi = yuruIdx
-        while (hi < yol.size - 1 && Math.hypot((yol[hi][0] - kx).toDouble(), (yol[hi][1] - ky).toDouble()) < 8.0) hi++
+        var kat = 0.0
+        while (hi < yol.size - 1 && kat < 6.0) {
+            kat += Math.hypot((yol[hi + 1][0] - yol[hi][0]).toDouble(), (yol[hi + 1][1] - yol[hi][1]).toDouble())
+            hi++
+        }
         val tx = yol[hi][0]
         val ty = yol[hi][1]
+        if (now - yuruSapmaLog > 5000L) {
+            yuruSapmaLog = now
+            TestLog.olay("YURU_IZ", "izden uzaklık=${"%.1f".format(enD)} kalan=${dSon.toInt()}", "konum=$kx,$ky hedef=$tx,$ty")
+        }
         // takılma: 8 sn'de en az 1.5 birim yaklaşmadıysa kısa geri + dönüş dene
         if (now - yuruOnceAt > 8000L) {
             if (yuruOnceAt != 0L && yuruOnceMesafe - dSon < 1.5) {
@@ -4140,9 +4150,9 @@ class MacroService : AccessibilityService() {
         yuruAKomut = a
         // kamera ofsetini hareketten yavaşça düzelt (komut en az 1.8 sn sabit kaldıysa)
         val th = yonHesapla()
-        if (th != null && now - yuruADegis > 1800L) {
+        if (th != null && now - yuruADegis > 1100L) {
             val cm = th - yuruS * a
-            yuruC += 0.15 * aciSar(cm - yuruC)
+            yuruC += 0.30 * aciSar(cm - yuruC)
         }
     }
 
