@@ -1,0 +1,24 @@
+OTOMATIK ÇANTA BOŞALTMA - 5 ADIMDA KURULUM (MykoMobile)
+
+Gerekenler: Hesabın yönetim panelinde "Test" iznine sahip olmalı.
+
+0) Oyunu aç, karakteri farm yapacağın yere (slota) götür.
+   Botu bir kere ▶ ile başlat, 3 saniye sonra ⏸ ile durdur (ekran izni için, sadece ilk sefer).
+
+1) ⋯ menüsü → "🏙 Otomatik çanta boşaltma" → "▶ 1) Inn yolunu kaydet" → "Hazırım".
+   Oyunda TOWN'a bas, doğunca joystick ile Inn Hostes'in önüne yürü ve dur.
+   Bot kendisi anlar, "kaydedildi" der.
+
+2) Menü otomatik açılır → "▶ 2) Slot yolunu kaydet" → "Hazırım".
+   Oyunda TOWN'a bas, doğunca farm slotuna yürü ve dur. Bot kendisi bitirir.
+
+3) Menü açılır → "▶ 3) Süreyi seç ve AÇ" → 30 dk (önerilen).
+
+4) Karakter slotta, ▶ ile botu başlat. Gerisini bot yapar:
+   her 30 dk çantaya bakar; doluysa Town → Inn → eşyaları bankaya atar → Town → slota döner → farma devam.
+
+Üst çubuk: "🏙12dk" = bir sonraki çanta kontrolüne 12 dk var; "🏙boşaltma" = şu an boşaltma turunda.
+
+Sorun olursa: botu durdur → ⋯ → Otomatik çanta boşaltma → "⚙ Gelişmiş ayarlar" → "Raporu kopyala" → yönetime gönder.
+Yolları yeniden kaydetmek için: menüde "🔄 Yolları baştan kaydet".
+Kapatmak için: menüde "⏹ Otomatik boşaltmayı KAPAT".

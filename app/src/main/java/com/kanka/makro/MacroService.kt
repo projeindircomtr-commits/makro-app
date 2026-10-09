@@ -1009,7 +1009,7 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Lisans.testHesabi())
-            listOf<Pair<String, () -> Unit>>("🏙 Çanta döngüsü" to { townMenu() }) else emptyList()
+            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) else emptyList()
         val yoneticiListesi: List<Pair<String, () -> Unit>> = if (yonetici) listOf(
             "🎨 Bar kaydet (HP/MP/hedef)" to { showBarChooser() },
             "📦 Kutu butonu kaydet" to { showLootChooser() },
@@ -2918,7 +2918,7 @@ class MacroService : AccessibilityService() {
                 lootPhase != Loot.BOS -> "📦"
                 else -> "⚔"
             }
-            statusTv?.text = (if (testCalisiyor) "🧪TEST " else "") + (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
+            statusTv?.text = townDurum() + (if (pkAktif) "PK " else "") + "$ne %d:%02d".format(left / 60, left % 60) +
                 "  🗡$kesilen 📦$toplanan 🧪$basilanPot"
             ui.postDelayed(this, 1000)
         }
@@ -3105,6 +3105,9 @@ class MacroService : AccessibilityService() {
             slotYukle()
             konumBaslat()
             townSonKontrol = SystemClock.elapsedRealtime()
+            if (cfg.townAcik) rh.postDelayed({
+                if (running && cfg.townAcik && !townHazirMi()) toast("⚠ Otomatik boşaltma açık ama yollar kayıtlı değil: ⋯ → Otomatik çanta boşaltma")
+            }, 1500)
         }
         if (pkAktif && cfg.padAcik) padKur()
         oyunPaketi = sonPaket   // su an ondeki uygulama = oyun
@@ -3344,7 +3347,7 @@ class MacroService : AccessibilityService() {
 
     // Eski test menüsü kaldırıldı: ⋯ menüsünde yalnızca "Çanta döngüsü" kalır (Test yetkili hesap)
     private fun testMenu() {
-        townMenu()
+        townSihirbaz()
     }
 
     private fun isaretMenu() {
@@ -3671,9 +3674,66 @@ class MacroService : AccessibilityService() {
             rotaYeni.clear()
             rotaKayitSon = null
             rotaKayit = true
+            kayitSonKonum = null
+            kayitSonHareketAt = SystemClock.uptimeMillis()
+            rh.postDelayed(kayitIzleyici, 2000)
             konumBaslat()
             TestLog.olay("ROTA_KAYIT", "kayıt başladı", "")
             toast(if (hedef == 1) "🔴 Kayıt başladı: önce Town'a bas, Town'da doğunca slota yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)" else "🔴 Rota kaydı başladı: Town'a bas, Town'da doğunca Inn Hostes'e yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)")
+        }
+    }
+
+    // ---- kayıt otomatik bitirme: yeterince yürüdükten sonra karakter durunca kayıt kendiliğinden biter ----
+    private var kayitSonKonum: IntArray? = null
+    private var kayitSonHareketAt = 0L
+    private val kayitIzleyici = object : Runnable {
+        override fun run() {
+            if (!rotaKayit) return
+            try {
+                kayitKontrol()
+            } catch (e: Exception) {
+                hataKaydet("kayit-izle", e)
+            }
+            if (rotaKayit) rh.postDelayed(this, 500)
+        }
+    }
+
+    private fun kayitKontrol() {
+        val simdi = SystemClock.uptimeMillis()
+        if (konumX < 0 || simdi - konumAt > 2500L) return
+        val son = kayitSonKonum
+        if (son == null || Math.hypot((konumX - son[0]).toDouble(), (konumY - son[1]).toDouble()) > 1.5) {
+            kayitSonKonum = intArrayOf(konumX, konumY)
+            kayitSonHareketAt = simdi
+            return
+        }
+        // yürünen yol uzunluğu (Town sıçraması sayılmaz)
+        var uz = 0.0
+        for (i in 1 until rotaYeni.size) {
+            val d = Math.hypot((rotaYeni[i][0] - rotaYeni[i - 1][0]).toDouble(), (rotaYeni[i][1] - rotaYeni[i - 1][1]).toDouble())
+            if (d < 40.0) uz += d
+        }
+        if (uz < 25.0) return
+        val durdu = simdi - kayitSonHareketAt
+        val hedef = kayitHedef
+        var bitir = false
+        if (hedef == 1) {
+            bitir = durdu >= 4000L
+        } else if (durdu >= 3000L) {
+            // Inn yolu: Open butonu görününce (ya da 9 sn durunca) biter
+            if (rotaOpenT == null) {
+                updateScreenSize()
+                rotaOpenT = Preset.loadTemplateF(this, "open.png", screenW / 2712f, 20, 0.5f, 0.5f)
+            }
+            val op = rotaOpenT
+            val f = ScreenSampler.grab()
+            val gordu = op != null && f != null && findT(f, op) != null
+            bitir = gordu || durdu >= 9000L
+        }
+        if (bitir) {
+            TestLog.olay("KAYIT_OTOMATIK_BITTI", "karakter durdu, kayıt bitiriliyor", "hedef=$hedef uzunluk=${uz.toInt()}")
+            rotaKayitBitir()
+            ui.postDelayed({ townSihirbaz() }, 1200)
         }
     }
 
@@ -4378,6 +4438,13 @@ class MacroService : AccessibilityService() {
 
     private fun townHazirMi(): Boolean = slotIz.size >= 2 && rotaIz.size >= 2 && !Config.koMu(this) && ScreenSampler.running
 
+    private fun townDurum(): String {
+        if (!testCalisiyor || !cfg.townAcik) return ""
+        if (rotaCalisiyor) return "🏙boşaltma "
+        val kalan = ((townSonKontrol + cfg.townDk * 60_000L - SystemClock.elapsedRealtime()) / 60_000L).toInt()
+        return "🏙%dk ".format(maxOf(0, kalan))
+    }
+
     private fun townVakit(): Boolean =
         cfg.townDk > 0 && SystemClock.elapsedRealtime() - townSonKontrol >= cfg.townDk * 60_000L
 
@@ -4636,6 +4703,70 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ---------------- kolay kurulum sihirbazı ----------------
+    private fun townSihirbaz() {
+        val c = Config.load(this)
+        val innOk = rotaIz.size >= 2
+        val slotOk = slotIz.size >= 2
+        val acik = c.townAcik && innOk && slotOk
+        val baslik = "🏙 Otomatik çanta boşaltma\n" +
+            (if (innOk) "✅ 1) Inn yolu kayıtlı" else "⬜ 1) Inn yolu") + "\n" +
+            (if (slotOk) "✅ 2) Slot yolu kayıtlı" else "⬜ 2) Slot yolu") + "\n" +
+            (if (acik) "✅ 3) AÇIK: her ${c.townDk} dk çanta kontrolü" else "⬜ 3) Açık değil")
+        val maddeler = ArrayList<Pair<String, () -> Unit>>()
+        if (!innOk) maddeler.add("▶ 1) Inn yolunu kaydet" to { townRehber(0) })
+        else if (!slotOk) maddeler.add("▶ 2) Slot yolunu kaydet" to { townRehber(1) })
+        else if (!acik) maddeler.add("▶ 3) Süreyi seç ve AÇ" to { townSureSec() })
+        else {
+            maddeler.add("⏹ Otomatik boşaltmayı KAPAT" to {
+                val cf = Config.load(this)
+                cf.townAcik = false
+                cf.save(this)
+                toast("⏹ Otomatik boşaltma kapatıldı")
+            })
+            maddeler.add("🔁 Şimdi bir tur dene" to { townBaslat(false) })
+            maddeler.add("⏱ Süreyi değiştir" to { townSureSec() })
+        }
+        maddeler.add("🔄 Yolları baştan kaydet" to {
+            rh.post {
+                rotaIz.clear(); rotaKaydet()
+                slotIz.clear(); slotKaydet()
+                ui.post { townSihirbaz() }
+            }
+        })
+        maddeler.add("⚙ Gelişmiş ayarlar" to { townMenu() })
+        showMenu(baslik, maddeler)
+    }
+
+    private fun townRehber(hedef: Int) {
+        val metin = if (hedef == 0)
+            "ADIM 1/3 • Inn yolu\n\n1) Karakter slotta dursun\n2) Aşağıdaki tuşa bas\n3) Oyunda TOWN'a bas\n4) Doğunca joystick ile Inn Hostes'in önüne yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir."
+        else
+            "ADIM 2/3 • Slot yolu\n\n1) Aşağıdaki tuşa bas\n2) Oyunda TOWN'a bas\n3) Doğunca joystick ile farm yaptığın SLOTA yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir."
+        showMenu(metin, listOf(
+            "✅ Hazırım, kaydı başlat" to {
+                if (!ScreenSampler.running) toast("Önce ▶ ile botu başlat, 3 sn sonra ⏸ ile durdur (ekran izni gerekli), sonra tekrar dene")
+                else rotaKayitBasla(hedef)
+            },
+            "⬅ Geri" to { townSihirbaz() }
+        ))
+    }
+
+    private fun townSureSec() {
+        val liste = listOf(10, 20, 30, 50, 60)
+        val maddeler = ArrayList<Pair<String, () -> Unit>>()
+        for (dk in liste) {
+            maddeler.add((if (dk == 30) "$dk dk (önerilen)" else "$dk dk") to {
+                val cf = Config.load(this)
+                cf.townDk = dk
+                cf.townAcik = true
+                cf.save(this)
+                toast("✅ Hazır! Karakter slotta farm yapsın, ▶ ile başlat. Her $dk dk çantayı bot kontrol eder.")
+            })
+        }
+        showMenu("ADIM 3/3 • Çanta ne sıklıkla kontrol edilsin?", maddeler)
+    }
+
     private fun townMenu() {
         val c = Config.load(this)
         val dkListe = listOf(10, 20, 30, 40, 50, 60, 90, 120)
@@ -4666,7 +4797,7 @@ class MacroService : AccessibilityService() {
             (if (c.townAcik) "✅ 4) Otomatik çanta döngüsü: AÇIK" else "⬜ 4) Otomatik çanta döngüsü: KAPALI") to { ayar { it.townAcik = !it.townAcik } },
             "▶ Döngüyü şimdi dene (envanteri kontrol et)" to { removeOverlay(); townBaslat(false) },
             "📋 Raporu kopyala" to { raporKopyala() },
-            "Kapat" to { removeOverlay() }
+            "⬅ Kolay kurulum" to { townSihirbaz() }
         )
         showMenu("🏙 Çanta döngüsü", maddeler)
     }
