@@ -198,4 +198,4 @@ Testler:
 - B5 Town→slot yürüme: TOWN_TAMAM sapması ≤ slot sapma payı + 2; TOWN_DONUS_TEKRAR / ROTA_IPTAL sayısı.
 - B6 Uzun koşu: 30 dk aralıkla en az 3 tur.
 
-Bilinen riskler: yürüme joystick'e bağlı (önceki testte rotasyon sorunu görüldü); envanter açık mı kontrolü ekran farkına dayanır; Town tekrar basış bekleme süresi bilinmiyor.
+Bilinen riskler: yürüme joystick ile; joystick kamera yönüne göre yürüttüğü için her yürüyüşte yön kalibrasyonu yapılır (simülasyonda 160/160, telefonda denenmedi); envanter açık mı kontrolü ekran farkına dayanır; Town tekrar basış bekleme süresi bilinmiyor.

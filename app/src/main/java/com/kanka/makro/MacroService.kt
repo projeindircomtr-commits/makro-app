@@ -3446,6 +3446,10 @@ class MacroService : AccessibilityService() {
     private var yuruKurtarma = 0
     private var yuruGeriBitis = 0L
     private var yuruSonuc: ((Boolean, String) -> Unit)? = null
+    private var yuruS = 1                                // joystick açısı -> dünya açısı yön işareti (+1/-1)
+    private var yuruC = 0.0                              // kamera/dünya ofseti (rad)
+    private var yuruAKomut = 0.0
+    private var yuruADegis = 0L
 
     // ---- joystick (tek dokunuş akışı: parça parça sürdürülen jest) ----
     private var jStroke: GestureDescription.StrokeDescription? = null
@@ -3676,6 +3680,15 @@ class MacroService : AccessibilityService() {
     private fun rotaKayitBitir() {
         rh.post {
             rotaKayit = false
+            // Town ışınlanması: iz içinde ani büyük sıçrama varsa, öncesini at (yol Town'dan başlasın)
+            var atla = 0
+            for (i in 1 until rotaYeni.size) {
+                if (Math.hypot((rotaYeni[i][0] - rotaYeni[i - 1][0]).toDouble(), (rotaYeni[i][1] - rotaYeni[i - 1][1]).toDouble()) > 40.0) atla = i
+            }
+            if (atla > 0) {
+                TestLog.olay("IZ_TEMIZLENDI", "Town sıçraması bulundu, ilk $atla nokta atıldı", "")
+                for (k in 0 until atla) rotaYeni.removeAt(0)
+            }
             if (rotaYeni.size >= 3 && kayitHedef == 1) {
                 slotIz.clear()
                 slotIz.addAll(rotaYeni)
@@ -3844,7 +3857,9 @@ class MacroService : AccessibilityService() {
         yuruTol = tol
         yuruBas = SystemClock.uptimeMillis()
         yuruZamanAsimi = zamanAsimi
-        yuruMod = if (rotaIsaret != 0) 2 else 0
+        yuruMod = 0                                      // her yürüyüşte yön kalibrasyonu (kamera açısı değişmiş olabilir)
+        yuruModBas = SystemClock.uptimeMillis()
+        yuruADegis = 0L
         yuruP0 = null
         yuruKonumYokSay = 0
         yuruOnceAt = 0L
@@ -3888,44 +3903,47 @@ class MacroService : AccessibilityService() {
         yuruKonumYokSay = 0
         val rr = screenH * 0.10f
         if (yuruMod == 0) {
-            // Kalibrasyon 1: düz ileri; başlangıç yönünü ölç
-            if (yuruP0 == null) {
-                yuruP0 = intArrayOf(kx, ky)
-                yuruModBas = now
-            }
+            // Kalibrasyon 1: joystick YUKARI; karakterin dünya yönünü ölç (joystick kamera yönüne göre yürütür)
             jSur(0f, -rr)
+            if (yuruP0 == null) {
+                if (now - yuruModBas >= 600L) yuruP0 = intArrayOf(kx, ky)
+                return
+            }
             val p0 = yuruP0 ?: return
             val d = Math.hypot((kx - p0[0]).toDouble(), (ky - p0[1]).toDouble())
-            if (d >= 4.0) {
+            if (d >= 6.0) {
                 yuruV0 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
-                yuruP0 = intArrayOf(kx, ky)
+                yuruP0 = null
                 yuruMod = 1
                 yuruModBas = now
-            } else if (now - yuruModBas > 4500L) {
+            } else if (now - yuruModBas > 7000L) {
                 yuruBitir(false, "kalibrasyon: karakter yürümüyor (joystick çalışmıyor olabilir)")
             }
             return
         }
         if (yuruMod == 1) {
-            // Kalibrasyon 2: ileri + sağ; hangi yöne döndüğünü ölç
-            jSur(rr * 0.9f, -rr)
+            // Kalibrasyon 2: joystick SAĞA; ayna yönünü (işaret) ve kamera ofsetini ölç
+            jSur(rr, 0f)
+            if (yuruP0 == null) {
+                if (now - yuruModBas >= 1200L) yuruP0 = intArrayOf(kx, ky)
+                return
+            }
             val p0 = yuruP0 ?: return
             val d = Math.hypot((kx - p0[0]).toDouble(), (ky - p0[1]).toDouble())
             if (d >= 5.0) {
-                val v1 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
-                var dl = v1 - yuruV0
-                while (dl > Math.PI) dl -= 2 * Math.PI
-                while (dl < -Math.PI) dl += 2 * Math.PI
-                if (Math.abs(dl) < 0.12) {
-                    yuruBitir(false, "kalibrasyon: dönüş ölçülemedi")
+                val w2 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
+                val dl = aciSar(w2 - yuruV0)
+                if (Math.abs(dl) < 0.8 || Math.abs(dl) > 2.3) {
+                    yuruBitir(false, "kalibrasyon: yön ölçülemedi (fark ${"%.2f".format(dl)} rad)")
                 } else {
-                    rotaIsaret = if (dl > 0) 1 else -1
-                    rotaHizliDonus = Math.abs(dl) > 0.9
-                    TestLog.olay("KALIBRASYON", "isaret=$rotaIsaret", "donus_rad=${"%.2f".format(dl)} hizli=$rotaHizliDonus")
+                    yuruS = if (dl > 0) 1 else -1
+                    yuruC = yuruV0 + yuruS * Math.PI / 2
+                    yuruADegis = now
+                    TestLog.olay("KALIBRASYON", "işaret=$yuruS ofset=${"%.2f".format(yuruC)} rad", "yukari_yon=${"%.2f".format(yuruV0)} sag_yon=${"%.2f".format(w2)}")
                     yuruMod = 2
                 }
-            } else if (now - yuruModBas > 5000L) {
-                yuruBitir(false, "kalibrasyon: dönüş ölçülemedi (zaman)")
+            } else if (now - yuruModBas > 7000L) {
+                yuruBitir(false, "kalibrasyon: yön ölçülemedi (zaman)")
             }
             return
         }
@@ -3968,26 +3986,35 @@ class MacroService : AccessibilityService() {
             yuruOnceMesafe = dSon
         }
         if (now < yuruGeriBitis) {
-            jSur(rr * 0.5f * (if (yuruKurtarma % 2 == 0) 1f else -1f), rr * 0.7f)
-            return
-        }
-        val th = yonHesapla()
-        if (th == null) {
-            jSur(0f, -rr)
+            // takılma kurtarma: hedef yönüne dik, dönüşümlü iki yana kısa adım
+            val ph = Math.atan2((ty - ky).toDouble(), (tx - kx).toDouble())
+            jDunya(ph + (if (yuruKurtarma % 2 == 0) 1.57 else -1.57), rr)
             return
         }
         val phi = Math.atan2((ty - ky).toDouble(), (tx - kx).toDouble())
-        var e = phi - th
-        while (e > Math.PI) e -= 2 * Math.PI
-        while (e < -Math.PI) e += 2 * Math.PI
-        // Simülasyonla ayarlı: ölü bölge 0.15 rad, kilit 0.6 (büyük hatada tam), bölen pi/2
-        var steer = 0.0
-        if (Math.abs(e) >= 0.15) {
-            val kilit = if (!rotaHizliDonus && Math.abs(e) >= 0.9) 1.0 else 0.6
-            steer = (e / (Math.PI / 2)).coerceIn(-kilit, kilit)
+        val a = jDunya(phi, rr)
+        if (Math.abs(aciSar(a - yuruAKomut)) > 0.35) yuruADegis = now
+        yuruAKomut = a
+        // kamera ofsetini hareketten yavaşça düzelt (komut en az 1.8 sn sabit kaldıysa)
+        val th = yonHesapla()
+        if (th != null && now - yuruADegis > 1800L) {
+            val cm = th - yuruS * a
+            yuruC += 0.15 * aciSar(cm - yuruC)
         }
-        val ileri = if (Math.abs(e) > 1.2) 0.4 else 1.0
-        jSur((rotaIsaret * steer * rr).toFloat(), (-ileri * rr).toFloat())
+    }
+
+    private fun aciSar(x: Double): Double {
+        var v = x
+        while (v > Math.PI) v -= 2 * Math.PI
+        while (v < -Math.PI) v += 2 * Math.PI
+        return v
+    }
+
+    /** Dünya yönüne (atan2(dy,dx)) gitmek için joystick'i uygun açıya iter; kullanılan joystick açısını döndürür */
+    private fun jDunya(w: Double, rr: Float): Double {
+        val a = aciSar(yuruS * (w - yuruC))
+        jSur((Math.cos(a) * rr).toFloat(), (Math.sin(a) * rr).toFloat())
+        return a
     }
 
     // ---------------- çanta rotası akışı ----------------
