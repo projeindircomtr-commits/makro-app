@@ -18,6 +18,8 @@
     </queries>
 
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:label="Projeindir Bot"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"

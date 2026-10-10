@@ -1035,7 +1035,7 @@ class MacroService : AccessibilityService() {
                     ui.postDelayed({ taniDene(n + 1) }, 800)
                 } else {
                     taniCalisiyor = false
-                    TestLog.olay("EKRAN_TANINMADI", "tanıma denemesi başarısız", "ekran ${screenW}x$screenH")
+                    TestLog.olay("EKRAN_TANINMADI", "tanıma denemesi başarısız", "ekran ${screenW}x$screenH fark=${Preset.sonFark} olcek=${Preset.sonOlcekDegeri}")
                     durumYaz("❌ Ekran tanınmadı", false)
                     ekranUyari()
                 }
@@ -1209,6 +1209,7 @@ class MacroService : AccessibilityService() {
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
+                "🩺 Sorun bildir (bilgiyi kopyala)" to { sorunBildir() },
                 "⚙ Uygulamayı aç" to {
                     try {
                         startActivity(
@@ -3552,6 +3553,46 @@ class MacroService : AccessibilityService() {
         showMenu("📌 Olay işaretle", maddeler)
     }
 
+    /** Herkesin kullanabildiği teşhis: cihaz/ekran/tanıma bilgisini panoya kopyalar (rapor menüsü olmayan hesaplar için) */
+    private fun sorunBildir() {
+        toast("🩺 Bilgi toplanıyor, 2-3 sn bekle...")
+        rh.post {
+            var sonuc = "denenmedi"
+            try {
+                updateScreenSize()
+                sonuc = if (!ScreenSampler.running) "ekran okuma KAPALI (izin verilmemiş)" else {
+                    val o = Preset.olcekBul(this)
+                    if (o != null) "BULUNDU olcek=${"%.3f".format(o.s)} ox=${o.ox} oy=${o.oy}" else "BULUNAMADI"
+                }
+            } catch (e: Exception) {
+                sonuc = "hata: ${e.javaClass.simpleName}"
+            }
+            val ls = try { Preset.landscapeSize(this) } catch (e: Exception) { 0 to 0 }
+            val sb = StringBuilder()
+            sb.append("PROJEINDIR BOT - SORUN BİLGİSİ\n")
+            sb.append("sürüm=").append(surumAdi()).append('\n')
+            sb.append("cihaz=").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL)
+                .append(" android=").append(android.os.Build.VERSION.SDK_INT).append('\n')
+            sb.append("ekran=${screenW}x$screenH gercek=${ls.first}x${ls.second} yogunluk=${resources.displayMetrics.densityDpi}dpi\n")
+            sb.append("oyun_paketi=").append(oyunPaketiBul() ?: "bulunamadi").append(" oyunda=").append(oyundaMi()).append('\n')
+            sb.append("ekran_okuma=").append(ScreenSampler.running).append(" ekran_tanindi=").append(ekranTanindi).append('\n')
+            sb.append("tanima=").append(sonuc).append(" son_fark=").append(Preset.sonFark).append(" son_olcek=").append(Preset.sonOlcekDegeri).append('\n')
+            sb.append("mod=").append(Config.bot(this)).append(" oyun=").append(Config.oyun(this)).append('\n')
+            sb.append("---- son olaylar ----\n")
+            sb.append(try { TestLog.rapor(surumAdi()).takeLast(2500) } catch (e: Exception) { "(günlük yok)" })
+            ui.post {
+                try {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Sorun bilgisi", sb.toString()))
+                    toast("🩺 Bilgi panoya kopyalandı. Mesaja yapıştırıp gönder.")
+                } catch (e: Exception) {
+                    hataKaydet("sorun-bildir", e)
+                    toast("Bilgi kopyalanamadı")
+                }
+            }
+        }
+    }
+
     private fun raporKopyala() {
         try {
             val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -3933,7 +3974,7 @@ class MacroService : AccessibilityService() {
             // Inn yolu: Open butonu görününce (ya da 9 sn durunca) biter
             if (rotaOpenT == null) {
                 updateScreenSize()
-                rotaOpenT = Preset.loadTemplateF(this, "open.png", screenW / 2712f, 20, 0.5f, 0.5f)
+                rotaOpenT = Preset.loadTemplateF(this, "open.png", openOlcek(), 20, 0.5f, 0.5f)
             }
             val op = rotaOpenT
             val f = ScreenSampler.grab()
@@ -4336,9 +4377,8 @@ class MacroService : AccessibilityService() {
         }
         if (!running) cfg = Config.load(this)
         updateScreenSize()
-        rotaOpenT = Preset.loadTemplateF(this, "open.png", minOf(screenW / 2712f, screenH / 1220f), 20, 0.5f, 0.5f)
-        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
-        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
+        if (uOlc <= 0f) uYukle()
+        sablonlariYukle()
         if (mod == 0 && (rotaOpenT == null || bankaT == null)) {
             toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
             return
@@ -4474,8 +4514,17 @@ class MacroService : AccessibilityService() {
         val f = ScreenSampler.grab() ?: return false
         val gx = (uiX(1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         val gy = (uiYUst(55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-        return ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 24) != null
+        val tol = if (t.tol > 0) t.tol else cfg.ttol
+        if (ScreenSampler.findNear(f, t, tol, gx, gy, 24) != null) return true
+        // beklenen yerde yok: pencere başka cihazda farklı yerde olabilir, tüm ekranda ara
+        val p = ScreenSampler.find(f, t, tol) ?: return false
+        if (!bankaGenisLog) {
+            bankaGenisLog = true
+            TestLog.olay("BANKA_GENIS_ARAMA", "banka başlığı beklenen yerde değil, başka yerde bulundu", "bulunan_grid=${p[0]},${p[1]} beklenen_grid=$gx,$gy ekran ${screenW}x$screenH")
+        }
+        return true
     }
+    private var bankaGenisLog = false
 
     private fun rotaPencereBekle(deneme: Int) {
         if (!rotaCalisiyor) return
@@ -4508,7 +4557,7 @@ class MacroService : AccessibilityService() {
 
     private fun hucreDoluX(x0: Float, r: Int, c: Int): Boolean {
         val cx = uiX(x0 + 100f * c)
-        val cy = uiYOrta(770f + 95f * r)
+        val cy = if (x0 >= 1700f) uiYAlt(770f + 95f * r) else uiYOrta(770f + 95f * r)
         val yar = 26f * uiS()
         val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return false
         val px = reg.third
@@ -4563,7 +4612,8 @@ class MacroService : AccessibilityService() {
         if (t != null && f != null) {
             val gx = (uiX(1674f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
             val gy = (uiYOrta(579.5f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-            val pos = ScreenSampler.findNear(f, t, if (t.tol > 0) t.tol else cfg.ttol, gx, gy, 20)
+            val tolM = if (t.tol > 0) t.tol else cfg.ttol
+            val pos = ScreenSampler.findNear(f, t, tolM, gx, gy, 20) ?: ScreenSampler.find(f, t, tolM)
             if (pos != null) {
                 val hd = sablonHedef(t, pos)
                 TestLog.olay("ROTA_MIKTAR", "miktar penceresi: Confirm basılıyor", "")
@@ -4724,9 +4774,8 @@ class MacroService : AccessibilityService() {
         }
         if (!running) cfg = Config.load(this)
         updateScreenSize()
-        rotaOpenT = Preset.loadTemplateF(this, "open.png", minOf(screenW / 2712f, screenH / 1220f), 20, 0.5f, 0.5f)
-        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
-        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
+        if (uOlc <= 0f) uYukle()
+        sablonlariYukle()
         if (rotaOpenT == null || bankaT == null) {
             toast("Şablon dosyaları eksik (open.png / bank_baslik.png)")
             return
@@ -4753,7 +4802,8 @@ class MacroService : AccessibilityService() {
 
     // ---------------- envanter kontrolü ----------------
     private fun townPanelImza(): IntArray? {
-        val r = ScreenSampler.bolge(uiX(1597f).toInt(), uiYUst(116f).toInt(), uiX(2370f).toInt(), uiYOrta(637f).toInt()) ?: return null
+        // telefon ve tablette panelin içinde kalan ortak bölge (oransal): açık/kapalı farkı için
+        val r = ScreenSampler.bolge((screenW * 0.66f).toInt(), (screenH * 0.20f).toInt(), (screenW * 0.89f).toInt(), (screenH * 0.60f).toInt()) ?: return null
         val px = r.third
         val n = px.size / 7
         if (n <= 0) return null
@@ -4772,14 +4822,129 @@ class MacroService : AccessibilityService() {
         return t.toDouble() / a.size
     }
 
-    // ---------------- ekrana göre ölçekleme (referans: 2576x1159 oyun arayüzü) ----------------
-    // Ölçek: arayüz ekrana sığacak şekilde küçük olan orana göre ölçeklenir. Yatayda sağa yaslı,
-    // dikeyde panel/menü konumları merkezden, üst düğmeler (X) yukarıdan hesaplanır.
-    // Referans ekranla aynı orandaki cihazlarda bu, eski oransal hesapla birebir aynıdır.
-    private fun uiS(): Float = minOf(screenW / 2576f, screenH / 1159f)
-    private fun uiX(xr: Float): Float = screenW - (2576f - xr) * uiS()
-    private fun uiYUst(yr: Float): Float = yr * uiS()
-    private fun uiYOrta(yr: Float): Float = screenH / 2f + (yr - 579.5f) * uiS()
+    // ---------------- ekrana göre ölçekleme: ÖLÇÜLEN arayüz ölçeği ----------------
+    // Oyun penceresi (envanter/banka) sağ-alt köşeye yaslı ve düzgün (oran bozulmadan) ölçekleniyor. Referans
+    // koordinatlar (2576x1159 telefon) bu köşeden uzaklık olarak tutulur; tek bilinmeyen ölçek u (piksel/referans birimi).
+    // u, envanter açılınca panelin gerçek genişliği ekrandan ölçülerek bulunur (panelOlc), cihaz başına kaydedilir.
+    // Ölçüm yoksa/uygunsuzsa eski tahmin (telefon↔tablet enterpolasyonu) kullanılır.
+    private var uOlc = 0f
+    private var uOlcKaynak = ""
+
+    private fun uKayitAnahtar() = "u_${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+
+    private fun uYukle() {
+        try {
+            val v = getSharedPreferences("yerlesim", MODE_PRIVATE).getFloat(uKayitAnahtar(), 0f)
+            if (v in 0.3f..3.0f) { uOlc = v; uOlcKaynak = "kayıt" }
+        } catch (e: Exception) { }
+    }
+
+    private fun uKaydet(u: Float) {
+        try { getSharedPreferences("yerlesim", MODE_PRIVATE).edit().putFloat(uKayitAnahtar(), u).apply() } catch (e: Exception) { }
+    }
+
+    private fun uiK(): Float {
+        val asp = maxOf(screenW, screenH).toFloat() / minOf(screenW, screenH).toFloat()
+        return ((2.22f - asp) / (2.22f - 1.61f)).coerceIn(0f, 1f)
+    }
+    private fun mapFx(fp: Float): Float {
+        val ft = 0.579f + 1.245f * (fp - 0.6638f)
+        return fp + (ft - fp) * uiK()
+    }
+    private fun mapFy(fp: Float): Float {
+        val ft = 0.700f + 0.91f * (fp - 0.6644f)
+        return fp + (ft - fp) * uiK()
+    }
+    private fun uiSEski(): Float {
+        val pitch = 0.03882f + (0.0484f - 0.03882f) * uiK()
+        return screenW * pitch / (2576f * 0.03882f)
+    }
+    /** Arayüz piksel ölçeği (şablon boyutu, hücre yarıçapı): ölçülmüşse o, yoksa tahmin */
+    private fun uiS(): Float = uiU()
+    // Tablet videolarından doğrulandı: envanter paneli (tek başına) sağ-ALT köşeye yaslı; Inn menüsü, banka penceresi
+    // ve onun hücreleri sağa yaslı + dikeyde ORTALI. Telefon referansında (2576x1159) ikisi aynı sonucu verir.
+    private fun uiU(): Float = if (uOlc > 0f) uOlc else uiSEski()
+    private fun uiX(xr: Float): Float = screenW - (2576f - xr) * uiU()
+    /** sağ-alta yaslı öğeler (tek başına envanter hücreleri ve X tuşu) */
+    private fun uiYAlt(yr: Float): Float = screenH - (1159f - yr) * uiU()
+    /** dikeyde ortalı öğeler (banka penceresi, Inn menüsü, miktar penceresi) */
+    private fun uiYOrta(yr: Float): Float = screenH / 2f + (yr - 579.5f) * uiU()
+    private fun uiYUst(yr: Float): Float = uiYOrta(yr)
+
+    /** open.png şablon ölçeği: telefon (2712x1220) = 1.0 */
+    private fun openOlcek(): Float = uiS() / (2712f / 2576f)
+
+    private fun sablonlariYukle() {
+        rotaOpenT = Preset.loadTemplateF(this, "open.png", openOlcek(), 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
+        miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
+        sablonU = uiS()
+    }
+    private var sablonU = 0f
+
+    /**
+     * Envanter açılmadan önceki/sonraki tam ekran görüntüsünden panelin sol/sağ kenarını bulur, ölçeği hesaplar.
+     * Yalnızca genişliğe ve sağ kenar payına bakar (üstteki bölüm az değiştiği için dikey kenara güvenilmez).
+     * Referans: panel genişliği 731, sağ kenar payı 201 (2576x1159 birimi). İki tahmin %12'den fazla ayrışırsa reddedilir.
+     */
+    private fun panelOlc(once: Triple<Int, Int, IntArray>?, sonra: Triple<Int, Int, IntArray>?): Boolean {
+        try {
+            if (once == null || sonra == null || once.first != sonra.first || once.second != sonra.second) return false
+            val w = sonra.first
+            val h = sonra.second
+            val a = once.third
+            val b = sonra.third
+            val y0 = (h * 0.08f).toInt()
+            val y1 = (h * 0.92f).toInt()
+            val sut = IntArray(w)
+            for (y in y0 until y1) for (x in 0 until w) {
+                val p = a[y * w + x]
+                val q = b[y * w + x]
+                val d = Math.abs(((p shr 16) and 0xff) - ((q shr 16) and 0xff)) + Math.abs(((p shr 8) and 0xff) - ((q shr 8) and 0xff)) + Math.abs((p and 0xff) - (q and 0xff))
+                if (d > 45) sut[x]++
+            }
+            val esik = ((y1 - y0) * 0.5f).toInt()
+            val bosluk = maxOf(2, (w * 0.02f).toInt())
+            var enS = -1; var enE = -1
+            var s0 = -1; var son = -1
+            for (x in 0 until w) {
+                if (sut[x] >= esik) {
+                    if (s0 < 0) s0 = x
+                    else if (x - son > bosluk) { if (son - s0 > enE - enS) { enS = s0; enE = son }; s0 = x }
+                    son = x
+                }
+            }
+            if (s0 >= 0 && son - s0 > enE - enS) { enS = s0; enE = son }
+            if (enS < 0) { TestLog.olay("YERLESIM", "panel kenarı bulunamadı", "ekran ${screenW}x$screenH"); return false }
+            val pw = (enE - enS + 1).toFloat() / w * screenW      // panel genişliği (ekran pikseli)
+            val sagPay = (w - 1 - enE).toFloat() / w * screenW    // sağ kenar payı
+            val u1 = pw / 731f
+            val u2 = sagPay / 201f
+            val orta = (u1 + u2) / 2f
+            val uyum = Math.abs(u1 - u2) / orta
+            val eskiU = uiSEski()
+            val tutarli = uyum < 0.12f && orta in (eskiU * 0.5f)..(eskiU * 2.0f)
+            TestLog.olay("YERLESIM", "panel ölçüldü: u1=%.3f u2=%.3f uyum=%.2f %s".format(u1, u2, uyum, if (tutarli) "KABUL" else "RED"),
+                "ekran ${screenW}x$screenH sol=${(enS.toFloat() / w * screenW).toInt()} sag=${(enE.toFloat() / w * screenW).toInt()} eskiTahmin=%.3f".format(eskiU))
+            if (!tutarli) return false
+            uOlc = if (uOlc > 0f && uOlcKaynak == "ölçüm") (uOlc * 0.5f + orta * 0.5f) else orta
+            uOlcKaynak = "ölçüm"
+            uKaydet(uOlc)
+            if (sablonU > 0f && Math.abs(sablonU - uOlc) / uOlc > 0.04f) sablonlariYukle()
+            return true
+        } catch (e: Exception) {
+            hataKaydet("panelOlc", e)
+            return false
+        }
+    }
+
+    // Alt çubuk düğmeleri (OCR bulamazsa): telefon -> tablet oransal konum
+    private fun altX(tur: Int): Float {
+        val ph = when (tur) { 0 -> 0.7313f; 2 -> 0.672f; else -> 0.6133f }
+        val tb = when (tur) { 0 -> 0.790f; 2 -> 0.711f; else -> 0.642f }
+        return screenW * (ph + (tb - ph) * uiK())
+    }
+    private fun altY(): Float = screenH * (0.9635f + (0.970f - 0.9635f) * uiK())
 
     // ---------------- pencere kutusu ölçümü (açılan paneli ekran farkından bul; yerleşim bilgisi toplamak için) ----------------
     private var panelOncekiTam: Triple<Int, Int, IntArray>? = null
@@ -4820,19 +4985,24 @@ class MacroService : AccessibilityService() {
     }
 
     // ---------------- alt çubuk düğmelerini ADIYLA bul (her telefon/tablet ekran oranı için) ----------------
-    private val altDugmeKonum = arrayOfNulls<FloatArray>(2)   // 0 = Inventory, 1 = Town
+    private val altDugmeKonum = arrayOfNulls<FloatArray>(3)   // 0 = Inventory, 1 = Town, 2 = Commands
+
+    private fun altAd(tur: Int) = when (tur) { 0 -> "Inventory"; 2 -> "Commands"; else -> "Town" }
 
     private fun altDugmeIsimleri(tur: Int): List<String> =
-        if (tur == 0) listOf("inventory", "inventor", "envanter", "inven")
-        else listOf("town", "kasaba", "şehir", "sehir")
+        when (tur) {
+            0 -> listOf("inventory", "inventor", "envanter", "inven")
+            2 -> listOf("commands", "command", "komut", "komutlar")
+            else -> listOf("town", "kasaba", "şehir", "sehir")
+        }
 
     /**
      * Alt çubukta düğmenin yazısını OCR ile bulup oraya basar. Bulunamazsa telefon için ölçülmüş
      * oransal konuma basar (eski davranış). tekrar=true: önbelleği yok say, yeniden ara.
      */
     private fun altDugmeTap(tur: Int, tekrar: Boolean, sonra: () -> Unit) {
-        val eskiX = screenW * (if (tur == 0) 0.7313f else 0.6133f)
-        val eskiY = screenH * TOWN_DUGME_Y
+        val eskiX = altX(tur)
+        val eskiY = altY()
         val c = altDugmeKonum[tur]
         if (c != null && !tekrar) {
             tap(c[0], c[1], 0f, sonra)
@@ -4870,10 +5040,10 @@ class MacroService : AccessibilityService() {
                 }
                 if (en != null) {
                     altDugmeKonum[tur] = en
-                    TestLog.olay("DUGME_BULUNDU", "${if (tur == 0) "Inventory" else "Town"} adıyla bulundu: '$enAd'", "x=${en[0].toInt()} y=${en[1].toInt()} (ekran ${screenW}x$screenH)")
+                    TestLog.olay("DUGME_BULUNDU", "${altAd(tur)} adıyla bulundu: '$enAd'", "x=${en[0].toInt()} y=${en[1].toInt()} (ekran ${screenW}x$screenH)")
                     tap(en[0], en[1], 0f, sonra)
                 } else {
-                    TestLog.olay("DUGME_BULUNAMADI", "${if (tur == 0) "Inventory" else "Town"} yazısı alt çubukta okunamadı, oransal konuma basılıyor", "ekran ${screenW}x$screenH")
+                    TestLog.olay("DUGME_BULUNAMADI", "${altAd(tur)} yazısı alt çubukta okunamadı, oransal konuma basılıyor", "ekran ${screenW}x$screenH")
                     tap(eskiX, eskiY, 0f, sonra)
                 }
             }
@@ -4901,6 +5071,7 @@ class MacroService : AccessibilityService() {
                 if (kararli in 0.0..10.0) {
                     townPanelAcik = s2
                     panelKutuLogla("ENVANTER", panelOncekiTam, tamSnap())
+                    panelOlc(panelOncekiTam, tamSnap())
                     townEnvOlc()
                 } else {
                     townEnvSay++
@@ -4941,7 +5112,7 @@ class MacroService : AccessibilityService() {
 
     private fun townEnvKapat(n: Int, tam: Boolean) {
         if (!rotaCalisiyor) return
-        tap(uiX(2335f), uiYUst(96.5f), 0f) {
+        tap(uiX(2335f), uiYAlt(96.5f), 0f) {
             rh.postDelayed({
                 if (!rotaCalisiyor) return@postDelayed
                 val simdi = townPanelImza()

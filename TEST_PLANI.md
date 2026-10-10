@@ -199,3 +199,10 @@ Testler:
 - B6 Uzun koşu: 30 dk aralıkla en az 3 tur.
 
 Bilinen riskler: yürüme joystick ile; joystick kamera yönüne göre yürüttüğü için her yürüyüşte yön kalibrasyonu yapılır (simülasyonda 160/160, telefonda denenmedi); envanter açık mı kontrolü ekran farkına dayanır; Town tekrar basış bekleme süresi bilinmiyor.
+
+## v25 – ekrandan ölçülen yerleşim (telefon + tablet)
+- Envanter ilk açıldığında bot panelin gerçek genişliğini ölçer ve cihaz başına kaydeder (rapor olayı: YERLESIM "panel ölçüldü ... KABUL/RED").
+- Beklenen: telefonda u≈1.05 (ekran 2712x1220), tablette ekrana göre farklı bir değer. RED görürsen raporu gönder (eskiTahmin ile karşılaştır).
+- Banka/Inn/miktar konumları tablette hâlâ ölçülmedi: BANKA_GENIS_ARAMA olayı çıkarsa banka başlığı beklenen yerde değildi.
+- Sorun bildir metnini hem telefon hem tabletten al.
+- v26: banka/Inn tablet videosundan doğrulandı (Inn menüsü, banka X'i, banka hücreleri sağa yaslı + dikeyde ortalı; tek başına envanter sağ-alta yaslı). Beklenen: tablette banka açılır, hücreler taşınır, X ile kapanır.
