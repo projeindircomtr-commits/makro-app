@@ -7066,10 +7066,10 @@ class MacroService : AccessibilityService() {
         // (2) cihaz tablet gibi (kare'ye yakin ekran) ise yapilir. Telefonlarda hic calismaz,
         // bot hizi etkilenmez. Bulunca yerini ogrenir, sonraki seferler yine hizli olur.
         if (!genis) return null
-        val uzun = maxOf(screenW, screenH).toFloat(); val kisa = minOf(screenW, screenH).toFloat()
-        if (uzun / kisa >= 1.85f) return null
+        // Telefonlarda da çalışır: pencere her ekran oranında aynı yerde açılmıyor (arkadaş telefonlarında bulunamıyordu).
+        // Yalnızca Open'dan sonra pencere beklenirken ve en sık 600 ms'de bir; bulunca yer öğrenilir, sonrası hızlı.
         val simdi = System.currentTimeMillis()
-        if (simdi - collectGenisAt < 1200) return null
+        if (simdi - collectGenisAt < 600) return null
         collectGenisAt = simdi
         // Tablette arayuz yukseklige gore buyur: sablonun farkli boylarini da dene (bir kez hazirlanir)
         val varyant = collectVaryant ?: collectVaryantHazirla().also { collectVaryant = it }
@@ -7079,6 +7079,7 @@ class MacroService : AccessibilityService() {
                 collectOgren(pos)
                 // Tutan boyu hatirla: sonraki kutularda hizli yakin arama bununla yapilir
                 if (dugme) cfg.collectT2 = t else cfg.collectT = t
+                TestLog.olay("COLLECT_GENIS_BULDU", "Collect All geniş aramada bulundu", "grid=${pos[0]},${pos[1]} beklenen=$collectAnkorGX,$collectAnkorGY w=${t.w} ekran ${screenW}x$screenH")
                 return t to pos
             }
         }
@@ -7164,7 +7165,7 @@ class MacroService : AccessibilityService() {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f, genis = true, bekleme = now - lastOpenAt < 600)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
-                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait}")
+                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH")
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
