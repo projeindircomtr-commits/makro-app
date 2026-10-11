@@ -2204,12 +2204,17 @@ class MacroService : AccessibilityService() {
             setTextColor(0xFFE0B04A.toInt())
             textSize = 14f
         })
-        box.addView(TextView(this).apply {
+        // Metin kaydırılabilir alanda, butonlar HER ZAMAN altta görünür (telefonda yatay ekran kısa)
+        val mevcutY = minOf(screenW, screenH) - dp(24)
+        val kucukEkran = mevcutY < dp(420)
+        val tv = TextView(this).apply {
             text = metin
             setTextColor(Color.WHITE)
-            textSize = 19f
-            setPadding(0, dp(6), 0, dp(12))
-        }, LinearLayout.LayoutParams(dp(340), LinearLayout.LayoutParams.WRAP_CONTENT))
+            textSize = if (kucukEkran) 14f else 17f
+            setPadding(0, dp(6), 0, dp(10))
+        }
+        val sv = android.widget.ScrollView(this).apply { isFillViewport = false; addView(tv) }
+        box.addView(sv, LinearLayout.LayoutParams(dp(340), 0, 1f))
         val satir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         for ((ad, is_) in butonlar) {
             satir.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
@@ -2219,14 +2224,16 @@ class MacroService : AccessibilityService() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         // Sabit genislik + olculmus yukseklik (WRAP_CONTENT bazi cihazlarda eziliyor)
         val gen = dp(376)
-        box.measure(
-            View.MeasureSpec.makeMeasureSpec(gen, View.MeasureSpec.EXACTLY),
+        // Doğal yükseklik: metin ayrı ölçülür (ScrollView içinde ağırlıklı olduğu için box.measure onu 0 görür)
+        tv.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(340), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
+        val ustAlt = dp(14) * 2 + dp(26) + dp(56)   // dolgu + başlık + buton satırı payı
+        val yuk = minOf(tv.measuredHeight + ustAlt, mevcutY)
         kart = box
         try {
-            wm.addView(box, lp(gen, minOf(box.measuredHeight, minOf(screenW, screenH) - dp(24)))
-                .apply { gravity = Gravity.CENTER })
+            wm.addView(box, lp(gen, yuk).apply { gravity = Gravity.CENTER })
         } catch (e: Exception) {
             kart = null
         }
