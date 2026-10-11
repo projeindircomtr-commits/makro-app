@@ -5983,7 +5983,7 @@ class MacroService : AccessibilityService() {
                 hataKaydet("kutu", e)
             }
             // Kutu akışı sürerken (Open→Collect All) daha sık bak; yer bilindiyse bu ucuz bir yakın arama
-            h.postDelayed(this, if (lootPhase != Loot.BOS && collectKesin) 45L else if (lootPhase != Loot.BOS) 70L else 120L)
+            h.postDelayed(this, if (lootPhase == Loot.COLLECT_BEKLE && collectKesin) 28L else if (lootPhase != Loot.BOS && collectKesin) 40L else if (lootPhase != Loot.BOS) 70L else 120L)
         }
 
         private fun gozcuIc() {
@@ -7170,7 +7170,7 @@ class MacroService : AccessibilityService() {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + (if (collectKesin) rand(25, 45) else rand(60, 100))
+                    nextLootScan = now + (if (collectKesin) rand(15, 30) else rand(60, 100))
                 }
                 return null
             }
@@ -7184,7 +7184,7 @@ class MacroService : AccessibilityService() {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + (if (collectKesin) rand(30, 60) else rand(60, 110))
+                    nextLootScan = now + (if (collectKesin) rand(20, 40) else rand(60, 110))
                 }
                 return null
             }
@@ -7207,7 +7207,7 @@ class MacroService : AccessibilityService() {
         TestLog.olay("KUTU_OPEN", "Open basıldı", "")
         phaseUntil = now + cfg.collectWait
         // Collect All'ın yeri bu cihazda öğrenildiyse pencere belirir belirmez bas: beklemeyi kısalt
-        nextLootScan = now + (if (collectKesin) rand(50, 80) else rand(100, 150))
+        nextLootScan = now + (if (collectKesin) rand(30, 50) else rand(100, 150))
         val t = sablonHedef(op, pos)
         lastOpenX = t.x
         lastOpenY = t.y
@@ -7243,7 +7243,7 @@ class MacroService : AccessibilityService() {
         lootPhase = Loot.SONRAKI_KUTU
         phaseUntil = now + 700
         // Yer biliniyorsa seri toplama: sıradaki Open'ı hemen ara
-        nextLootScan = now + (if (collectKesin) rand(60, 100) else rand(130, 190))
+        nextLootScan = now + (if (collectKesin) rand(40, 70) else rand(130, 190))
         if (collectStreak >= 3) {
             // 2 kez Collect All'a rağmen acik: envanter dolu, Close ile kapat ve devam et
             doluKutuX = lastOpenX
