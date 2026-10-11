@@ -346,7 +346,7 @@ class MacroService : AccessibilityService() {
     /** Secili oyunun paket adi (yuklu uygulamalardan bulunur, oyun basina bir kez) */
     @Suppress("DEPRECATION")
     private fun oyunPaketiBul(): String? {
-        val oyun = if (Config.koMu(this)) "ko" else "myko"
+        val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else "myko"
         if (oyunPaketArandi == oyun) return oyunPaketAdi
         oyunPaketArandi = oyun
         if (oyun == "ko") {
@@ -361,6 +361,7 @@ class MacroService : AccessibilityService() {
                 val ad = it.loadLabel(pm).toString()
                 if (oyun == "ko") pk.contains("komobile", true) || ad.contains("ko mobile", true) ||
                     ad.contains("komobile", true)
+                else if (oyun == "rev") pk.contains("revenger", true) || ad.contains("revenger", true)
                 else pk.contains("myko", true) || ad.contains("myko", true)
             }?.activityInfo?.packageName
         } catch (e: Exception) {
@@ -375,6 +376,9 @@ class MacroService : AccessibilityService() {
             if (running) stopMacro()
             oyunPaketArandi = ""
             oyunPaketi = ""
+            // Oyun değişti: ölçek ve öğrenilenler oyuna özel, yeniden yüklensin
+            uOlc = 0f; uOlcKaynak = ""; olcek = null; ekranTanindi = false
+            tgtProfilKesin = false
             cfg = Config.load(this)
             modBtn?.text = modYazi()
             statusTv?.text = Config.oyunAd(this) + " hazır"
@@ -388,7 +392,9 @@ class MacroService : AccessibilityService() {
         val oyun = oyunPaketiBul()
         if (oyun != null && p == oyun) return true
         if (oyunPaketi.isNotEmpty() && p == oyunPaketi) return true
-        return if (Config.koMu(this)) p.contains("komobile", true) else p.contains("myko", true)
+        return if (Config.koMu(this)) p.contains("komobile", true)
+        else if (Config.revMi(this)) p.contains("revenger", true)
+        else p.contains("myko", true)
     }
 
     /**
@@ -3045,7 +3051,7 @@ class MacroService : AccessibilityService() {
     private fun modMenu() {
         val farmAcik = Config.botGorunur("farm")
         val pkAcik = Config.botGorunur("pk")
-        val pazarAcik = Config.botGorunur("pazar")
+        val pazarAcik = Config.botGorunur("pazar") && !Config.revMi(this)   // RevengerOnline'da Pazar yok
         val genieAcik = Config.botGorunur("genie")
         val say = listOf(farmAcik, pkAcik, pazarAcik, genieAcik).count { it }
         if (say <= 1) {
@@ -3769,6 +3775,8 @@ class MacroService : AccessibilityService() {
     private var bankaT: Sablon? = null
     private var miktarT: Sablon? = null
     private var rotaOpenT: Sablon? = null
+    /** Asset adı: RevengerOnline için rev_ önekli görsel, diğerleri aynı */
+    private fun varlik(ad: String) = if (Config.revMi(this)) "rev_$ad" else ad
     private var bIdx = 0
     private var bTasinan = 0
 
@@ -3876,10 +3884,12 @@ class MacroService : AccessibilityService() {
         val hs = olcek?.s ?: (0.988f * uiU())
         val hox = (olcek?.ox ?: 0).toFloat()
         val hoy = (olcek?.oy ?: 0).toFloat()
-        val x1 = minOf(screenW * 0.0745f, hox + 202f * hs).toInt().coerceAtLeast(0)
-        val y1 = minOf(screenH * 0.1245f, hoy + 152f * hs).toInt().coerceAtLeast(0)
-        val x2 = maxOf(screenW * 0.1400f, hox + 380f * hs).toInt().coerceAtMost(screenW - 1)
-        val y2 = maxOf(screenH * 0.1660f, hoy + 203f * hs).toInt().coerceAtMost(screenH - 1)
+        val rvK = Config.revMi(this)
+        // RevengerOnline: koordinat BEYAZ yazı, Exp çubuğunun altında, FPS satırının hemen altında (referans 156..251, 177..200)
+        val x1 = (if (rvK) minOf(screenW * 0.050f, hox + 150f * hs) else minOf(screenW * 0.0745f, hox + 202f * hs)).toInt().coerceAtLeast(0)
+        val y1 = (if (rvK) minOf(screenH * 0.142f, hoy + 173f * hs) else minOf(screenH * 0.1245f, hoy + 152f * hs)).toInt().coerceAtLeast(0)
+        val x2 = (if (rvK) maxOf(screenW * 0.098f, hox + 256f * hs) else maxOf(screenW * 0.1400f, hox + 380f * hs)).toInt().coerceAtMost(screenW - 1)
+        val y2 = (if (rvK) maxOf(screenH * 0.168f, hoy + 204f * hs) else maxOf(screenH * 0.1660f, hoy + 203f * hs)).toInt().coerceAtMost(screenH - 1)
         val r = ScreenSampler.bolge(x1, y1, x2, y2) ?: return
         val w = r.first
         val hh = r.second
@@ -3892,7 +3902,10 @@ class MacroService : AccessibilityService() {
             val rr = (c shr 16) and 0xff
             val g = (c shr 8) and 0xff
             val b = c and 0xff
-            val v = if (g - b > 20 && g >= rr - 10) g else 0
+            val v = if (rvK) {
+                // beyaz/açık gri yazı: üç kanal da yüksek ve birbirine yakın
+                if (rr > 190 && g > 190 && b > 190 && maxOf(rr, g, b) - minOf(rr, g, b) < 45) minOf(rr, g, b) else 0
+            } else if (g - b > 20 && g >= rr - 10) g else 0
             sc[i] = v
             if (v > mx) mx = v
         }
@@ -4095,7 +4108,7 @@ class MacroService : AccessibilityService() {
             // Inn yolu: Open butonu görününce (ya da 9 sn durunca) biter
             if (rotaOpenT == null) {
                 updateScreenSize()
-                rotaOpenT = Preset.loadTemplateF(this, "open.png", openOlcek(), 20, 0.5f, 0.5f)
+                rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), 20, 0.5f, 0.5f)
             }
             val op = rotaOpenT
             val f = ScreenSampler.grab()
@@ -4636,8 +4649,9 @@ class MacroService : AccessibilityService() {
     private fun bankaPencereVar(): Boolean {
         val t = bankaT ?: return false
         val f = ScreenSampler.grab() ?: return false
-        val gx = (uiX(1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-        val gy = (uiYUst(55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val rvB = Config.revMi(this)
+        val gx = (uiX(if (rvB) 1905f else 1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val gy = (uiYUst(if (rvB) 76f else 55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         val tol = if (t.tol > 0) t.tol else cfg.ttol
         if (ScreenSampler.findNear(f, t, tol, gx, gy, 24) != null) return true
         // beklenen yerde yok: pencere başka cihazda farklı yerde olabilir, tüm ekranda ara
@@ -4986,7 +5000,8 @@ class MacroService : AccessibilityService() {
     // Ölçüm yoksa/uygunsuzsa eski tahmin (telefon↔tablet enterpolasyonu) kullanılır.
     // ---------- cihaz profili: bir kez doğrulanıp öğrenilen ekran yerleşimleri bu cihaz için kalıcı saklanır ----------
     // Anahtar: ekran boyutu (+ gerekirse arayüz ölçeği). Ekran/arayüz ölçeği değişirse anahtar değişir, eski kayıt kullanılmaz.
-    private fun ekranAnahtar() = "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    /** Cihaz profili anahtarı: ekran boyutu + (RevengerOnline ise) oyun öneki. Oyunlar birbirinin öğrendiğini ezmesin. */
+    private fun ekranAnahtar() = (if (Config.revMi(this)) "rev_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
     private fun profOku(k: String): String? = try {
         getSharedPreferences("cihaz_profil", MODE_PRIVATE).getString(k, null)
     } catch (e: Exception) { null }
@@ -5027,7 +5042,7 @@ class MacroService : AccessibilityService() {
     private var uOlc = 0f
     private var uOlcKaynak = ""
 
-    private fun uKayitAnahtar() = "u_${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    private fun uKayitAnahtar() = "u_" + (if (Config.revMi(this)) "rev_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
 
     private fun uYukle() {
         try {
@@ -5075,8 +5090,8 @@ class MacroService : AccessibilityService() {
     private var rotaOpenAltU = 0f
 
     private fun sablonlariYukle() {
-        rotaOpenT = Preset.loadTemplateF(this, "open.png", openOlcek(), 20, 0.5f, 0.5f)
-        bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
+        rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), 20, 0.5f, 0.5f)
+        bankaT = Preset.loadTemplateF(this, varlik("bank_baslik.png"), uiS(), 18, 0.5f, 0.5f)
         miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
         sablonU = uiS()
         rotaOpenAltU = 0f
@@ -5088,7 +5103,7 @@ class MacroService : AccessibilityService() {
         if (op != null) findT(f, op)?.let { return Pair(op, it) }
         val k = openOlcek()
         if (rotaOpenAlt.isEmpty() || rotaOpenAltU != k) {
-            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, "open.png", k * m, 24, 0.5f, 0.5f) }
+            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, 24, 0.5f, 0.5f) }
             rotaOpenAltU = k
         }
         for ((i, t) in rotaOpenAlt.withIndex()) {
@@ -5350,7 +5365,7 @@ class MacroService : AccessibilityService() {
 
     private fun townEnvKapat(n: Int, tam: Boolean) {
         if (!rotaCalisiyor) return
-        tap(uiX(2335f), uiYAlt(96.5f), 0f) {
+        tap(uiX(if (Config.revMi(this)) 2341f else 2335f), uiYAlt(if (Config.revMi(this)) 138f else 96.5f), 0f) {
             rh.postDelayed({
                 if (!rotaCalisiyor) return@postDelayed
                 val simdi = townPanelImza()
@@ -5798,7 +5813,8 @@ class MacroService : AccessibilityService() {
             if (rotaMesgul) { h.postDelayed(this, 2500); return }
             try {
                 // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
-                if (!koAktif && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                // RevengerOnline'da kapalı: bu özellik yalnızca MykoMobile yönetiminin izniyle var, diğer oyunlara taşınmaz
+                if (!koAktif && !Config.revMi(this) && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
                     SystemClock.uptimeMillis() >= kontrolBekleBitis &&
                     pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
@@ -6238,9 +6254,10 @@ class MacroService : AccessibilityService() {
     /** Yedek olcekte HP barinin sol kismi kirmizi mi? (barin gercekten orada oldugunu dogrular) */
     private fun yedekOlcekMakul(o: Preset.Olcek): Boolean {
         if (!ScreenSampler.hasFrame()) return false
-        val y = Preset.solUst(o, 0, 26)[1]
+        val hy = if (Config.revMi(this)) 72 else 26
+        val y = Preset.solUst(o, 0, hy)[1]
         for (xr in intArrayOf(75, 100, 125)) {
-            val c = ScreenSampler.readPixel(Preset.solUst(o, xr, 26)[0], y)
+            val c = ScreenSampler.readPixel(Preset.solUst(o, xr, hy)[0], y)
             if (c >= 0 && isRed(c)) return true
         }
         return false
@@ -6250,14 +6267,15 @@ class MacroService : AccessibilityService() {
         olcek = o
         collectAnkorHazirla(o)
         openBandHazirla(o)
-        val hp = Preset.solUst(o, 315, 26)
-        val mp = Preset.solUst(o, 150, 68)
+        val rv = Config.revMi(this)
+        val hp = if (rv) Preset.solUst(o, 308, 72) else Preset.solUst(o, 315, 26)
+        val mp = if (rv) Preset.solUst(o, 119, 102) else Preset.solUst(o, 150, 68)
         val tb = Preset.ustOrta(o, 1262, 60)
         cfg.hp = RenkNokta(hp[0], hp[1], 0)
         cfg.mp = RenkNokta(mp[0], mp[1], 0)
         cfg.tgtBar = RenkNokta(tb[0], tb[1], 0)
-        val a = Preset.ustOrta(o, 1195, 66)
-        val b = Preset.ustOrta(o, 1560, 66)
+        val a = Preset.ustOrta(o, 1195, if (rv) 60 else 66)
+        val b = Preset.ustOrta(o, 1560, if (rv) 60 else 66)
         tgtStrip = intArrayOf(a[0], b[0], a[1])
         // Bu cihazda daha önce öğrenilmiş ve doğrulanmış hedef barı varsa onu kullan (aramaya gerek kalmaz)
         tgtProfilKesin = false
@@ -6269,16 +6287,16 @@ class MacroService : AccessibilityService() {
                 TestLog.olay("TGT_PROFIL_YUKLENDI", "hedef barı bu cihaz için kayıttan alındı", "x=${v[0]}..${v[1]} y=${v[2]}")
             }
         }
-        Preset.loadTemplateF(this, "open.png", o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
-        Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
-        Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
+        Preset.loadTemplateF(this, varlik("open.png"), o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
+        Preset.loadTemplateF(this, varlik("collect.png"), o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
+        Preset.loadTemplateF(this, varlik("collect_btn.png"), o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
-        hpSol = Preset.solUst(o, 72, 26)
-        val h1 = Preset.solUst(o, 62, 26)
-        val h2 = Preset.solUst(o, 405, 26)
+        hpSol = Preset.solUst(o, 72, if (rv) 72 else 26)
+        val h1 = Preset.solUst(o, if (rv) 30 else 62, if (rv) 72 else 26)
+        val h2 = Preset.solUst(o, 405, if (rv) 72 else 26)
         hpBar = intArrayOf(h1[0], h2[0], h1[1])
-        val m1 = Preset.solUst(o, 62, 70)
-        val m2 = Preset.solUst(o, 407, 70)
+        val m1 = Preset.solUst(o, if (rv) 30 else 62, if (rv) 102 else 70)
+        val m2 = Preset.solUst(o, 407, if (rv) 102 else 70)
         mpBar = intArrayOf(m1[0], m2[0], m1[1])
         isimRect = isimAlani(o)
         // Tuslar oyuncudan: kaydettigi yerlere asla dokunma (eski "hazir tuslari tasima" kapali)
@@ -6329,7 +6347,7 @@ class MacroService : AccessibilityService() {
     private fun isimAlani(o: Preset.Olcek): IntArray {
         // Üst ortadaki kırmızı mob ismi — barın üstündeki ince şerit
         val a = Preset.ustOrta(o, 1050, 2)
-        val b = Preset.ustOrta(o, 1690, 40)
+        val b = Preset.ustOrta(o, 1690, if (Config.revMi(this)) 34 else 40)
         return intArrayOf(a[0], a[1], b[0], b[1])
     }
 
@@ -7105,8 +7123,8 @@ class MacroService : AccessibilityService() {
         val out = ArrayList<Pair<Boolean, Sablon>>()
         for (sc in olcekler) {
             try {
-                Preset.loadTemplateF(this, "collect.png", sc, 25, 0.5f, 0.22f)?.let { out.add(false to it) }
-                Preset.loadTemplateF(this, "collect_btn.png", sc, 19, 0.5f, 0.5f)?.let { out.add(true to it) }
+                Preset.loadTemplateF(this, varlik("collect.png"), sc, 25, 0.5f, 0.22f)?.let { out.add(false to it) }
+                Preset.loadTemplateF(this, varlik("collect_btn.png"), sc, 19, 0.5f, 0.5f)?.let { out.add(true to it) }
             } catch (e: Exception) {
                 hataKaydet("collect", e)
             }
@@ -7219,7 +7237,8 @@ class MacroService : AccessibilityService() {
     /** Collect All penceresindeki Close butonunun yeri (eslesen sablona gore) */
     private fun closeHedef(co: Sablon, pos: IntArray): Hedef {
         // Tum pencere sablonunda Close alt kisimda (%74), sadece-buton sablonunda butonun altinda
-        val ty = if (co === cfg.collectT2) 2.15f else 0.74f
+        // Sadece-buton şablonunda Close'un konumu oyuna göre: Myko 2,15 / RevengerOnline 1,68 (buton yüksekliği katı)
+        val ty = if (co === cfg.collectT2) (if (Config.revMi(this)) 1.68f else 2.15f) else 0.74f
         val cx = ScreenSampler.toScreen(pos[0] + co.w * 0.5f)
         val cy = ScreenSampler.toScreen(pos[1] + co.h * ty)
         return Hedef(cx, cy, minOf(cfg.radius.toFloat(), ScreenSampler.toScreen(co.w.toFloat()) * 0.15f, dp(5).toFloat()), fast = true)

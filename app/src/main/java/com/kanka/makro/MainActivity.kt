@@ -150,6 +150,7 @@ class MainActivity : Activity() {
     private lateinit var oyunKartView: LinearLayout
     private lateinit var oyunMykoBtn: Button
     private lateinit var oyunKoBtn: Button
+    private lateinit var oyunRevBtn: Button
     private var gelismisAcik = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -312,8 +313,9 @@ class MainActivity : Activity() {
         val oyunKart = card(root)
         oyunKartView = oyunKart
         uyeBolumleri.add(oyunKart)
-        oyunKart.addView(cardTitle("Oyun"))
-        val oyunSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        oyunKart.addView(cardTitle("Sunucu seç"))
+        // Liste: her sunucu ayrı satır (seçili olan vurgulanır, ayarlar sunucuya göre ayrı saklanır)
+        val oyunSatir = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun oyunBtn(t: String, kod: String) = Button(this).apply {
             text = t
             textSize = 16f
@@ -324,13 +326,15 @@ class MainActivity : Activity() {
             setOnClickListener { oyunSec(kod) }
         }
         oyunMykoBtn = oyunBtn("MykoMobile", "myko")
+        oyunRevBtn = oyunBtn("RevengerOnline", "rev")
         oyunKoBtn = oyunBtn("KO Mobile", "ko")
-        oyunSatir.addView(oyunMykoBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        oyunSatir.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-        oyunSatir.addView(oyunKoBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        for ((i, bt) in listOf(oyunMykoBtn, oyunRevBtn, oyunKoBtn).withIndex()) {
+            if (i > 0) oyunSatir.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
+            oyunSatir.addView(bt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
         oyunKart.addView(oyunSatir)
         oyunKart.addView(TextView(this).apply {
-            text = "Her oyunun tuşları ve ayarları ayrı saklanır. KO Mobile: Farm ve PK. " +
+            text = "Her oyunun tuşları ve ayarları ayrı saklanır. RevengerOnline yeni eklendi (görseller ekran görüntülerinden hazırlandı, test aşamasında). " +
                 "Farm'da dokunuşlar arası en az 0,7 sn."
             textSize = 12f
             setTextColor(MUTED)
@@ -831,10 +835,17 @@ class MainActivity : Activity() {
         speedSeri.background = rounded(if (mod == 2) ACCENT else kapali, 10)
         lootSwitch.isChecked = cfg.lootOn
         val ko = Config.koMu(this)
-        oyunMykoBtn.background = rounded(if (!ko) ACCENT else LACI, 14)
+        val rev = Config.revMi(this)
+        val myko = !ko && !rev
+        oyunMykoBtn.background = rounded(if (myko) ACCENT else LACI, 14)
         oyunKoBtn.background = rounded(if (ko) ACCENT else LACI, 14)
-        oyunMykoBtn.setTextColor(if (!ko) 0xFF12161C.toInt() else Color.WHITE)
+        oyunRevBtn.background = rounded(if (rev) ACCENT else LACI, 14)
+        oyunMykoBtn.text = (if (myko) "✓ " else "") + "MykoMobile"
+        oyunRevBtn.text = (if (rev) "✓ " else "") + "RevengerOnline"
+        oyunKoBtn.text = (if (ko) "✓ " else "") + "KO Mobile"
+        oyunMykoBtn.setTextColor(if (myko) 0xFF12161C.toInt() else Color.WHITE)
         oyunKoBtn.setTextColor(if (ko) 0xFF12161C.toInt() else Color.WHITE)
+        oyunRevBtn.setTextColor(if (rev) 0xFF12161C.toInt() else Color.WHITE)
         val pk = Config.pkMi(this)
         val genie = Config.genieMi(this)
         val farm = !pk && !genie
@@ -882,7 +893,7 @@ class MainActivity : Activity() {
     }
 
     private fun oyunSec(kod: String) {
-        if (Config.oyun(this) == kod && (kod != "ko" || Config.koMu(this))) return
+        if (Config.oyun(this) == kod && (kod != "ko" || Config.koMu(this)) && (kod != "rev" || Config.revMi(this))) return
         saveAll()
         Config.oyunSec(this, kod)
         if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
@@ -1035,6 +1046,7 @@ class MainActivity : Activity() {
                 val pk = it.activityInfo.packageName
                 val ad = it.loadLabel(pm).toString()
                 if (ko) pk.contains("komobile", true) || ad.contains("ko mobile", true) || ad.contains("komobile", true)
+                else if (Config.revMi(this)) pk.contains("revenger", true) || ad.contains("revenger", true)
                 else pk.contains("myko", true) || ad.contains("myko", true)
             } ?: return null
             pm.getLaunchIntentForPackage(hit.activityInfo.packageName)

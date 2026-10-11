@@ -227,3 +227,13 @@ Kontrol listesi (telefon VE tablet, ikisinde de):
 - Alt çubuk Town/Inventory konumları: doğrulanınca kaydedilir, sonraki turda OCR'sız kullanılır.
 - Panel ölçeği (u) cihaz başına kayıtlı.
 - Menü → 🧹 Ekran öğrenmesini sıfırla: hepsini siler. "Sorun bildir" metninde "profil:" satırı.
+
+## v43 — RevengerOnline (YENİ, hiç denenmedi)
+Oyun seçimi: Uygulama → Oyun kartı → RevengerOnline. Görseller 2576x1159 ekran görüntülerinden hazırlandı.
+1. EKRANI TANI: "Ekran tanındı" çıkıyor mu? (rev_m.png = MENU + P.U.S düğmeleri). Çıkmazsa rapor: tanima, son_fark.
+2. Farm: HP/MP pot eşiği doğru mu (HP y=72, MP y=102 referans), mob çubuğu algılanıyor mu, mob kilidi ismi okuyor mu.
+3. Kutu: Open basılıyor mu (rev_open.png), Collect All basılıyor mu (rev_collect*.png), KUTU_COLLECT satırında "pencere"/"buton" yazıyor mu.
+4. Koordinat (beyaz yazı, Exp çubuğunun altı): KONUM satırları geliyor mu.
+5. Çanta boşaltma: Inn → Warehouse Open (ilk satır) → depo başlığı (rev_bank_baslik.png) → boşaltma. Miktar penceresi (yığın eşya) Myko görseliyle denendi mi? DENENMEDİ.
+6. Envanter kapatma X: (2341,138) birim. Denenmedi.
+Bilinen: depo 8 sayfa, bot sadece 1. sayfayı kullanır. Pazar ve MykoMobile bot-kontrol özelliği RevengerOnline'da KAPALI.
