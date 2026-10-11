@@ -904,7 +904,11 @@ class MacroService : AccessibilityService() {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (e.rawX - tx).toInt(); val dy = (e.rawY - ty).toInt()
                         if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(6)) moved = true
-                        params.x = sx + dx; params.y = sy + dy
+                        // Panel ekran dışına taşmasın (taşınca sağdaki düğmeler kesiliyordu)
+                        val genisPx = if (root.width > 0) root.width else dp(300)
+                        val yukPx = if (root.height > 0) root.height else dp(48)
+                        params.x = (sx + dx).coerceIn(0, maxOf(0, screenW - genisPx))
+                        params.y = (sy + dy).coerceIn(0, maxOf(0, screenH - yukPx))
                         try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
                     }
                     MotionEvent.ACTION_UP -> {
@@ -950,7 +954,7 @@ class MacroService : AccessibilityService() {
             setTextColor(0xFFB0FFB0.toInt())
             textSize = 12f
             setPadding(dp(6), 0, dp(10), 0)
-            maxWidth = dp(150)
+            maxWidth = dp(120)
             setSingleLine(true)
             includeFontPadding = false
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -964,12 +968,14 @@ class MacroService : AccessibilityService() {
             v.includeFontPadding = false
         }
         genis.addView(drag)
+        // Küçült en solda: panel ekranın sağına çekilse bile (pencere taşıp sağ taraf kesilse de) hep görünür kalır
+        daraltBtn.text = "🔽"
+        genis.addView(daraltBtn)
         genis.addView(tani)
         genis.addView(play)
         genis.addView(mb)
         genis.addView(btn("☰ Menü") { showMainMenu() })
         genis.addView(st)
-        genis.addView(daraltBtn)
         panelGenisIcerik = genis
 
         // İkon solda, panel sağda
@@ -1520,7 +1526,7 @@ class MacroService : AccessibilityService() {
             2 -> kartGoster("✅ Ekran tanındı  ·  Adım 2/$n  ·  ÖNEMLİ UYARILAR",
                 "Bot oyun ekranına fotoğraf gibi bakar. Hata olmasın diye:\n" +
                 "• Sol üstteki HP / MP çubuklarının ve üst ortadaki mob can çubuğunun ÜSTÜNE hiçbir şey koyma (başka uygulama balonu, mesaj balonu, bot paneli).\n" +
-                "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa 🔽 Küçült'e bas.\n" +
+                "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa panelin solundaki 🔽 düğmesine bas.\n" +
                 "• Ekran rengi filtresi, gece modu, parlaklık/renk uygulaması açma. Oyunu yatay tut, ekranı kapatma, bildirim çubuğunu aşağı çekme.\n" +
                 "• Oyunda envanter, harita, sohbet gibi pencereleri açık bırakma.\n" +
                 "• Karakter av alanında ve oyunun içinde olsun.", listOf(
@@ -1704,8 +1710,9 @@ class MacroService : AccessibilityService() {
                 else "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
                 (Config.sinifOnerisi(this@MacroService)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 12f
             setPadding(0, 0, dp(10), 0)
+            maxWidth = (screenW * 0.55f).toInt()   // uzun yazı butonları ekran dışına itmesin
         })
         bar.addView(btn("Hepsini sil") {
             if (overlay != null) removeOverlay()
@@ -1725,8 +1732,8 @@ class MacroService : AccessibilityService() {
         }.apply { background = rounded(0xFF2E9E5B.toInt()) })
         root.addView(bar, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER_VERTICAL or Gravity.START
-        ).apply { leftMargin = dp(12) })
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        ).apply { topMargin = dp(6) })
     }
 
     private fun turListesi(onPick: (String) -> Unit): List<Pair<String, () -> Unit>> =
