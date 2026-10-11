@@ -5317,8 +5317,8 @@ class MacroService : AccessibilityService() {
         for (r in 0 until satir) for (c in 0 until 7) if (hucreDoluX(1710f, r, c)) dolu++
         val bos = satir * 7 - dolu
         // Oyun kendisi 'çanta dolu' dediyse (Collect All kapanmıyor) sayımdan çok ona güven: sayım hücre kaymasından yanılabilir
-        val oyunDedi = townCantaBiliniyor
-        val tam = bos <= TOWN_BOS_ESIK || oyunDedi
+        val oyunDedi = false   // v36 raporu: 'çanta dolu' bayrağı yavaş kapanan pencereden yanlış tetiklenebiliyor, yalnız sayıma güven
+        val tam = bos <= TOWN_BOS_ESIK
         val stdler = StringBuilder()
         try { for (c in 0 until 7) stdler.append("%.0f ".format(hucreStd(1710f, 0, c))) } catch (e: Exception) { }
         var koyu = -1f
@@ -7212,9 +7212,17 @@ class MacroService : AccessibilityService() {
      * Collect All: envanter doluysa bile ayni esyalar ust uste eklenebildigi icin once
      * iki kez Collect All denenir; pencere yine kapanmazsa Close ile kapatilip devam edilir.
      */
+    private var collectSonAt = 0L
     private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
+        // Basıştan sonra pencere kapanma animasyonu sürerken (yavaş tablet) aynı pencereyi yeniden 'basılmadı' sayma:
+        // 800 ms dolmadan ne tekrar bas ne seri say; gerçekten kapanmadıysa sonraki taramada sayılır.
+        if (collectStreak > 0 && now - collectSonAt < 800L) {
+            nextLootScan = now + 120
+            return null
+        }
+        collectSonAt = now
         collectStreak++
-        TestLog.olay("KUTU_COLLECT", "Collect All", "seri=$collectStreak")
+        TestLog.olay("KUTU_COLLECT", "Collect All", "seri=$collectStreak ${if (co === cfg.collectT2) "buton" else "pencere"} grid=${pos[0]},${pos[1]}")
         lootPhase = Loot.SONRAKI_KUTU
         phaseUntil = now + 700
         nextLootScan = now + rand(130, 190)
