@@ -5814,7 +5814,7 @@ class MacroService : AccessibilityService() {
             try {
                 // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
                 // RevengerOnline'da kapalı: bu özellik yalnızca MykoMobile yönetiminin izniyle var, diğer oyunlara taşınmaz
-                if (!koAktif && !Config.revMi(this) && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                if (!koAktif && !Config.revMi(this@MacroService) && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
                     SystemClock.uptimeMillis() >= kontrolBekleBitis &&
                     pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
