@@ -4568,12 +4568,11 @@ class MacroService : AccessibilityService() {
     private fun rotaOpenAra(deneme: Int) {
         if (!rotaCalisiyor) return
         rotaAsama = 3
-        val op = rotaOpenT
         val f = ScreenSampler.grab()
-        if (op != null && f != null) {
-            val pos = findT(f, op)
-            if (pos != null) {
-                val t = sablonHedef(op, pos)
+        if (f != null) {
+            val b = rotaOpenBul(f)
+            if (b != null) {
+                val t = sablonHedef(b.first, b.second)
                 TestLog.olay("ROTA_OPEN", "Open görüldü, basılıyor", "deneme=$deneme")
                 tap(t.x, t.y, t.r) { rh.postDelayed({ rotaMenuAc() }, 1200) }
                 return
@@ -4666,13 +4665,16 @@ class MacroService : AccessibilityService() {
     /** Envanter hücresinde eşya var mı: boş hücre düz koyu (değişim ~1), dolu hücrede belirgin (>=30) */
     private fun hucreDolu(r: Int, c: Int): Boolean = hucreDoluX(1605f, r, c)
 
-    private fun hucreDoluX(x0: Float, r: Int, c: Int): Boolean {
+    private fun hucreDoluX(x0: Float, r: Int, c: Int): Boolean = hucreStd(x0, r, c) > 8.0
+
+    /** Hücre karesindeki parlaklık standart sapması (tanı için de loglanır) */
+    private fun hucreStd(x0: Float, r: Int, c: Int): Double {
         val cx = uiX(x0 + 100f * c)
         val cy = if (x0 >= 1700f) uiYAlt(770f + 95f * r) else uiYOrta(770f + 95f * r)
         val yar = 26f * uiS()
-        val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return false
+        val reg = ScreenSampler.bolge((cx - yar).toInt(), (cy - yar).toInt(), (cx + yar).toInt(), (cy + yar).toInt()) ?: return 0.0
         val px = reg.third
-        if (px.isEmpty()) return false
+        if (px.isEmpty()) return 0.0
         val lum = DoubleArray(px.size)
         var top = 0.0
         for (i in px.indices) {
@@ -4684,7 +4686,7 @@ class MacroService : AccessibilityService() {
         val ort = top / px.size
         var v = 0.0
         for (l in lum) v += (l - ort) * (l - ort)
-        return Math.sqrt(v / px.size) > 8.0
+        return Math.sqrt(v / px.size)
     }
 
     private fun bankaBosaltAdim() {
@@ -5053,13 +5055,34 @@ class MacroService : AccessibilityService() {
     private fun uiYUst(yr: Float): Float = uiYOrta(yr)
 
     /** open.png şablon ölçeği: telefon (2712x1220) = 1.0 */
-    private fun openOlcek(): Float = uiS() / (2712f / 2576f)
+    /** Open düğmesi, farm sırasında kutu Open'ı ile aynı çizim: ekran tanımadan gelen HUD ölçeği varsa onu kullan */
+    private fun openOlcek(): Float = olcek?.s ?: (uiS() / (2712f / 2576f))
+    private var rotaOpenAlt: List<Sablon> = emptyList()
+    private var rotaOpenAltU = 0f
 
     private fun sablonlariYukle() {
         rotaOpenT = Preset.loadTemplateF(this, "open.png", openOlcek(), 20, 0.5f, 0.5f)
         bankaT = Preset.loadTemplateF(this, "bank_baslik.png", uiS(), 18, 0.5f, 0.5f)
         miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
         sablonU = uiS()
+        rotaOpenAltU = 0f
+    }
+
+    /** Ana ölçekte Open bulunamazsa komşu ölçeklerde de dene (cihaz/yoğunluk farkı); bulunan ölçek loglanır */
+    private fun rotaOpenBul(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
+        val op = rotaOpenT
+        if (op != null) findT(f, op)?.let { return Pair(op, it) }
+        val k = openOlcek()
+        if (rotaOpenAlt.isEmpty() || rotaOpenAltU != k) {
+            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, "open.png", k * m, 24, 0.5f, 0.5f) }
+            rotaOpenAltU = k
+        }
+        for ((i, t) in rotaOpenAlt.withIndex()) {
+            val pos = findT(f, t) ?: continue
+            TestLog.olay("ROTA_OPEN_OLCEK", "Open komşu ölçekte bulundu", "carpan=${listOf(1.1f, 0.9f, 1.2f, 0.8f)[i]} temel=%.3f".format(k))
+            return Pair(t, pos)
+        }
+        return null
     }
     private var sablonU = 0f
 
@@ -5212,10 +5235,16 @@ class MacroService : AccessibilityService() {
                 var enAd = ""
                 if (liste != null) for ((txt, r) in liste) {
                     val t = txt.trim().lowercase()
-                    if (t.length > 14) continue
-                    if (isimler.none { t == it || (t.length <= it.length + 3 && t.contains(it)) }) continue
+                    var cxKes = r.exactCenterX()
+                    if (t.length > 14) {
+                        // OCR tüm çubuğu tek satır okumuş olabilir ("town commands inventory"): kelimeyi bul, konumunu harf oranından kestir
+                        val ad = isimler.firstOrNull { Regex("(^|\\s)" + Regex.escape(it) + "($|\\s)").containsMatchIn(t) } ?: continue
+                        val ix = t.indexOf(ad)
+                        cxKes = r.left + (ix + ad.length / 2f) / t.length * r.width()
+                        TestLog.olay("DUGME_UZUN_SATIR", "'$t' içinde '$ad' harf oranıyla konumlandı", "")
+                    } else if (isimler.none { t == it || (t.length <= it.length + 3 && t.contains(it)) }) continue
                     // kes: 2x ölçek, bm: yarım çözünürlük (SCALE) -> ekran pikseli
-                    val xs = (r.exactCenterX() / 2f) / ScreenSampler.SCALE
+                    val xs = (cxKes / 2f) / ScreenSampler.SCALE
                     val ys = ((r.exactCenterY() / 2f) + y0) / ScreenSampler.SCALE
                     if (en == null || ys > en[1]) { en = floatArrayOf(xs, ys); enAd = txt }
                 }
@@ -5287,7 +5316,11 @@ class MacroService : AccessibilityService() {
         var dolu = 0
         for (r in 0 until satir) for (c in 0 until 7) if (hucreDoluX(1710f, r, c)) dolu++
         val bos = satir * 7 - dolu
-        val tam = bos <= TOWN_BOS_ESIK
+        // Oyun kendisi 'çanta dolu' dediyse (Collect All kapanmıyor) sayımdan çok ona güven: sayım hücre kaymasından yanılabilir
+        val oyunDedi = townCantaBiliniyor
+        val tam = bos <= TOWN_BOS_ESIK || oyunDedi
+        val stdler = StringBuilder()
+        try { for (c in 0 until 7) stdler.append("%.0f ".format(hucreStd(1710f, 0, c))) } catch (e: Exception) { }
         var koyu = -1f
         try {
             val rg = ScreenSampler.bolge((screenW * 0.66f).toInt(), (screenH * 0.20f).toInt(), (screenW * 0.89f).toInt(), (screenH * 0.60f).toInt())
@@ -5297,7 +5330,7 @@ class MacroService : AccessibilityService() {
                 koyu = k.toFloat() / rg.third.size
             }
         } catch (e: Exception) { }
-        TestLog.olay("ENVANTER_OLCUM", "dolu=$dolu/${satir * 7} bos=$bos", "esik_bos<=$TOWN_BOS_ESIK karar=${if (tam) "DOLU" else "yer var"} panel_koyu=%.2f u=%.3f(${uOlcKaynak.ifEmpty { "tahmin" }}) ekran ${screenW}x$screenH".format(koyu, uiU()))
+        TestLog.olay("ENVANTER_OLCUM", "dolu=$dolu/${satir * 7} bos=$bos", "esik_bos<=$TOWN_BOS_ESIK karar=${if (tam) (if (oyunDedi && bos > TOWN_BOS_ESIK) "DOLU(oyun dedi)" else "DOLU") else "yer var"} std1=${stdler.toString().trim()} panel_koyu=%.2f u=%.3f(${uOlcKaynak.ifEmpty { "tahmin" }}) ekran ${screenW}x$screenH".format(koyu, uiU()))
         townEnvKapat(0, tam)
     }
 
@@ -6437,6 +6470,7 @@ class MacroService : AccessibilityService() {
      * Seçili hedefin ismi kilitli moblardan biri mi?
      * Bölgedeki kırmızı yazıdan isim ayıklanır, sabit boyuta normalleştirilip kayıtlı kilitlerle karşılaştırılır.
      */
+    private var kilitTani = ""
     private fun isimUygun(): Boolean {
         isimBilinmiyor = false
         val r = ScreenSampler.bolge(isimRect[0], isimRect[1], isimRect[2], isimRect[3])
@@ -6449,10 +6483,12 @@ class MacroService : AccessibilityService() {
         if (cur == null) { isimBilinmiyor = true; return true }
 
         var uyanVar = false
+        kilitTani = "isim ${w}x$h en=%.2f kilit=${cfg.kilitler.size}".format(cur.en)
         for (k in cfg.kilitler) {
             // Ekran ölçeği başka cihaz/oturumda çok farklıysa bu kilit bu ekran için geçersiz
             val oranW = w.toFloat() / k.w
             val oranH = h.toFloat() / k.h
+            kilitTani += " [k${k.w}x${k.h}]"
             if (oranW < 0.75f || oranW > 1.33f || oranH < 0.75f || oranH > 1.33f) continue
             val lk = kilitKanon(k) ?: continue
             uyanVar = true
@@ -6865,7 +6901,7 @@ class MacroService : AccessibilityService() {
                             kilitKotu = 6
                             TestLog.olay("KILIT_BEKLE", "kilitli mob bulunamadı, 8 sn bekleniyor", "")
                         }
-                        TestLog.olay("KILIT_RED", "yanlış mob, hedef bırakıldı", "kilitKotu=$kilitKotu")
+                        TestLog.olay("KILIT_RED", "yanlış mob, hedef bırakıldı", "kilitKotu=$kilitKotu $kilitTani")
                         nextTarget = now + rand(400, 600)
                         iptalAt = now
                         val x = if (o != null) iptalNoktasi(o) else koIptal()
