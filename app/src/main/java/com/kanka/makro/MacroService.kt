@@ -277,7 +277,7 @@ class MacroService : AccessibilityService() {
         Lisans.yukle(this)
         TestLog.hazirla(this)
         rotaYukle()
-        TestLog.sistem = Lisans.testHesabi() && Config.load(this).let { it.testModu || it.townAcik }
+        TestLog.sistem = Lisans.gecerliSimdi() && Config.load(this).let { it.townAcik || (Lisans.testHesabi() && it.testModu) }
         if (TestLog.sistem) {
             TestLog.olay("SERVIS_BASLADI", "erişilebilirlik servisi bağlandı", "sürüm=${surumAdi()}")
             val pr = getSharedPreferences("test_durum", MODE_PRIVATE)
@@ -409,7 +409,15 @@ class MacroService : AccessibilityService() {
                 ekranTanindi = false   // oyundan çıkıldı: dönünce ekran yeniden tanınsın
             }
         }
-        if (oyundaMi()) panelGuncelle()
+        if (oyundaMi()) {
+            panelGuncelle()
+            if (!ekranTanindi && !running && !ilkKartGoruldu && kart == null && panel != null) {
+                ilkKartGoruldu = true
+                kartGoster("👋 Projeindir Bot  ·  Adım 1/${sihirbazToplam()}  ·  EKRANI TANI",
+                    "Başlamadan önce karakterinle oyunun İÇİNE gir (karakter ekranda görünsün; açılış ya da karakter seçme ekranında olma).\n\nSonra bu panelde 🔍 EKRANI TANI düğmesine bas. İlk seferde ekran kaydı izni sorulur: izin ver. Bot ekranı tanıyınca sıradaki adımları sana tek tek gösterecek.", listOf(
+                    "Tamam" to { kartKapat() }))
+            }
+        }
     }
 
     private fun oyunPaketiMi(p: String): Boolean {
@@ -1015,7 +1023,9 @@ class MacroService : AccessibilityService() {
         taniDene(0)
     }
 
-    private fun taniDene(n: Int) {
+    private var otoTaniSon = 0L
+
+    private fun taniDene(n: Int, sessiz: Boolean = false) {
         rh.post {
             val ok = try {
                 updateScreenSize()
@@ -1029,15 +1039,17 @@ class MacroService : AccessibilityService() {
                     taniCalisiyor = false
                     ekranTanindi = true
                     TestLog.olay("EKRAN_TANINDI", "oyun ekranı tanındı", "ekran ${screenW}x$screenH")
-                    toast("✅ Ekran tanındı. Şimdi ▶ BAŞLAT'a basabilir ya da ☰ Menü'den ayar yapabilirsin")
                     panelGuncelle()
+                    if (!sessiz) sihirbazBaslat()
                 } else if (n < 5) {
-                    ui.postDelayed({ taniDene(n + 1) }, 800)
+                    ui.postDelayed({ taniDene(n + 1, sessiz) }, 800)
                 } else {
                     taniCalisiyor = false
                     TestLog.olay("EKRAN_TANINMADI", "tanıma denemesi başarısız", "ekran ${screenW}x$screenH fark=${Preset.sonFark} olcek=${Preset.sonOlcekDegeri}")
-                    durumYaz("❌ Ekran tanınmadı", false)
-                    ekranUyari()
+                    if (sessiz) panelGuncelle() else {
+                        durumYaz("❌ Ekran tanınmadı", false)
+                        ekranUyari()
+                    }
                 }
             }
         }
@@ -1056,9 +1068,10 @@ class MacroService : AccessibilityService() {
         if (rotaIz.size < 2) rotaYukle()
         val tusOk = cfg.points.isNotEmpty() || Config.load(this).points.isNotEmpty()
         val liste = ArrayList<Pair<String, () -> Unit>>()
+        liste.add("🧭 Adım adım kurulumu başlat" to { sihirbazBaslat() })
         liste.add((if (ekranTanindi) "✅ 1) Ekran tanındı" else "⬜ 1) Ekranı tanı") to { if (!ekranTanindi) ekranTani() else toast("Ekran zaten tanındı") })
         liste.add((if (tusOk) "✅ 2) Tuşlar hazır (değiştirmek için dokun)" else "⬜ 2) Tuşlarını ayarla") to { openEditor() })
-        if (Lisans.testHesabi()) {
+        if (!Config.koMu(this)) {
             liste.add((if (townHazirMi()) "✅ 3) Çanta boşaltma yolları hazır" else "⬜ 3) Çanta boşaltma yollarını kaydet") to { townSihirbaz() })
         }
         liste.add("▶ Botu başlat" to { if (ekranTanindi) toggle() else toast("Önce ekranı tanıt (🔍 EKRANI TANI)") })
@@ -1143,7 +1156,7 @@ class MacroService : AccessibilityService() {
 
     private fun kilavuzGoster() {
         showMenu(
-            "KISA KILAVUZ\n\n1) Oyunu aç, 'Start'a bas, karakterinle oyuna gir\n2) Farm yapacağın yere git\n3) ▶ BAŞLAT'a bas: üstte '● BOT ÇALIŞIYOR' yazar\n4) Durdurmak için ⏸ DURDUR\n\nÇanta dolunca otomatik boşaltmak için: ☰ Menü → Otomatik çanta boşaltma",
+            "KISA KILAVUZ\n\n1) Oyunu aç, 'Start'a bas, karakterinle oyuna gir\n2) Panelde 🔍 EKRANI TANI'ya bas, çıkan adımları sırayla yap\n3) Farm yapacağın yere git\n4) ▶ BAŞLAT'a bas: üstte '● BOT ÇALIŞIYOR' yazar\n5) Durdurmak için ⏸ DURDUR\n\nDİKKAT: HP/MP çubuklarının ve mob can çubuğunun üstüne hiçbir şey koyma.\nAdımları tekrar görmek için: ☰ Menü → 📋 Kurulum adımları → 🧭",
             listOf("✅ Anladım" to {})
         )
     }
@@ -1184,8 +1197,8 @@ class MacroService : AccessibilityService() {
         // Bar/kutu kaydi ve tum test/kayit ekranlari SADECE YONETICI. Yeni menu ogesi eklerken
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
-        val testListesi: List<Pair<String, () -> Unit>> = if (Lisans.testHesabi())
-            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) else emptyList()
+        val testListesi: List<Pair<String, () -> Unit>> = if (Config.koMu(this)) emptyList() else
+            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() })
         // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
         val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
         showMenu(
@@ -1209,6 +1222,7 @@ class MacroService : AccessibilityService() {
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
+                "🧹 Ekran öğrenmesini sıfırla" to { profilSifirla() },
                 "🩺 Sorun bildir (bilgiyi kopyala)" to { sorunBildir() },
                 "⚙ Uygulamayı aç" to {
                     try {
@@ -1474,8 +1488,88 @@ class MacroService : AccessibilityService() {
     // ================= Oyun icinde tus duzenleme =================
 
     private fun closeEditor() {
+        val vardi = editor != null
         editor?.let { safeRemove(it) }
         editor = null
+        if (vardi && sihirbaz && sihirbazAdim == 3 && tusAdimiYapildi && !running) {
+            sihirbazAdim = if (sihirbazToplam() == 5) 4 else 5
+            ui.postDelayed({ if (oyundaMi() && sihirbaz && !running) kurulumSonrakiAdim() }, 500)
+        }
+    }
+
+    @Volatile private var sihirbaz = false
+    @Volatile private var sihirbazAdim = 2
+    @Volatile private var tusAdimiYapildi = false
+    private var ilkKartGoruldu = false
+
+    private fun sihirbazToplam() = if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this)) 4 else 5
+
+    /** Sıfır bilgili kullanıcı için adım adım kurulum: 2) uyarılar → 3) tuşlar → (4) çanta yolları) → hazır */
+    private fun sihirbazBaslat() {
+        if (!ekranTanindi) { toast("Önce 🔍 EKRANI TANI'ya bas"); return }
+        sihirbaz = true
+        sihirbazAdim = 2
+        tusAdimiYapildi = false
+        kurulumSonrakiAdim()
+    }
+
+    private fun kurulumSonrakiAdim() {
+        val n = sihirbazToplam()
+        val sonAdim = n
+        when (sihirbazAdim) {
+            2 -> kartGoster("✅ Ekran tanındı  ·  Adım 2/$n  ·  ÖNEMLİ UYARILAR",
+                "Bot oyun ekranına fotoğraf gibi bakar. Hata olmasın diye:\n" +
+                "• Sol üstteki HP / MP çubuklarının ve üst ortadaki mob can çubuğunun ÜSTÜNE hiçbir şey koyma (başka uygulama balonu, mesaj balonu, bot paneli).\n" +
+                "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa 🔽 Küçült'e bas.\n" +
+                "• Ekran rengi filtresi, gece modu, parlaklık/renk uygulaması açma. Oyunu yatay tut, ekranı kapatma, bildirim çubuğunu aşağı çekme.\n" +
+                "• Oyunda envanter, harita, sohbet gibi pencereleri açık bırakma.\n" +
+                "• Karakter av alanında ve oyunun içinde olsun.", listOf(
+                "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }))
+            3 -> kartGoster("Adım 3/$n  ·  TUŞLARI AYARLA",
+                "Bot, oyundaki tuşlara (kılıç, mob seç, HP/MP pot, skiller) senin yerine basar. Bunun için ekranda hangi tuşun nerede olduğunu bilmesi lazım.\n\n" +
+                "1) 'Otomatik yerleştir'e bas: bot renkli yuvarlakları tuşların üstüne koyar.\n" +
+                "2) Yuvarlaklar oyundaki tuşların TAM ÜSTÜNE gelmiş mi bak. Gelmemişse yuvarlağı parmağınla sürükle.\n" +
+                "3) Bitince üstteki 'Bitti'ye bas.", listOf(
+                "Sonra" to { sihirbaz = false; kartKapat() },
+                "Elle ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() },
+                "Otomatik yerleştir" to { kartKapat(); tuslariOtoYerlestir() }))
+            4 -> if (n == 5) kartGoster("Adım 4/$n  ·  ÇANTA BOŞALTMA YOLLARI",
+                "Çanta dolunca bot Town'a gidip eşyaları bankaya atar, sonra slota döner. Bunun için iki yürüyüşü bir kere kaydetmen lazım. Ekrandaki yönlendirmeleri sırayla uygula.", listOf(
+                "Sonra" to { sihirbaz = false; kartKapat() },
+                "Yolları kaydet" to { kartKapat(); sihirbaz = false; townSihirbaz() }))
+            else { sihirbazAdim = 5; kurulumSonrakiAdim() }
+            else -> {
+                sihirbaz = false
+                kartGoster("✅ Adım $sonAdim/$n  ·  HAZIRSIN",
+                    "Son kontrol:\n• Karakter av alanında mı?\n• HP/MP ve mob can çubuklarının üstü boş mu?\n• Panel tuşların üstünde değil mi?\n\nHazırsan ▶ BAŞLAT'a bas. Bot kendiliğinden başlamaz. Durdurmak için ⏸ DURDUR. Ayarı değiştirmek için ☰ Menü → 📋 Kurulum adımları.", listOf(
+                    "Tamam" to { kartKapat() }))
+            }
+        }
+    }
+
+    /** Hazır tuşları bu ekranın ölçeğine göre yerleştirir; sonra editörde kontrol edilir */
+    private fun tuslariOtoYerlestir() {
+        toast("Tuşlar yerleştiriliyor...")
+        rh.post {
+            val o = try { Preset.olcekBul(this) } catch (e: Exception) { null }
+            ui.post {
+                if (o == null) {
+                    toast("Ekran okunamadı. Oyunun içinde olduğundan emin ol, sonra tekrar dene")
+                    kurulumSonrakiAdim()
+                    return@post
+                }
+                val c = Config.load(this)
+                val yeni = Preset.otoTuslar(o, c.points)
+                c.points.clear()
+                c.points.addAll(yeni)
+                c.tuslarOto = false
+                c.save(this)
+                if (!running) cfg = Config.load(this)
+                TestLog.olay("TUS_OTO_YERLESTI", "hazır tuşlar ekrana göre yerleştirildi", "olcek=%.2f ekran ${screenW}x$screenH".format(o.s))
+                tusAdimiYapildi = true
+                openEditor()
+            }
+        }
     }
 
     private fun etiket(p: Nokta): String = when (p.type) {
@@ -1606,6 +1700,7 @@ class MacroService : AccessibilityService() {
         }
         bar.addView(TextView(this).apply {
             text = if (Config.genieMi(this@MacroService)) "Genie Hızlandır: sadece Kılıç tuşunu kaydet  •  sürükleyerek yerine oturt"
+                else if (sihirbaz) "Yuvarlaklar oyundaki tuşların TAM ÜSTÜNE gelmeli. Yerinde değilse parmağınla sürükle. Bitince 'Bitti'ye bas."
                 else "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
                 (Config.sinifOnerisi(this@MacroService)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
@@ -3199,8 +3294,8 @@ class MacroService : AccessibilityService() {
             cfg.minDelay = cfg.minDelay.coerceAtLeast(700)
             cfg.maxDelay = cfg.maxDelay.coerceAtLeast(cfg.minDelay + 600)
         }
-        // Test modu: SADECE yönetimin "Test" yetkisi verdiği hesapta ve modu açıkken
-        testCalisiyor = Lisans.testHesabi() && (cfg.testModu || cfg.townAcik)
+        // Çanta (Town) döngüsü tüm geçerli üyelerde; hız merdiveni/takılma durdurma gibi test özellikleri yalnızca Test yetkili hesapta
+        testCalisiyor = Lisans.gecerliSimdi() && (cfg.townAcik || (Lisans.testHesabi() && cfg.testModu))
         if (testCalisiyor) testAyarlariUygula()
         alanBitti = false
         alanArdArda = 0
@@ -3324,7 +3419,7 @@ class MacroService : AccessibilityService() {
 
     /** Test modu hız merdiveni ve süre. Alt sınır A hiçbir basamakta aşılmaz. */
     private fun testAyarlariUygula() {
-        if (!cfg.testModu) return   // hız merdiveni yalnızca eski test modunda; çanta döngüsü hızı değiştirmez
+        if (!cfg.testModu || !Lisans.testHesabi()) return   // hız merdiveni yalnızca eski test modunda; çanta döngüsü hızı değiştirmez
         if (cfg.testSureDk > 0) cfg.minutes = cfg.testSureDk
         val b = cfg.testBasamak
         if (b in 1..4) {
@@ -3444,7 +3539,7 @@ class MacroService : AccessibilityService() {
         } else if (bekleNeden.isEmpty()) {
             stallSn++
         }
-        if (testCalisiyor && cfg.testStallDk > 0 && stallSn > cfg.testStallDk * 60) {
+        if (testCalisiyor && Lisans.testHesabi() && cfg.testStallDk > 0 && stallSn > cfg.testStallDk * 60) {
             TestLog.olay("ILERLEME_YOK", "uzun süre mob/kutu/pot ilerlemesi yok", "sn=$stallSn")
             stopMacro("${cfg.testStallDk} dk boyunca ilerleme yok (mob bulunamadı / ekran engeli?). Bot durdu")
         }
@@ -3577,6 +3672,7 @@ class MacroService : AccessibilityService() {
             sb.append("oyun_paketi=").append(oyunPaketiBul() ?: "bulunamadi").append(" oyunda=").append(oyundaMi()).append('\n')
             sb.append("ekran_okuma=").append(ScreenSampler.running).append(" ekran_tanindi=").append(ekranTanindi).append('\n')
             sb.append("tanima=").append(sonuc).append(" son_fark=").append(Preset.sonFark).append(" son_olcek=").append(Preset.sonOlcekDegeri).append('\n')
+            sb.append(profilOzeti()).append('\n')
             sb.append("mod=").append(Config.bot(this)).append(" oyun=").append(Config.oyun(this)).append('\n')
             sb.append("---- son olaylar ----\n")
             sb.append(try { TestLog.rapor(surumAdi()).takeLast(2500) } catch (e: Exception) { "(günlük yok)" })
@@ -3761,10 +3857,15 @@ class MacroService : AccessibilityService() {
 
     private fun konumOku() {
         if (konumOkunuyor || !ScreenSampler.running || screenW <= 0) return
-        val x1 = (screenW * 0.0745f).toInt()
-        val y1 = (screenH * 0.1245f).toInt()
-        val x2 = (screenW * 0.1400f).toInt()
-        val y2 = (screenH * 0.1660f).toInt()
+        // Telefonda ölçülmüş oransal bölge ile arayüz ölçeğine göre (üst-sol çapalı) bölgenin BİRLEŞİMİ:
+        // arayüz farklı büyüklükte olan tablette yazının sağ ucu kesilmesin (aksi halde son rakam okunmaz)
+        val hs = olcek?.s ?: (0.988f * uiU())
+        val hox = (olcek?.ox ?: 0).toFloat()
+        val hoy = (olcek?.oy ?: 0).toFloat()
+        val x1 = minOf(screenW * 0.0745f, hox + 202f * hs).toInt().coerceAtLeast(0)
+        val y1 = minOf(screenH * 0.1245f, hoy + 152f * hs).toInt().coerceAtLeast(0)
+        val x2 = maxOf(screenW * 0.1400f, hox + 380f * hs).toInt().coerceAtMost(screenW - 1)
+        val y2 = maxOf(screenH * 0.1660f, hoy + 203f * hs).toInt().coerceAtMost(screenH - 1)
         val r = ScreenSampler.bolge(x1, y1, x2, y2) ?: return
         val w = r.first
         val hh = r.second
@@ -3918,7 +4019,7 @@ class MacroService : AccessibilityService() {
     private fun rotaKayitBasla(hedef: Int = 0) {
         rh.post {
             if (!ScreenSampler.running) {
-                toast("Ekran okuma kapalı: önce botu bir kez başlat (ekran izni), sonra durdur")
+                toast("Önce 🔍 EKRANI TANI'ya bas (ekran izni verilsin), sonra tekrar dene")
                 return@post
             }
             kayitHedef = hedef
@@ -3929,8 +4030,14 @@ class MacroService : AccessibilityService() {
             kayitSonHareketAt = SystemClock.uptimeMillis()
             rh.postDelayed(kayitIzleyici, 2000)
             konumBaslat()
+            rh.postDelayed({
+                if (rotaKayit && (konumX < 0 || SystemClock.uptimeMillis() - konumAt > 3000L)) {
+                    TestLog.olay("KONUM_YOK_UYARI", "kayıt sırasında koordinat okunamadı", "ekran ${screenW}x$screenH")
+                    toast("⚠ Koordinat okunamıyor. Oyunda HP/MP çubuğunun altında yeşil koordinat sayıları (örn. 279,431) görünmeli. Görünmüyorsa oyun ayarlarından aç, sonra kaydı yeniden başlat.")
+                }
+            }, 8000)
             TestLog.olay("ROTA_KAYIT", "kayıt başladı", "")
-            toast(if (hedef == 1) "🔴 Kayıt başladı: önce Town'a bas, Town'da doğunca slota yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)" else "🔴 Rota kaydı başladı: Town'a bas, Town'da doğunca Inn Hostes'e yürü, sonra ⋯ → Test modu → Town döngüsü → Yolu kaydet (bitir)")
+            toast(if (hedef == 1) "🔴 Kayıt başladı: oyunda TOWN'a bas, doğunca farm slotuna yürü ve DUR. Bot kendisi bitirir." else "🔴 Kayıt başladı: oyunda TOWN'a bas, doğunca Inn Hostes'in tam önüne yürü ve DUR. Bot kendisi bitirir.")
         }
     }
 
@@ -4039,7 +4146,7 @@ class MacroService : AccessibilityService() {
     private fun konumTesti() {
         rh.post {
             if (!ScreenSampler.running) {
-                toast("Ekran okuma kapalı: önce botu bir kez başlat (ekran izni), sonra durdur")
+                toast("Önce 🔍 EKRANI TANI'ya bas (ekran izni verilsin), sonra tekrar dene")
                 return@post
             }
             konumBaslat()
@@ -4056,7 +4163,11 @@ class MacroService : AccessibilityService() {
     }
 
     // ---------------- joystick sürücüsü ----------------
-    private fun jTaban(): FloatArray = floatArrayOf(screenW * 0.22f, screenH * 0.60f)
+    private fun jTaban(): FloatArray {
+        // Kullanıcı joystick tuşunu kaydettiyse (özellikle tablette) oradan, yoksa telefonda ölçülen varsayılandan
+        cfg.points.firstOrNull { it.type == "joy" }?.let { return floatArrayOf(it.x.toFloat(), it.y.toFloat()) }
+        return floatArrayOf(screenW * 0.22f, screenH * 0.60f)
+    }
 
     private fun jBaslat() {
         jAktif = true
@@ -4364,11 +4475,11 @@ class MacroService : AccessibilityService() {
         }
         if (rotaIz.size < 2) rotaYukle()
         if (rotaIz.size < 2) {
-            toast("Önce rota kaydet: ⋯ → Test modu → Rota kaydını başlat")
+            toast("Önce yolları kaydet: ☰ Menü → 🏙 Otomatik çanta boşaltma")
             return
         }
         if (!ScreenSampler.running) {
-            toast("Ekran okuma kapalı: önce botu bir kez başlat")
+            toast("Önce 🔍 EKRANI TANI'ya bas (ekran izni verilsin)")
             return
         }
         if (!oyundaMi()) {
@@ -4686,8 +4797,34 @@ class MacroService : AccessibilityService() {
         if (!konumGerekliMi()) konumDurdur()
     }
 
+    private var townKurtarmaYapildi = false
+
+    /**
+     * Çanta döngüsü Town'a gittikten sonra bir yerde takılırsa botu öldürmeden önce bir kez kurtarmayı dener:
+     * açık banka penceresini kapat, Town'a bas, kayıtlı Town→slot yolundan slota dön.
+     */
+    private fun townKurtar(neden: String) {
+        townKurtarmaYapildi = true
+        TestLog.olay("TOWN_KURTAR", "hata: $neden → pencere kapatılıp Town'dan slota dönülüyor", "asama=$rotaAsama konum=$konumX,$konumY")
+        yuruAktif = false
+        yuruSonuc = null
+        jBirak()
+        try {
+            if (bankaPencereVar()) tap(uiX(2216f), uiYUst(82f), 0f) { }
+        } catch (e: Exception) { }
+        rh.postDelayed({
+            if (!rotaCalisiyor) return@postDelayed
+            townDonusDeneme = 1   // dönüş bir kez daha başarısız olursa kontrollü dur
+            townAt(true)
+        }, 1000)
+    }
+
     private fun rotaIptal(neden: String) {
         if (!rotaCalisiyor && !yuruAktif && !jAktif) return
+        if (rotaMod == 2 && rotaCalisiyor && !townKurtarmaYapildi && rotaAsama in intArrayOf(3, 4, 5, 6, 7, 12, 13)) {
+            townKurtar(neden)
+            return
+        }
         TestLog.olay("ROTA_IPTAL", neden, "asama=$rotaAsama konum=$konumX,$konumY")
         yuruAktif = false
         yuruSonuc = null
@@ -4769,7 +4906,7 @@ class MacroService : AccessibilityService() {
         if (slotIz.size < 2) slotYukle()
         if (rotaIz.size < 2) rotaYukle()
         if (slotIz.size < 2 || rotaIz.size < 2) {
-            toast("Önce iki yolu kaydet (Town→Inn ve Town→slot): ⋯ → Test modu → Town döngüsü")
+            toast("Önce iki yolu kaydet (Town→Inn ve Town→slot): ☰ Menü → 🏙 Otomatik çanta boşaltma")
             return
         }
         if (!running) cfg = Config.load(this)
@@ -4791,8 +4928,12 @@ class MacroService : AccessibilityService() {
         townDonusDeneme = 0
         townInnDeneme = 0
         townCantaBiliniyor = cantaBiliniyor
-        altDugmeKonum[0] = null
-        altDugmeKonum[1] = null
+        townKurtarmaYapildi = false
+        for (t in 0..1) {
+            // bu cihazda daha önce çalıştığı doğrulanmış düğme konumu varsa yeniden OCR yapmadan onu kullan
+            altDugmeKonum[t] = profOku("alt${t}_${ekranAnahtar()}")?.split(",")?.mapNotNull { it.toFloatOrNull() }
+                ?.takeIf { it.size == 2 && it[0] in 0f..screenW.toFloat() && it[1] in 0f..screenH.toFloat() }?.toFloatArray()
+        }
         rotaAsama = 11
         TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti → önce envanter sayılacak" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
         konumBaslat()
@@ -4827,6 +4968,46 @@ class MacroService : AccessibilityService() {
     // koordinatlar (2576x1159 telefon) bu köşeden uzaklık olarak tutulur; tek bilinmeyen ölçek u (piksel/referans birimi).
     // u, envanter açılınca panelin gerçek genişliği ekrandan ölçülerek bulunur (panelOlc), cihaz başına kaydedilir.
     // Ölçüm yoksa/uygunsuzsa eski tahmin (telefon↔tablet enterpolasyonu) kullanılır.
+    // ---------- cihaz profili: bir kez doğrulanıp öğrenilen ekran yerleşimleri bu cihaz için kalıcı saklanır ----------
+    // Anahtar: ekran boyutu (+ gerekirse arayüz ölçeği). Ekran/arayüz ölçeği değişirse anahtar değişir, eski kayıt kullanılmaz.
+    private fun ekranAnahtar() = "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    private fun profOku(k: String): String? = try {
+        getSharedPreferences("cihaz_profil", MODE_PRIVATE).getString(k, null)
+    } catch (e: Exception) { null }
+    private fun profYaz(k: String, v: String) {
+        try { getSharedPreferences("cihaz_profil", MODE_PRIVATE).edit().putString(k, v).apply() } catch (e: Exception) { }
+    }
+    private fun tgtAnahtar() = "tgt_${ekranAnahtar()}_${Math.round((olcek?.s ?: 0f) / 0.03f)}"
+    @Volatile private var tgtProfilKesin = false          // hedef barı bu cihazda öğrenilmiş ve doğrulanmış
+    private var tgtKaydedilecek: IntArray? = null         // öğrenildi, henüz doğrulanmadı (1,5 sn canlı kalınca kaydedilir)
+
+    /** Öğrenilenleri bu cihaz için siler: bir sonraki kullanımda her şey yeniden öğrenilir */
+    private fun profilSifirla() {
+        try {
+            getSharedPreferences("cihaz_profil", MODE_PRIVATE).edit().clear().apply()
+            getSharedPreferences("yerlesim", MODE_PRIVATE).edit().clear().apply()
+        } catch (e: Exception) { }
+        uOlc = 0f
+        uOlcKaynak = ""
+        tgtProfilKesin = false
+        tgtKaydedilecek = null
+        for (i in altDugmeKonum.indices) altDugmeKonum[i] = null
+        ekranTanindi = false
+        panelGuncelle()
+        TestLog.olay("PROFIL_SIFIRLANDI", "bu cihazın öğrenilen yerleşimi silindi", "ekran ${screenW}x$screenH")
+        toast("🧹 Öğrenilenler silindi. 🔍 EKRANI TANI'ya basıp yeniden başla")
+    }
+
+    private fun profilOzeti(): String {
+        val sb = StringBuilder()
+        sb.append("profil: ekran=").append(ekranAnahtar())
+        sb.append(" u=").append(if (uOlc > 0f) "%.3f(%s)".format(uOlc, uOlcKaynak) else "yok")
+        sb.append(" hedefBar=").append(profOku(tgtAnahtar()) ?: "yok").append(if (tgtProfilKesin) "(kesin)" else "")
+        sb.append(" altInv=").append(profOku("alt0_${ekranAnahtar()}") ?: "yok")
+        sb.append(" altTown=").append(profOku("alt1_${ekranAnahtar()}") ?: "yok")
+        return sb.toString()
+    }
+
     private var uOlc = 0f
     private var uOlcKaynak = ""
 
@@ -5071,6 +5252,7 @@ class MacroService : AccessibilityService() {
                 if (kararli in 0.0..10.0) {
                     townPanelAcik = s2
                     panelKutuLogla("ENVANTER", panelOncekiTam, tamSnap())
+                    altDugmeKonum[0]?.let { profYaz("alt0_${ekranAnahtar()}", "${it[0]},${it[1]}") }
                     panelOlc(panelOncekiTam, tamSnap())
                     townEnvOlc()
                 } else {
@@ -5106,7 +5288,16 @@ class MacroService : AccessibilityService() {
         for (r in 0 until satir) for (c in 0 until 7) if (hucreDoluX(1710f, r, c)) dolu++
         val bos = satir * 7 - dolu
         val tam = bos <= TOWN_BOS_ESIK
-        TestLog.olay("ENVANTER_OLCUM", "dolu=$dolu/${satir * 7} bos=$bos", "esik_bos<=$TOWN_BOS_ESIK karar=${if (tam) "DOLU" else "yer var"}")
+        var koyu = -1f
+        try {
+            val rg = ScreenSampler.bolge((screenW * 0.66f).toInt(), (screenH * 0.20f).toInt(), (screenW * 0.89f).toInt(), (screenH * 0.60f).toInt())
+            if (rg != null && rg.third.isNotEmpty()) {
+                var k = 0
+                for (c in rg.third) if ((((c shr 16) and 0xff) + ((c shr 8) and 0xff) + (c and 0xff)) / 3 < 45) k++
+                koyu = k.toFloat() / rg.third.size
+            }
+        } catch (e: Exception) { }
+        TestLog.olay("ENVANTER_OLCUM", "dolu=$dolu/${satir * 7} bos=$bos", "esik_bos<=$TOWN_BOS_ESIK karar=${if (tam) "DOLU" else "yer var"} panel_koyu=%.2f u=%.3f(${uOlcKaynak.ifEmpty { "tahmin" }}) ekran ${screenW}x$screenH".format(koyu, uiU()))
         townEnvKapat(0, tam)
     }
 
@@ -5158,6 +5349,7 @@ class MacroService : AccessibilityService() {
             val on = townOnceki
             val tasindi = on != null && Math.hypot((konumX - on[0]).toDouble(), (konumY - on[1]).toDouble()) >= 15.0
             if (dMin <= TOWN_TOL || (tasindi && n >= 3)) {
+                altDugmeKonum[1]?.let { profYaz("alt1_${ekranAnahtar()}", "${it[0]},${it[1]}") }
                 TestLog.olay("TOWN_VARILDI", "Town noktasında", "konum=$konumX,$konumY yol_basina_uzaklik=${dMin.toInt()} tasindi=$tasindi")
                 if (donus) rh.postDelayed({ townSlotaYuru() }, 500) else rh.postDelayed({ townInneYuru() }, 500)
                 return
@@ -5285,7 +5477,7 @@ class MacroService : AccessibilityService() {
             "ADIM 2/3 • Slot yolu\n\n1) Aşağıdaki tuşa bas\n2) Oyunda TOWN'a bas\n3) Doğunca joystick ile farm yaptığın SLOTA yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir."
         showMenu(metin, listOf(
             "✅ Hazırım, kaydı başlat" to {
-                if (!ScreenSampler.running) toast("Önce ▶ ile botu başlat, 3 sn sonra ⏸ ile durdur (ekran izni gerekli), sonra tekrar dene")
+                if (!ScreenSampler.running) toast("Önce 🔍 EKRANI TANI'ya bas (ekran izni verilsin), sonra tekrar dene")
                 else rotaKayitBasla(hedef)
             },
             "⬅ Geri" to { townSihirbaz() }
@@ -5532,7 +5724,7 @@ class MacroService : AccessibilityService() {
         if (TestLog.acik && list.isNotEmpty()) eylemLogla(if (koAktif) adaylar.take(1) else adaylar)
         if (list.isEmpty()) {
             // Kutu toplarken cok sik kontrol et, normalde biraz bekle
-            stepPlanla( if (lootPhase != Loot.BOS) 60L else if (pkAktif) 70L else 200L)
+            stepPlanla( if (lootPhase != Loot.BOS) 60L else if (pkAktif) 70L else if (koAktif) 200L else 120L)
             return
         }
         tapping = true
@@ -5802,7 +5994,7 @@ class MacroService : AccessibilityService() {
             if (f != null && findT(f, d) != null) {
                 dcSay++
                 if (dcSay >= 2) {
-                    if (testCalisiyor && cfg.testDcSn > 0) {
+                    if (testCalisiyor && Lisans.testHesabi() && cfg.testDcSn > 0) {
                         // Test modu: hemen durma; pencere kaybolursa devam et, gelmezse kontrollü dur
                         if (dcBekleBas == 0L) {
                             dcBekleBas = now
@@ -6019,6 +6211,16 @@ class MacroService : AccessibilityService() {
         val a = Preset.ustOrta(o, 1195, 66)
         val b = Preset.ustOrta(o, 1560, 66)
         tgtStrip = intArrayOf(a[0], b[0], a[1])
+        // Bu cihazda daha önce öğrenilmiş ve doğrulanmış hedef barı varsa onu kullan (aramaya gerek kalmaz)
+        tgtProfilKesin = false
+        tgtKaydedilecek = null
+        profOku(tgtAnahtar())?.split(",")?.mapNotNull { it.toIntOrNull() }?.let { v ->
+            if (v.size == 3 && v[1] > v[0] && v[0] in 0 until screenW && v[1] in 1 until screenW && v[2] in 0 until screenH) {
+                tgtStrip = intArrayOf(v[0], v[1], v[2])
+                tgtProfilKesin = true
+                TestLog.olay("TGT_PROFIL_YUKLENDI", "hedef barı bu cihaz için kayıttan alındı", "x=${v[0]}..${v[1]} y=${v[2]}")
+            }
+        }
         Preset.loadTemplateF(this, "open.png", o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
         Preset.loadTemplateF(this, "collect.png", o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, "collect_btn.png", o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
@@ -6361,9 +6563,73 @@ class MacroService : AccessibilityService() {
                     x += adim
                 }
             }
+            // Sabit yerde yok: farklı ekranda (tablet vb.) hedef barı başka yerde olabilir, üst ortada arayıp öğren
+            if (!koAktif) {
+                val g = hedefBarAra()
+                if (g != null) {
+                    tgtStrip = g
+                    tgtKaydedilecek = g
+                    TestLog.olay("HEDEF_BAR_OGRENILDI", "hedef can barı sabit yerde değildi, ekranda bulundu", "x=${g[0]}..${g[1]} y=${g[2]} ekran ${screenW}x$screenH")
+                    return true
+                }
+            }
             return false
         }
         return !isLow(bar)
+    }
+
+    private var hedefBarAraSon = 0L
+
+    /**
+     * Ekranın üst ortasında (x %28-72, y %1-11) kırmızı yatay bar arar: iki ardışık satırda üst üste binen,
+     * ekran genişliğinin en az %2,5'i kadar kesintisiz kırmızı çizgi. Bulursa [x1, x2, y] şerit döner.
+     */
+    private fun hedefBarAra(): IntArray? {
+        val simdi = SystemClock.elapsedRealtime()
+        if (simdi - hedefBarAraSon < (if (tgtProfilKesin) 3000L else 400L)) return null
+        hedefBarAraSon = simdi
+        val w = screenW
+        val h = screenH
+        val xa = (w * 0.28f).toInt()
+        val xb = (w * 0.72f).toInt()
+        val adim = maxOf(2, w / 400)
+        val gerek = maxOf(8, (w * 0.025f / adim).toInt())
+        val yAdim = maxOf(2, (h * 0.005f).toInt())
+        var oncekiS = -1
+        var oncekiE = -1
+        var y = (h * 0.012f).toInt()
+        val yBitis = (h * 0.11f).toInt()
+        while (y <= yBitis) {
+            var enS = -1
+            var enE = -1
+            var s0 = -1
+            var x = xa
+            while (x <= xb) {
+                val c = ScreenSampler.readPixel(x, y)
+                if (c >= 0 && isRed(c)) {
+                    if (s0 < 0) s0 = x
+                    val uz = (x - s0) / adim + 1
+                    if (uz > (enE - enS) / adim + 1 || enS < 0) { enS = s0; enE = x }
+                } else s0 = -1
+                x += adim
+            }
+            if (enS >= 0 && (enE - enS) / adim + 1 >= gerek) {
+                if (oncekiS >= 0) {
+                    val ort = minOf(enE, oncekiE) - maxOf(enS, oncekiS)
+                    if (ort > 0.7f * (enE - enS)) {
+                        val x1 = (minOf(enS, oncekiS) - w * 0.004f).toInt().coerceAtLeast(0)
+                        val x2 = maxOf(maxOf(enE, oncekiE) + (w * 0.01f).toInt(), x1 + (w * 0.12f).toInt()).coerceAtMost(w - 1)
+                        return intArrayOf(x1, x2, y)
+                    }
+                }
+                oncekiS = enS
+                oncekiE = enE
+            } else {
+                oncekiS = -1
+            }
+            y += yAdim
+        }
+        return null
     }
 
     /**
@@ -6419,7 +6685,7 @@ class MacroService : AccessibilityService() {
         val alive = pkSaf() || (bar != null && ScreenSampler.running && targetAlive(bar))
         if (!alive) {
             if (kilic != null && now >= nextTarget) {
-                nextTarget = now + rand(300, 450)
+                nextTarget = now + (if (koAktif) rand(300, 450) else rand(250, 350))
                 return kilic
             }
             return null
@@ -6441,7 +6707,7 @@ class MacroService : AccessibilityService() {
             }
         }
         // Kilic surekli: skill zamani degilse araliklarla kilica bas
-        if (kilic != null && now - pkSonKilic >= rand(450, 650)) {
+        if (kilic != null && now - pkSonKilic >= (if (koAktif) rand(450, 650) else rand(300, 450))) {
             pkSonKilic = now
             return kilic
         }
@@ -6457,6 +6723,14 @@ class MacroService : AccessibilityService() {
         if (target != null && bar != null && ScreenSampler.running) {
             // Akilli mod: hedef barina bak
             val alive = targetAlive(bar)
+            tgtKaydedilecek?.let { g ->
+                if (alive && oncekiCanli && now - hedefBaslangic > 1500L && tgtStrip.contentEquals(g)) {
+                    profYaz(tgtAnahtar(), "${g[0]},${g[1]},${g[2]}")
+                    tgtKaydedilecek = null
+                    tgtProfilKesin = true
+                    TestLog.olay("TGT_PROFIL_KAYDEDILDI", "hedef barı doğrulandı, bu cihaz için kalıcı", "x=${g[0]}..${g[1]} y=${g[2]}")
+                }
+            }
             if (oncekiCanli && !alive) {
                 TestLog.olay("HEDEF_KAYBI", if (now - iptalAt > 2500) "hedef öldü/kayboldu" else "hedef X ile bırakıldı", "sure_ms=${now - hedefBaslangic}")
                 if (now - iptalAt > 2500) kesilen++   // X ile birakilan mob kesildi sayilmaz
@@ -6555,8 +6829,8 @@ class MacroService : AccessibilityService() {
                     alanBitti = true
                 }
             }
-            // Alan kontrolu bitmeden (en fazla 0,7 sn) skill basma: karakter uzak moba kosmaya baslamasin
-            if (alive && cfg.alanAktif && !alanBitti && now - hedefBaslangic < 700) return null
+            // Alan kontrolu bitmeden (en fazla 0,3 sn) skill basma: karakter uzak moba kosmaya baslamasin
+            if (alive && cfg.alanAktif && !alanBitti && now - hedefBaslangic < 300) return null
             // Mob kilidi
             val o = olcek
             if (cfg.kilitler.isNotEmpty() && (o != null || koAktif)) {
@@ -6576,7 +6850,7 @@ class MacroService : AccessibilityService() {
                         kilitKotu = 0
                         // İsim en az 200 ms tutarlı eşleşsin, sonra skill/saldırı
                         if (!kilitOnayli) {
-                            if (now - hedefBaslangic < 200) return null
+                            if (now - hedefBaslangic < (if (koAktif) 200 else 120)) return null
                             kilitOnayli = true
                         }
                     } else {
@@ -6604,7 +6878,8 @@ class MacroService : AccessibilityService() {
                 if (cfg.alanAktif && now < alanBekleUntil) return null
                 // Hedef yok / oldu: sadece yeni mob sec, skill harcama
                 if (now >= nextTarget) {
-                    nextTarget = now + rand(cfg.tgtFast, cfg.tgtFast + 400)
+                    val tf = if (koAktif) cfg.tgtFast else minOf(cfg.tgtFast, 450)
+                    nextTarget = now + rand(tf, tf + 250)
                     return target
                 }
                 return null

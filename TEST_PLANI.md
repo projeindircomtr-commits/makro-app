@@ -206,3 +206,24 @@ Bilinen riskler: yürüme joystick ile; joystick kamera yönüne göre yürütt�
 - Banka/Inn/miktar konumları tablette hâlâ ölçülmedi: BANKA_GENIS_ARAMA olayı çıkarsa banka başlığı beklenen yerde değildi.
 - Sorun bildir metnini hem telefon hem tabletten al.
 - v26: banka/Inn tablet videosundan doğrulandı (Inn menüsü, banka X'i, banka hücreleri sağa yaslı + dikeyde ortalı; tek başına envanter sağ-alta yaslı). Beklenen: tablette banka açılır, hücreler taşınır, X ile kapanır.
+- v28: hedef can barı sabit yerde bulunamazsa üst ortada aranıp öğrenilir (rapor olayı HEDEF_BAR_OGRENILDI). Tablette: mob seç → saldırı başlamalı. Başlamazsa raporda HEDEF_ALINDI/HEDEF_BAR_OGRENILDI var mı bak.
+
+## v32 – denetim sonrası düzeltmeler (HİÇBİRİ gerçek cihazda denenmedi)
+Kontrol listesi (telefon VE tablet, ikisinde de):
+1. İlk açılış: Adım 1 kartı → EKRANI TANI → uyarılar → Otomatik yerleştir → tuşlar yerinde mi → Bitti → yol kayıtları (Inn, slot) → süre → hazır.
+2. Town döngüsü tam tur (süreyi 10 dk yap): envanter ölç → Town → Inn → Open → banka boşalt → kapat → Town → slot. Raporda TOWN_TAMAM aranır.
+3. Hata kurtarma: tur sırasında bankayı elle kapat / Town'a basma gibi aksat; raporda TOWN_KURTAR sonra TOWN_TAMAM beklenir.
+4. Hız: mob seç → ilk vuruş süresi (önceden ~1 sn). Alan kontrolü 0,3 sn, isim onayı 0,12 sn, boşta adım 0,12 sn, PK kılıç 0,30-0,45 sn, varsayılan basış aralığı 130-400 ms.
+5. Tablette HEDEF_BAR_OGRENILDI / YERLESIM / BANKA_GENIS_ARAMA satırları rapora düşmeli; sorun varsa "Sorun bildir" metni gönderilmeli.
+
+## v33 – kendini sorgulama düzeltmeleri
+- Koordinat okuma bölgesi arayüz ölçeğine göre genişletildi (tablette sağ uç kesiliyordu olabilir). Beklenen: tablette rapor KONUM satırları ve doğru koordinat. KONUM_OKUNAMADI / KONUM_SUPHELI çoksa bildir.
+- Kayıtta 8 sn koordinat okunmazsa "⚠ Koordinat okunamıyor" uyarısı (KONUM_YOK_UYARI).
+- ENVANTER_OLCUM satırında panel_koyu ve u değerleri (açıkken ~0,6+ beklenir; tablet videosunda 0,66-0,68).
+- Yürüme başlangıç noktası: kayıtlı "joy" tuşu varsa oradan.
+
+## v34 – cihaz profili (bir kez öğren, kalıcı kullan)
+- Hedef barı: öğrenilince (HEDEF_BAR_OGRENILDI) 1,5 sn canlı kalırsa TGT_PROFIL_KAYDEDILDI; sonraki açılışta TGT_PROFIL_YUKLENDI. Kayıtlıyken arama 3 sn'de bir.
+- Alt çubuk Town/Inventory konumları: doğrulanınca kaydedilir, sonraki turda OCR'sız kullanılır.
+- Panel ölçeği (u) cihaz başına kayıtlı.
+- Menü → 🧹 Ekran öğrenmesini sıfırla: hepsini siler. "Sorun bildir" metninde "profil:" satırı.

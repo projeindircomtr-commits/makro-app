@@ -102,8 +102,8 @@ class Config {
     var ttol = 30
 
     // Dokunuslar arasi bekleme (ms)
-    var minDelay = 180
-    var maxDelay = 550
+    var minDelay = 130
+    var maxDelay = 400
 
     // Mola
     var pauseChance = 3      // % (her dokunustan sonra)
@@ -465,6 +465,7 @@ class Config {
                 c.ttol = o.optInt("ttol", c.ttol)
                 c.minDelay = o.optInt("minDelay", c.minDelay)
                 c.maxDelay = o.optInt("maxDelay", c.maxDelay)
+                if (c.minDelay == 180 && c.maxDelay == 550) { c.minDelay = 130; c.maxDelay = 400 }   // eski varsayılan hızı yeni varsayılana taşı (kullanıcı değiştirdiyse dokunma)
                 c.pauseChance = o.optInt("pauseChance", c.pauseChance)
                 c.pauseMin = o.optInt("pauseMin", c.pauseMin)
                 c.pauseMax = o.optInt("pauseMax", c.pauseMax)
