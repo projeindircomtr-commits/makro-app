@@ -7055,9 +7055,33 @@ class MacroService : AccessibilityService() {
 
     /** Open sablonunu sadece dikey bantta arar (tam ekran degil) */
     private fun findOpen(f: ScreenSampler.Frame, op: Sablon): IntArray? {
-        if (openBandGY1 < 0) return findT(f, op)
-        return ScreenSampler.findBand(f, op, if (op.tol > 0) op.tol else cfg.ttol, openBandGY1, openBandGY2)
+        val r = if (openBandGY1 < 0) findT(f, op)
+        else ScreenSampler.findBand(f, op, if (op.tol > 0) op.tol else cfg.ttol, openBandGY1, openBandGY2)
+        if (r != null || !Config.revMi(this)) return r
+        // RevengerOnline: Open çizimi HUD ölçeğiyle birebir örtüşmeyebilir -> komşu boylarda da dene
+        // (en sık 250 ms'de bir), bulunan boyu öğren; sonraki Open'lar hızlı aranır.
+        val simdi = System.currentTimeMillis()
+        if (simdi - openAltAt < 250) return null
+        openAltAt = simdi
+        val k = openOlcek()
+        if (openAlt.isEmpty() || openAltK != k) {
+            openAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f).mapNotNull { m ->
+                Preset.loadTemplateF(this, varlik("open.png"), k * m, 24, 0.5f, 0.5f)?.let { m to it }
+            }
+            openAltK = k
+        }
+        for ((m, t) in openAlt) {
+            val pos = (if (openBandGY1 < 0) findT(f, t)
+                else ScreenSampler.findBand(f, t, t.tol, openBandGY1, openBandGY2)) ?: continue
+            cfg.openT = t
+            TestLog.olay("OPEN_OLCEK_OGRENDI", "Open komşu boyda bulundu, boy öğrenildi", "carpan=$m temel=%.3f".format(k))
+            return pos
+        }
+        return null
     }
+    private var openAlt: List<Pair<Float, Sablon>> = emptyList()
+    private var openAltK = 0f
+    private var openAltAt = 0L
 
     /** Collect All penceresini ara: sabit konumun cevresinde, once tum pencere, olmazsa sadece buton */
     private fun findCollect(f: ScreenSampler.Frame, genis: Boolean = false, bekleme: Boolean = false): Pair<Sablon, IntArray>? {
