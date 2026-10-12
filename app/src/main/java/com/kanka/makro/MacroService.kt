@@ -4109,7 +4109,7 @@ class MacroService : AccessibilityService() {
             // Inn yolu: Open butonu görününce (ya da 9 sn durunca) biter
             if (rotaOpenT == null) {
                 updateScreenSize()
-                rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), 20, 0.5f, 0.5f)
+                rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), openTol(20), 0.5f, 0.5f)
             }
             val op = rotaOpenT
             val f = ScreenSampler.grab()
@@ -4598,7 +4598,7 @@ class MacroService : AccessibilityService() {
         rotaAsama = 3
         val f = ScreenSampler.grab()
         if (f != null) {
-            val b = rotaOpenBul(f)
+            val b = rotaOpenBul(f, deneme >= 4)
             if (b != null) {
                 val t = sablonHedef(b.first, b.second)
                 TestLog.olay("ROTA_OPEN", "Open görüldü, basılıyor", "deneme=$deneme")
@@ -5089,6 +5089,9 @@ class MacroService : AccessibilityService() {
     /** Open düğmesi, farm sırasında kutu Open'ı ile aynı çizim: ekran tanımadan gelen HUD ölçeği varsa onu kullan */
     private fun openOlcek(): Float = olcek?.s ?: (uiS() / (2712f / 2576f))
     private var rotaOpenAlt: List<Sablon> = emptyList()
+    /** Open şablonu toleransı (kanal başına ortalama fark). RevengerOnline: Open yarı saydam, zemine göre 12-22 fark veriyor
+     *  (çimen ~13-18, Inn taş zemin ~18-22); yanlış yerler ise >=27. Bu yüzden 20 yerine 26. */
+    private fun openTol(norm: Int): Int = if (Config.revMi(this)) 26 else norm
     private var revInnOpenGX = -1
     private var revInnOpenGY = -1
     private fun revInnOpenOgren(pos: IntArray) {
@@ -5099,7 +5102,7 @@ class MacroService : AccessibilityService() {
     private var rotaOpenAltU = 0f
 
     private fun sablonlariYukle() {
-        rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), 20, 0.5f, 0.5f)
+        rotaOpenT = Preset.loadTemplateF(this, varlik("open.png"), openOlcek(), openTol(20), 0.5f, 0.5f)
         bankaT = Preset.loadTemplateF(this, varlik("bank_baslik.png"), uiS(), 18, 0.5f, 0.5f)
         miktarT = Preset.loadTemplateF(this, "miktar_onay.png", uiS() * 2576f / 1280f, 22, 0.5f, 0.5f)
         sablonU = uiS()
@@ -5107,7 +5110,7 @@ class MacroService : AccessibilityService() {
     }
 
     /** Ana ölçekte Open bulunamazsa komşu ölçeklerde de dene (cihaz/yoğunluk farkı); bulunan ölçek loglanır */
-    private fun rotaOpenBul(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
+    private fun rotaOpenBul(f: ScreenSampler.Frame, gevsek: Boolean = false): Pair<Sablon, IntArray>? {
         val op = rotaOpenT
         val rv = Config.revMi(this)
         // RevengerOnline: Inn/NPC'deki Open her seferinde aynı yerde çıkar. Bir kere bulununca yeri öğrenilir,
@@ -5129,7 +5132,7 @@ class MacroService : AccessibilityService() {
         }
         val k = openOlcek()
         if (rotaOpenAlt.isEmpty() || rotaOpenAltU != k) {
-            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, 24, 0.5f, 0.5f) }
+            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (Config.revMi(this)) 1 else 0), 0.5f, 0.5f) }
             rotaOpenAltU = k
         }
         for ((i, t) in rotaOpenAlt.withIndex()) {
@@ -5138,8 +5141,23 @@ class MacroService : AccessibilityService() {
             if (rv) revInnOpenOgren(pos)
             return Pair(t, pos)
         }
+        // Son çare (sadece RevengerOnline, Inn'e varılmış ve Open birkaç kez görünmemişse): daha gevşek eşik
+        if (rv && gevsek) {
+            if (rotaOpenGevsek.isEmpty() || rotaOpenGevsekK != k) {
+                rotaOpenGevsek = listOf(1.0f, 1.05f, 0.95f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, 31, 0.5f, 0.5f) }
+                rotaOpenGevsekK = k
+            }
+            for (t in rotaOpenGevsek) {
+                val pos = findT(f, t) ?: continue
+                TestLog.olay("ROTA_OPEN_GEVSEK", "Open gevşek eşikle bulundu", "temel=%.3f w=${t.w}".format(k))
+                revInnOpenOgren(pos)
+                return Pair(t, pos)
+            }
+        }
         return null
     }
+    private var rotaOpenGevsek: List<Sablon> = emptyList()
+    private var rotaOpenGevsekK = 0f
     private var sablonU = 0f
 
     /**
@@ -6320,7 +6338,7 @@ class MacroService : AccessibilityService() {
                 TestLog.olay("TGT_PROFIL_YUKLENDI", "hedef barı bu cihaz için kayıttan alındı", "x=${v[0]}..${v[1]} y=${v[2]}")
             }
         }
-        Preset.loadTemplateF(this, varlik("open.png"), o.s, 20, 0.5f, 0.5f)?.let { cfg.openT = it }
+        Preset.loadTemplateF(this, varlik("open.png"), o.s, openTol(20), 0.5f, 0.5f)?.let { cfg.openT = it }
         Preset.loadTemplateF(this, varlik("collect.png"), o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, varlik("collect_btn.png"), o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
@@ -7103,7 +7121,7 @@ class MacroService : AccessibilityService() {
         val k = openOlcek()
         if (openAlt.isEmpty() || openAltK != k) {
             openAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f).mapNotNull { m ->
-                Preset.loadTemplateF(this, varlik("open.png"), k * m, 24, 0.5f, 0.5f)?.let { m to it }
+                Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (Config.revMi(this)) 1 else 0), 0.5f, 0.5f)?.let { m to it }
             }
             openAltK = k
         }
