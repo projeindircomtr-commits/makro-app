@@ -4775,6 +4775,13 @@ class MacroService : AccessibilityService() {
     /** İstiflenebilir eşyada çıkan "miktar gir" penceresinde Confirm'e bas */
     private fun miktarKontrol() {
         if (!rotaCalisiyor) return
+        if (Config.revMi(this)) {
+            // Rev: "Please enter the quantity" penceresi (varsayılan = tüm yığın). Şablon yok; Confirm sabit yerde (ref 1769,606).
+            // Pencere yoksa bu nokta bankada boş bir alan (sayfa okları arası), zararsız.
+            TestLog.olay("ROTA_MIKTAR", "Rev: Confirm noktasına basılıyor", "")
+            tap(uiX(1769f), uiYOrta(606f), 0f) { rh.postDelayed({ bankaBosaltAdim() }, 450) }
+            return
+        }
         val t = miktarT
         val f = ScreenSampler.grab()
         if (t != null && f != null) {
