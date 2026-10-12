@@ -4678,7 +4678,9 @@ class MacroService : AccessibilityService() {
             bIdx = 0
             bTasinan = 0
             rotaAsama = 6
-            TestLog.olay("ROTA_BANKA_ACIK", "banka penceresi açıldı", "")
+            val stdler = StringBuilder()
+            for (rr in 0 until cfg.rotaSatir.coerceIn(1, 4)) for (cc in 0 until 7) stdler.append(hucreStd(1605f, rr, cc).toInt()).append(' ')
+            TestLog.olay("ROTA_BANKA_ACIK", "banka penceresi açıldı", "hucre_std=$stdler esik=8 satir=${cfg.rotaSatir} u=%.3f".format(uiS()))
             panelKutuLogla("BANKA", bankaOncekiTam, tamSnap())
             rh.postDelayed({ bankaBosaltAdim() }, 400)
             return
@@ -4739,6 +4741,7 @@ class MacroService : AccessibilityService() {
                 val x = uiX(1605f + 100f * c)
                 val y = uiYOrta(770f + 95f * r)
                 bTasinan++
+                TestLog.olay("ROTA_TAS", "eşyaya çift dokunuş", "satir=$r sutun=$c x=${x.toInt()} y=${y.toInt()}")
                 // eşyaya iki kez dokunmak doğrudan bankaya atar
                 tap(x, y, 0f) {
                     rh.postDelayed({

@@ -128,9 +128,15 @@ object TestLog {
         acik = false
     }
 
+    private fun rotaOlayi(tip: String): Boolean =
+        tip.startsWith("ROTA_") || tip.startsWith("TOWN_") || tip.startsWith("BANKA") || tip.startsWith("CANTA") ||
+            tip.startsWith("ENVANTER") || tip.startsWith("DUGME") || tip.startsWith("YERLESIM") || tip.startsWith("PANEL_") ||
+            tip.startsWith("INN_") || tip == "YURU_BITTI" || tip == "KUTU_ZAMAN_ASIMI"
+
     /** Olay kaydı: tip, neden, ayrıntı */
     fun olay(tip: String, neden: String = "", detay: String = "") {
-        if (!acik && !sistem) return
+        // Çanta/Town/banka akışı olayları oturum açık olmasa da kaydedilir (bir sorun olunca rapor boş kalmasın)
+        if (!acik && !sistem && !rotaOlayi(tip)) return
         val satir = synchronized(kilit) {
             val s = tarih.format(Date()) + " | " + gecen() + " | " + tip + " | " + neden +
                 (if (detay.isNotEmpty()) " | $detay" else "")
