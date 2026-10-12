@@ -4644,8 +4644,15 @@ class MacroService : AccessibilityService() {
         rotaAsama = 4
         TestLog.olay("ROTA_MENU", "Inn Hostes Open basılıyor", "")
         bankaOncekiTam = tamSnap()
+        revBankaKor = false
+        if (Config.revMi(this) && bankaPencereVar()) {
+            // Rev: Open doğrudan Warehouse açmış olabilir, menü dokunuşu gereksiz
+            rh.postDelayed({ rotaPencereBekle(0) }, 100)
+            return
+        }
         tap(uiX(2320f), uiYOrta(485f), 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
     }
+    private var revBankaKor = false
 
     private fun bankaPencereVar(): Boolean {
         val t = bankaT ?: return false
@@ -4683,6 +4690,16 @@ class MacroService : AccessibilityService() {
             TestLog.olay("ROTA_BANKA_ACIK", "banka penceresi açıldı", "hucre_std=$stdler esik=8 satir=${cfg.rotaSatir} u=%.3f".format(uiS()))
             panelKutuLogla("BANKA", bankaOncekiTam, tamSnap())
             rh.postDelayed({ bankaBosaltAdim() }, 400)
+            return
+        }
+        if (Config.revMi(this) && deneme >= 6 && !revBankaKor) {
+            // Rev: başlık şablonu cihazda tutmuyor; pencere gerçekte açık (kullanıcı doğruladı). Kör devam, sınırlı.
+            revBankaKor = true
+            bIdx = 0
+            bTasinan = 0
+            rotaAsama = 6
+            TestLog.olay("ROTA_BANKA_KOR", "Rev: başlık görülmedi, pencere açık varsayılıp devam", "u=%.3f".format(uiS()))
+            rh.postDelayed({ bankaBosaltAdim() }, 300)
             return
         }
         if (deneme == 8 && !rotaTekrar) {
@@ -4729,7 +4746,7 @@ class MacroService : AccessibilityService() {
     private fun bankaBosaltAdim() {
         if (!rotaCalisiyor) return
         val satir = cfg.rotaSatir.coerceIn(1, 4)
-        if (!bankaPencereVar()) {
+        if (!revBankaKor && !bankaPencereVar()) {
             rotaIptal("banka penceresi boşaltırken kapandı")
             return
         }
@@ -4784,6 +4801,12 @@ class MacroService : AccessibilityService() {
 
     private fun rotaKapatDogrula(deneme: Int) {
         if (!rotaCalisiyor) return
+        if (revBankaKor) {
+            // başlık algılanamadığı için kapanış doğrulanamaz: bir kez daha X'e bas, devam et
+            revBankaKor = false
+            tap(uiX(2216f), uiYUst(82f), 0f) { rh.postDelayed({ rotaDon() }, 700) }
+            return
+        }
         if (!bankaPencereVar()) {
             rotaDon()
             return
@@ -4850,7 +4873,8 @@ class MacroService : AccessibilityService() {
         yuruSonuc = null
         jBirak()
         try {
-            if (bankaPencereVar()) tap(uiX(2216f), uiYUst(82f), 0f) { }
+            if (bankaPencereVar() || (Config.revMi(this) && rotaAsama in 4..7)) tap(uiX(2216f), uiYUst(82f), 0f) { }
+            revBankaKor = false
         } catch (e: Exception) { }
         rh.postDelayed({
             if (!rotaCalisiyor) return@postDelayed
