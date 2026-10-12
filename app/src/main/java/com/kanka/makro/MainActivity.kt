@@ -148,6 +148,12 @@ class MainActivity : Activity() {
     private val uyeBolumleri = ArrayList<View>()
     private lateinit var modKartView: LinearLayout
     private lateinit var oyunKartView: LinearLayout
+    private lateinit var baglanBtn: Button
+    private lateinit var sunucuDegistirBtn: TextView
+    private fun sunucuOnayli(): Boolean = getSharedPreferences("genel", MODE_PRIVATE).getBoolean("sunucuOnay", false)
+    private fun sunucuOnayYaz(v: Boolean) { getSharedPreferences("genel", MODE_PRIVATE).edit().putBoolean("sunucuOnay", v).apply() }
+    /** Sunucu kartı görünüyorsa (birden fazla sunucu seçilebiliyorsa) önce "Bağlan" gerekir; tek sunucuda doğrudan açık */
+    private fun ayarlarAcik(): Boolean = !(Lisans.gecerliSimdi() && Config.botGorunur("ko")) || sunucuOnayli()
     private lateinit var oyunMykoBtn: Button
     private lateinit var oyunKoBtn: Button
     private lateinit var oyunRevBtn: Button
@@ -242,6 +248,7 @@ class MainActivity : Activity() {
         lk.addView(girisBox)
         cikisBtn = smallButton("Çıkış yap") {
             Lisans.cikis(this)
+            sunucuOnayYaz(false)
             lisansYenile()
         }
         lk.addView(cikisBtn)
@@ -333,6 +340,26 @@ class MainActivity : Activity() {
             oyunSatir.addView(bt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         oyunKart.addView(oyunSatir)
+        baglanBtn = Button(this).apply {
+            isAllCaps = false
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(12))
+            setOnClickListener {
+                sunucuOnayYaz(true)
+                lisansYenile()
+                refresh()
+            }
+        }
+        oyunKart.addView(View(this), LinearLayout.LayoutParams(1, dp(10)))
+        oyunKart.addView(baglanBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        sunucuDegistirBtn = smallButton("↩ Sunucuyu değiştir") {
+            sunucuOnayYaz(false)
+            lisansYenile()
+            refresh()
+        }
+        oyunKart.addView(sunucuDegistirBtn)
         oyunKart.addView(TextView(this).apply {
             text = "Her oyunun tuşları ve ayarları ayrı saklanır. RevengerOnline yeni eklendi (görseller ekran görüntülerinden hazırlandı, test aşamasında). " +
                 "Farm'da dokunuşlar arası en az 0,7 sn."
@@ -627,11 +654,16 @@ class MainActivity : Activity() {
         cikisBtn.visibility = if (ok) View.VISIBLE else View.GONE
         // Uye degilse hicbir ayar/secenek gorunmesin
         val g = if (ok) View.VISIBLE else View.GONE
-        for (v in uyeBolumleri) v.visibility = g
+        val acik = ayarlarAcik()
+        for (v in uyeBolumleri) v.visibility = if (ok && (acik || v === oyunKartView)) View.VISIBLE else View.GONE
         // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
         modKartView.visibility = if (ok && Config.izinliModlar().isNotEmpty()) View.VISIBLE else View.GONE
         oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
-        advBox.visibility = if (ok && gelismisAcik) View.VISIBLE else View.GONE
+        advBox.visibility = if (ok && gelismisAcik && acik) View.VISIBLE else View.GONE
+        baglanBtn.visibility = if (ok && !acik) View.VISIBLE else View.GONE
+        baglanBtn.text = "Bağlan: " + Config.oyunAd(this)
+        baglanBtn.background = rounded(GREEN, 14)
+        sunucuDegistirBtn.visibility = if (ok && acik && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
         girisKilidi()
     }
@@ -899,7 +931,7 @@ class MainActivity : Activity() {
         if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
         MacroService.instance?.oyunDegisti()
         toast(Config.oyunAd(this) + " seçildi")
-        oyunKoBtn.postDelayed({ refresh() }, 150)
+        oyunKoBtn.postDelayed({ refresh(); lisansYenile() }, 150)
     }
 
     /** KO Mobile otomatik bulunamazsa: yuklu uygulamalardan elle sec */

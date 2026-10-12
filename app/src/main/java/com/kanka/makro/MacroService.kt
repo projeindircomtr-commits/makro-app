@@ -378,6 +378,7 @@ class MacroService : AccessibilityService() {
             oyunPaketi = ""
             // Oyun değişti: ölçek ve öğrenilenler oyuna özel, yeniden yüklensin
             uOlc = 0f; uOlcKaynak = ""; olcek = null; ekranTanindi = false
+            revInnOpenGX = -1; revInnOpenGY = -1
             tgtProfilKesin = false
             cfg = Config.load(this)
             modBtn?.text = modYazi()
@@ -5020,6 +5021,7 @@ class MacroService : AccessibilityService() {
         } catch (e: Exception) { }
         uOlc = 0f
         uOlcKaynak = ""
+        revInnOpenGX = -1; revInnOpenGY = -1
         tgtProfilKesin = false
         tgtKaydedilecek = null
         for (i in altDugmeKonum.indices) altDugmeKonum[i] = null
@@ -5087,6 +5089,13 @@ class MacroService : AccessibilityService() {
     /** Open düğmesi, farm sırasında kutu Open'ı ile aynı çizim: ekran tanımadan gelen HUD ölçeği varsa onu kullan */
     private fun openOlcek(): Float = olcek?.s ?: (uiS() / (2712f / 2576f))
     private var rotaOpenAlt: List<Sablon> = emptyList()
+    private var revInnOpenGX = -1
+    private var revInnOpenGY = -1
+    private fun revInnOpenOgren(pos: IntArray) {
+        revInnOpenGX = pos[0]; revInnOpenGY = pos[1]
+        profYaz("innopen_" + ekranAnahtar(), "${pos[0]},${pos[1]}")
+        TestLog.olay("INN_OPEN_YER_OGRENDI", "Inn Open yeri öğrenildi, sonraki aramalar dar bölgede", "grid=${pos[0]},${pos[1]}")
+    }
     private var rotaOpenAltU = 0f
 
     private fun sablonlariYukle() {
@@ -5100,7 +5109,24 @@ class MacroService : AccessibilityService() {
     /** Ana ölçekte Open bulunamazsa komşu ölçeklerde de dene (cihaz/yoğunluk farkı); bulunan ölçek loglanır */
     private fun rotaOpenBul(f: ScreenSampler.Frame): Pair<Sablon, IntArray>? {
         val op = rotaOpenT
-        if (op != null) findT(f, op)?.let { return Pair(op, it) }
+        val rv = Config.revMi(this)
+        // RevengerOnline: Inn/NPC'deki Open her seferinde aynı yerde çıkar. Bir kere bulununca yeri öğrenilir,
+        // sonraki aramalar sadece o noktanın çevresine bakar (tüm ekran taranmaz). Bulunamazsa eski geniş arama devam eder.
+        if (rv) {
+            if (revInnOpenGX < 0) {
+                profOku("innopen_" + ekranAnahtar())?.split(",")?.let { q ->
+                    if (q.size == 2) { revInnOpenGX = q[0].toIntOrNull() ?: -1; revInnOpenGY = q[1].toIntOrNull() ?: -1 }
+                }
+            }
+            if (revInnOpenGX >= 0 && op != null) {
+                ScreenSampler.findNear(f, op, if (op.tol > 0) op.tol else cfg.ttol, revInnOpenGX, revInnOpenGY, 40)
+                    ?.let { return Pair(op, it) }
+            }
+        }
+        if (op != null) findT(f, op)?.let { p ->
+            if (rv) revInnOpenOgren(p)
+            return Pair(op, p)
+        }
         val k = openOlcek()
         if (rotaOpenAlt.isEmpty() || rotaOpenAltU != k) {
             rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, 24, 0.5f, 0.5f) }
@@ -5109,6 +5135,7 @@ class MacroService : AccessibilityService() {
         for ((i, t) in rotaOpenAlt.withIndex()) {
             val pos = findT(f, t) ?: continue
             TestLog.olay("ROTA_OPEN_OLCEK", "Open komşu ölçekte bulundu", "carpan=${listOf(1.1f, 0.9f, 1.2f, 0.8f)[i]} temel=%.3f".format(k))
+            if (rv) revInnOpenOgren(pos)
             return Pair(t, pos)
         }
         return null
@@ -6013,7 +6040,13 @@ class MacroService : AccessibilityService() {
                 if (t != null) {
                     h.removeCallbacks(stepR)
                     tapping = true
-                    tap(t.x, t.y, t.r) {
+                    // Kutu basılırken saldırı DURMASIN: sıradaki saldırı/skill dokunuşu aynı hareketle birlikte gider
+                    // (KO'da her adımda tek dokunuş kuralı korunur)
+                    val atk = if (!koAktif && !pkAktif) try { pick(now) } catch (e: Exception) { null } else null
+                    val liste = ArrayList<Hedef>()
+                    liste.add(t)
+                    if (atk != null) liste.add(Hedef(atk.x.toFloat(), atk.y.toFloat(), cfg.radius.toFloat(), fast = true))
+                    tapMulti(liste) {
                         tapping = false
                         if (running) stepPlanla(if (koAktif) nextDelay() else rand(40, 90))
                     }
@@ -6628,7 +6661,11 @@ class MacroService : AccessibilityService() {
                 var x = x1
                 while (x <= sonSol) {
                     val c = ScreenSampler.readPixel(x, y + satir)
-                    if (c >= 0 && isRed(c) && ++kirmizi >= 2) return true
+                    if (c >= 0 && isRed(c)) {
+                        kirmizi++
+                        // Çok az canı kalan mobda bar ucunda tek kırmızı nokta kalabilir: en sol %12'de tek nokta da "canlı" sayılır
+                        if (kirmizi >= 2 || x <= x1 + ((x2 - x1) * 0.12f).toInt()) return true
+                    }
                     x += adim
                 }
             }
@@ -6855,7 +6892,7 @@ class MacroService : AccessibilityService() {
                     nextTarget = menzilBekleUntil
                     val x = if (o0 != null) iptalNoktasi(o0) else koIptal()
                     return Nokta("İptal", "iptal", x[0], x[1])
-                } else if (now - ilerlemeAt > 12_000) {
+                } else if (now - ilerlemeAt > (if (y <= 0.2f) 20_000 else 12_000)) {   // canı çok azalmış mobu bitirmeye daha uzun şans ver
                     ilerlemeAt = now
                     sonYuzde = 1f
                     val ol = olcek
@@ -7208,7 +7245,8 @@ class MacroService : AccessibilityService() {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f, genis = true, bekleme = now - lastOpenAt < 600)?.let { (t, pos) -> return collectHit(now, t, pos) }
                 if (now > phaseUntil) {
-                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH")
+                    val openHala = cfg.openT?.let { findOpen(f, it) }
+                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH open_hala_ekranda=${openHala != null} son_open_tap=$lastOpenX,$lastOpenY")
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
@@ -7246,7 +7284,7 @@ class MacroService : AccessibilityService() {
     private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
-        TestLog.olay("KUTU_OPEN", "Open basıldı", "")
+        TestLog.olay("KUTU_OPEN", "Open basıldı", "grid=${pos[0]},${pos[1]} sablon=${op.w}x${op.h}")
         phaseUntil = now + cfg.collectWait
         // Collect All'ın yeri bu cihazda öğrenildiyse pencere belirir belirmez bas: beklemeyi kısalt
         nextLootScan = now + (if (collectKesin) rand(30, 50) else rand(100, 150))
