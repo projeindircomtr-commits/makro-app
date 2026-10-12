@@ -4654,7 +4654,13 @@ class MacroService : AccessibilityService() {
         val gx = (uiX(if (rvB) 1905f else 1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         val gy = (uiYUst(if (rvB) 76f else 55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         val tol = if (t.tol > 0) t.tol else cfg.ttol
-        if (ScreenSampler.findNear(f, t, tol, gx, gy, 24) != null) return true
+        if (rvB) {
+            // RevengerOnline: başlık yarı saydam (arkada oyun dünyası görünür), gerçek ekranda şablon farkı ~23-26 çıkıyor (eşik 18 yetmiyordu,
+            // pencere açık olduğu halde "açılmadı" deniyordu). Beklenen YER biliniyor: orta nokta -> şablonun sol-üstü, dar bölgede gevşek eşik.
+            val tx0 = gx - t.w / 2
+            val ty0 = gy - t.h / 2
+            if (ScreenSampler.findNear(f, t, maxOf(tol, 28), tx0, ty0, 30) != null) return true
+        } else if (ScreenSampler.findNear(f, t, tol, gx, gy, 24) != null) return true
         // beklenen yerde yok: pencere başka cihazda farklı yerde olabilir, tüm ekranda ara
         val p = ScreenSampler.find(f, t, tol) ?: return false
         if (!bankaGenisLog) {
