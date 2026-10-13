@@ -4102,7 +4102,7 @@ class MacroService : AccessibilityService() {
             val d = Math.hypot((rotaYeni[i][0] - rotaYeni[i - 1][0]).toDouble(), (rotaYeni[i][1] - rotaYeni[i - 1][1]).toDouble())
             if (d < 40.0) uz += d
         }
-        if (uz < 25.0) return
+        if (uz < 10.0) return
         val durdu = simdi - kayitSonHareketAt
         val hedef = kayitHedef
         var bitir = false
@@ -4138,7 +4138,7 @@ class MacroService : AccessibilityService() {
                 TestLog.olay("IZ_TEMIZLENDI", "Town sıçraması bulundu, ilk $atla nokta atıldı", "")
                 for (k in 0 until atla) rotaYeni.removeAt(0)
             }
-            if (rotaYeni.size >= 3 && kayitHedef == 1) {
+            if (rotaYeni.size >= 2 && kayitHedef == 1) {
                 slotIz.clear()
                 slotIz.addAll(rotaYeni)
                 slotKaydet()
@@ -4146,7 +4146,7 @@ class MacroService : AccessibilityService() {
                 val son = slotIz[slotIz.size - 1]
                 TestLog.olay("SLOT_YOLU_KAYDEDILDI", "${slotIz.size} nokta", "town=${ilk[0]},${ilk[1]} slot=${son[0]},${son[1]}")
                 toast("✅ Town→slot yolu kaydedildi: ${slotIz.size} nokta (slot ${son[0]},${son[1]})")
-            } else if (rotaYeni.size >= 3) {
+            } else if (rotaYeni.size >= 2) {
                 rotaIz.clear()
                 rotaIz.addAll(rotaYeni)
                 rotaKaydet()
@@ -5138,7 +5138,9 @@ class MacroService : AccessibilityService() {
     private var rotaOpenAlt: List<Sablon> = emptyList()
     /** Open şablonu toleransı (kanal başına ortalama fark). RevengerOnline: Open yarı saydam, zemine göre 12-22 fark veriyor
      *  (çimen ~13-18, Inn taş zemin ~18-22); yanlış yerler ise >=27. Bu yüzden 20 yerine 26. */
-    private fun openTol(norm: Int): Int = if (Config.revMi(this)) 26 else norm
+    /** Open düğmesi yarı saydam oyunlar (RevengerOnline, NowaOnline): gevşek eşik + ölçek varyantları + Inn'de öğrenilmiş yer */
+    private fun openGevsekOyun(): Boolean = Config.revMi(this) || Config.nowaMi(this)
+    private fun openTol(norm: Int): Int = if (openGevsekOyun()) 26 else norm
     private var revInnOpenGX = -1
     private var revInnOpenGY = -1
     private fun revInnOpenOgren(pos: IntArray) {
@@ -5159,7 +5161,7 @@ class MacroService : AccessibilityService() {
     /** Ana ölçekte Open bulunamazsa komşu ölçeklerde de dene (cihaz/yoğunluk farkı); bulunan ölçek loglanır */
     private fun rotaOpenBul(f: ScreenSampler.Frame, gevsek: Boolean = false): Pair<Sablon, IntArray>? {
         val op = rotaOpenT
-        val rv = Config.revMi(this)
+        val rv = openGevsekOyun()
         // RevengerOnline: Inn/NPC'deki Open her seferinde aynı yerde çıkar. Bir kere bulununca yeri öğrenilir,
         // sonraki aramalar sadece o noktanın çevresine bakar (tüm ekran taranmaz). Bulunamazsa eski geniş arama devam eder.
         if (rv) {
@@ -5179,7 +5181,7 @@ class MacroService : AccessibilityService() {
         }
         val k = openOlcek()
         if (rotaOpenAlt.isEmpty() || rotaOpenAltU != k) {
-            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (Config.revMi(this)) 1 else 0), 0.5f, 0.5f) }
+            rotaOpenAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f).mapNotNull { m -> Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (openGevsekOyun()) 1 else 0), 0.5f, 0.5f) }
             rotaOpenAltU = k
         }
         for ((i, t) in rotaOpenAlt.withIndex()) {
@@ -7160,7 +7162,7 @@ class MacroService : AccessibilityService() {
     private fun findOpen(f: ScreenSampler.Frame, op: Sablon): IntArray? {
         val r = if (openBandGY1 < 0) findT(f, op)
         else ScreenSampler.findBand(f, op, if (op.tol > 0) op.tol else cfg.ttol, openBandGY1, openBandGY2)
-        if (r != null || !Config.revMi(this)) return r
+        if (r != null || !openGevsekOyun()) return r
         // RevengerOnline: Open çizimi HUD ölçeğiyle birebir örtüşmeyebilir -> komşu boylarda da dene
         // (en sık 250 ms'de bir), bulunan boyu öğren; sonraki Open'lar hızlı aranır.
         val simdi = System.currentTimeMillis()
@@ -7169,7 +7171,7 @@ class MacroService : AccessibilityService() {
         val k = openOlcek()
         if (openAlt.isEmpty() || openAltK != k) {
             openAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f).mapNotNull { m ->
-                Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (Config.revMi(this)) 1 else 0), 0.5f, 0.5f)?.let { m to it }
+                Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (openGevsekOyun()) 1 else 0), 0.5f, 0.5f)?.let { m to it }
             }
             openAltK = k
         }
