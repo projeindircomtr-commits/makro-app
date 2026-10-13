@@ -3917,6 +3917,20 @@ class MacroService : AccessibilityService() {
             konumOkunamadi("yazı bulunamadı")
             return
         }
+        if (nwK) {
+            // NowaOnline: ince tırnaklı yazı tipi, çizgiler 1-2 piksel; OCR '1','3'ü karıştırmasın diye 3x3 kalınlaştır
+            val kal = sc.copyOf()
+            for (yy in 0 until r.second) for (xx in 0 until r.first) {
+                var m = 0
+                for (dy in -1..1) for (dx in -1..1) {
+                    val ny = yy + dy
+                    val nx = xx + dx
+                    if (ny in 0 until r.second && nx in 0 until r.first) m = maxOf(m, sc[ny * r.first + nx])
+                }
+                kal[yy * r.first + xx] = m
+            }
+            System.arraycopy(kal, 0, sc, 0, sc.size)
+        }
         val mn = (mx * 0.35f).toInt()
         val out = IntArray(px.size)
         for (i in px.indices) {
@@ -3942,7 +3956,11 @@ class MacroService : AccessibilityService() {
             konumOkunamadi("OCR boş döndü")
             return
         }
-        val t = metin.replace('\n', ' ').replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
+        var t = metin.replace('\n', ' ').replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
+        if (Config.nowaMi(this)) {
+            // NowaOnline yazı tipinde OCR '1'i 'L', '3'ü 'a/A' okuyor (raporlardan: "aL3,345" = 313,345)
+            t = t.replace('L', '1').replace('A', '3').replace('a', '3')
+        }
         var x = -1
         var y = -1
         val m = konumRegex.find(t)
@@ -3963,6 +3981,14 @@ class MacroService : AccessibilityService() {
         val simdi = SystemClock.uptimeMillis()
         val bx = konumX
         val by = konumY
+        // Nowa: baştaki rakam düşmüş okuma ("11,360" yerine "311,360") konum sayılmasın
+        if (Config.nowaMi(this) && bx >= 0) {
+            fun dustu(v: Int, onceki: Int) = v < 1000 && (1..4).any { k -> Math.abs(v + k * 100 - onceki) <= 15 && Math.abs(v - onceki) > 40 }
+            if (dustu(x, bx) || dustu(y, by)) {
+                konumOkunamadi("baştaki rakam eksik görünüyor: $x,$y (önceki $bx,$by)")
+                return
+            }
+        }
         if (bx >= 0 && simdi - konumAt < 3000L && (Math.abs(x - bx) > 40 || Math.abs(y - by) > 40)) {
             // ani sıçrama: aynı aday iki kez gelirse kabul et (okuma hatasına karşı)
             if (x == konumAdayX && y == konumAdayY) {
