@@ -346,7 +346,7 @@ class MacroService : AccessibilityService() {
     /** Secili oyunun paket adi (yuklu uygulamalardan bulunur, oyun basina bir kez) */
     @Suppress("DEPRECATION")
     private fun oyunPaketiBul(): String? {
-        val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else "myko"
+        val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else "myko"
         if (oyunPaketArandi == oyun) return oyunPaketAdi
         oyunPaketArandi = oyun
         if (oyun == "ko") {
@@ -362,6 +362,7 @@ class MacroService : AccessibilityService() {
                 if (oyun == "ko") pk.contains("komobile", true) || ad.contains("ko mobile", true) ||
                     ad.contains("komobile", true)
                 else if (oyun == "rev") pk.contains("revenger", true) || ad.contains("revenger", true)
+                else if (oyun == "nowa") pk.contains("nowa", true) || ad.contains("nowa", true)
                 else pk.contains("myko", true) || ad.contains("myko", true)
             }?.activityInfo?.packageName
         } catch (e: Exception) {
@@ -395,6 +396,7 @@ class MacroService : AccessibilityService() {
         if (oyunPaketi.isNotEmpty() && p == oyunPaketi) return true
         return if (Config.koMu(this)) p.contains("komobile", true)
         else if (Config.revMi(this)) p.contains("revenger", true)
+        else if (Config.nowaMi(this)) p.contains("nowa", true)
         else p.contains("myko", true)
     }
 
@@ -3777,7 +3779,7 @@ class MacroService : AccessibilityService() {
     private var miktarT: Sablon? = null
     private var rotaOpenT: Sablon? = null
     /** Asset adı: RevengerOnline için rev_ önekli görsel, diğerleri aynı */
-    private fun varlik(ad: String) = if (Config.revMi(this)) "rev_$ad" else ad
+    private fun varlik(ad: String) = if (Config.revMi(this)) "rev_$ad" else if (Config.nowaMi(this)) "nowa_$ad" else ad
     private var bIdx = 0
     private var bTasinan = 0
 
@@ -4657,9 +4659,9 @@ class MacroService : AccessibilityService() {
     private fun bankaPencereVar(): Boolean {
         val t = bankaT ?: return false
         val f = ScreenSampler.grab() ?: return false
-        val rvB = Config.revMi(this)
+        val rvB = Config.revMi(this) || Config.nowaMi(this)
         val gx = (uiX(if (rvB) 1905f else 1650f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
-        val gy = (uiYUst(if (rvB) 76f else 55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
+        val gy = (uiYUst(if (Config.nowaMi(this)) 80f else if (rvB) 76f else 55f) * ScreenSampler.SCALE / ScreenSampler.GRID).toInt()
         val tol = if (t.tol > 0) t.tol else cfg.ttol
         if (rvB) {
             // RevengerOnline: başlık yarı saydam (arkada oyun dünyası görünür), gerçek ekranda şablon farkı ~23-26 çıkıyor (eşik 18 yetmiyordu,
@@ -5042,7 +5044,7 @@ class MacroService : AccessibilityService() {
     // ---------- cihaz profili: bir kez doğrulanıp öğrenilen ekran yerleşimleri bu cihaz için kalıcı saklanır ----------
     // Anahtar: ekran boyutu (+ gerekirse arayüz ölçeği). Ekran/arayüz ölçeği değişirse anahtar değişir, eski kayıt kullanılmaz.
     /** Cihaz profili anahtarı: ekran boyutu + (RevengerOnline ise) oyun öneki. Oyunlar birbirinin öğrendiğini ezmesin. */
-    private fun ekranAnahtar() = (if (Config.revMi(this)) "rev_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    private fun ekranAnahtar() = (if (Config.revMi(this)) "rev_" else if (Config.nowaMi(this)) "nowa_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
     private fun profOku(k: String): String? = try {
         getSharedPreferences("cihaz_profil", MODE_PRIVATE).getString(k, null)
     } catch (e: Exception) { null }
@@ -5084,7 +5086,7 @@ class MacroService : AccessibilityService() {
     private var uOlc = 0f
     private var uOlcKaynak = ""
 
-    private fun uKayitAnahtar() = "u_" + (if (Config.revMi(this)) "rev_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    private fun uKayitAnahtar() = "u_" + (if (Config.revMi(this)) "rev_" else if (Config.nowaMi(this)) "nowa_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
 
     private fun uYukle() {
         try {

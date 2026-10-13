@@ -157,6 +157,7 @@ class MainActivity : Activity() {
     private lateinit var oyunMykoBtn: Button
     private lateinit var oyunKoBtn: Button
     private lateinit var oyunRevBtn: Button
+    private lateinit var oyunNowaBtn: Button
     private var gelismisAcik = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -335,7 +336,8 @@ class MainActivity : Activity() {
         oyunMykoBtn = oyunBtn("MykoMobile", "myko")
         oyunRevBtn = oyunBtn("RevengerOnline", "rev")
         oyunKoBtn = oyunBtn("KO Mobile", "ko")
-        for ((i, bt) in listOf(oyunMykoBtn, oyunRevBtn, oyunKoBtn).withIndex()) {
+        oyunNowaBtn = oyunBtn("NowaOnline", "nowa")
+        for ((i, bt) in listOf(oyunMykoBtn, oyunRevBtn, oyunNowaBtn, oyunKoBtn).withIndex()) {
             if (i > 0) oyunSatir.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
             oyunSatir.addView(bt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
@@ -868,7 +870,11 @@ class MainActivity : Activity() {
         lootSwitch.isChecked = cfg.lootOn
         val ko = Config.koMu(this)
         val rev = Config.revMi(this)
-        val myko = !ko && !rev
+        val nowa = Config.nowaMi(this)
+        val myko = !ko && !rev && !nowa
+        oyunNowaBtn.background = rounded(if (nowa) ACCENT else LACI, 14)
+        oyunNowaBtn.text = (if (nowa) "✓ " else "") + "NowaOnline"
+        oyunNowaBtn.setTextColor(if (nowa) 0xFF12161C.toInt() else Color.WHITE)
         oyunMykoBtn.background = rounded(if (myko) ACCENT else LACI, 14)
         oyunKoBtn.background = rounded(if (ko) ACCENT else LACI, 14)
         oyunRevBtn.background = rounded(if (rev) ACCENT else LACI, 14)
@@ -925,7 +931,7 @@ class MainActivity : Activity() {
     }
 
     private fun oyunSec(kod: String) {
-        if (Config.oyun(this) == kod && (kod != "ko" || Config.koMu(this)) && (kod != "rev" || Config.revMi(this))) return
+        if (Config.oyun(this) == kod && (kod != "ko" || Config.koMu(this)) && (kod != "rev" || Config.revMi(this)) && (kod != "nowa" || Config.nowaMi(this))) return
         saveAll()
         Config.oyunSec(this, kod)
         if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
@@ -1079,6 +1085,7 @@ class MainActivity : Activity() {
                 val ad = it.loadLabel(pm).toString()
                 if (ko) pk.contains("komobile", true) || ad.contains("ko mobile", true) || ad.contains("komobile", true)
                 else if (Config.revMi(this)) pk.contains("revenger", true) || ad.contains("revenger", true)
+                else if (Config.nowaMi(this)) pk.contains("nowa", true) || ad.contains("nowa", true)
                 else pk.contains("myko", true) || ad.contains("myko", true)
             } ?: return null
             pm.getLaunchIntentForPackage(hit.activityInfo.packageName)

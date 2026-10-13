@@ -359,9 +359,11 @@ class Config {
         }
 
         private fun anahtar(ctx: Context) = when {
-            genieMi(ctx) -> if (oyun(ctx) == "ko") "cfg_ko_genie" else if (revMi(ctx)) "cfg_rev_genie" else "cfg_genie"
+            genieMi(ctx) -> if (oyun(ctx) == "ko") "cfg_ko_genie" else if (revMi(ctx)) "cfg_rev_genie" else if (nowaMi(ctx)) "cfg_nowa_genie" else "cfg_genie"
             revMi(ctx) && pkMi(ctx) -> "cfg_rev_pk_" + sinif(ctx)
             revMi(ctx) && !pazarMi(ctx) -> "cfg_rev"
+            nowaMi(ctx) && pkMi(ctx) -> "cfg_nowa_pk_" + sinif(ctx)
+            nowaMi(ctx) -> "cfg_nowa"
             koMu(ctx) && pkMi(ctx) -> "cfg_ko_pk_" + sinif(ctx)
             koMu(ctx) -> "cfg_ko"
             pkMi(ctx) -> "cfg_pk_" + sinif(ctx)
@@ -380,11 +382,14 @@ class Config {
         /** RevengerOnline: MykoMobile ile aynı oyun motoru, farklı arayüz görselleri. Pazar yok. */
         fun revMi(ctx: Context): Boolean = oyun(ctx) == "rev" && !pazarMi(ctx)
 
-        fun oyunAd(ctx: Context): String = if (koMu(ctx)) "KO Mobile" else if (revMi(ctx)) "RevengerOnline" else "MykoMobile"
+        /** NowaOnline: MykoMobile ile aynı arayüz/mantık (Myko görselleri), ayrı ayar ve cihaz profili. Pazar yok. */
+        fun nowaMi(ctx: Context): Boolean = oyun(ctx) == "nowa" && !pazarMi(ctx)
+
+        fun oyunAd(ctx: Context): String = if (koMu(ctx)) "KO Mobile" else if (revMi(ctx)) "RevengerOnline" else if (nowaMi(ctx)) "NowaOnline" else "MykoMobile"
 
         fun oyunSec(ctx: Context, o: String) {
             genel(ctx).edit().putString("oyun", o).commit()
-            if ((o == "ko" || o == "rev") && pazarMi(ctx)) modDegistir(ctx, false)   // KO ve RevengerOnline'da Pazar yok
+            if ((o == "ko" || o == "rev" || o == "nowa") && pazarMi(ctx)) modDegistir(ctx, false)   // KO ve RevengerOnline'da Pazar yok
         }
 
         /** Kullanicinin elle sectigi KO Mobile paketi (otomatik bulunamazsa) */
@@ -420,7 +425,7 @@ class Config {
             if (pk) {
                 // KO'nun PK tuslari ayri saklanir; ilk seferde KO Farm tuslarindan baslar
                 val ko = oyun(ctx) == "ko"
-                val k = (if (ko) "cfg_ko_pk_" else if (oyun(ctx) == "rev") "cfg_rev_pk_" else "cfg_pk_") + sinif(ctx)
+                val k = (if (ko) "cfg_ko_pk_" else if (oyun(ctx) == "rev") "cfg_rev_pk_" else if (oyun(ctx) == "nowa") "cfg_nowa_pk_" else "cfg_pk_") + sinif(ctx)
                 // KO PK Asas'in kendi hazir ayari var: kopyalama, bos kalsin, ilk acilista yuklensin
                 // KO PK'nin her sinifa kendi hazir ayari var: kopyalama, ilk acilista yuklensin
                 if (prefs(ctx).getString(k, null) == null && !ko) {

@@ -53,6 +53,7 @@ object Preset {
 
         val c = Config.load(ctx)
         val rev = Config.revMi(ctx)
+        val nowa = Config.nowaMi(ctx)
         c.points.clear()
         for (r in REF) c.points.add(Nokta(r.ad, r.type, x(r.x), y(r.y), r.cd, r.on))
 
@@ -60,13 +61,17 @@ object Preset {
             // RevengerOnline: HP/MP barlari daha solda ve farkli yükseklikte (2712x1220 referansı)
             c.hp = RenkNokta(x(308), y(72), 0xB22D2E)
             c.mp = RenkNokta(x(119), y(102), 0x2E4A9C)
+        } else if (nowa) {
+            // NowaOnline: HP/MP çubukları (2576x1159 ekran görüntüsünden ölçüldü, 2712 referansına çevrildi)
+            c.hp = RenkNokta(x(375), y(84), 0x960002)
+            c.mp = RenkNokta(x(239), y(114), 0x335AFF)
         } else {
             c.hp = RenkNokta(x(315), y(26), 0xC72720)      // HP ~%74 altina inince pot
             c.mp = RenkNokta(x(150), y(68), 0x3A4CCB)      // MP ~%25 altina inince pot
         }
-        c.tgtBar = RenkNokta(x(1262), y(60), 0xB22D29) // hedef can bari (sol taraf)
+        c.tgtBar = if (nowa) RenkNokta(x(1326), y(58), 0x7D1313) else RenkNokta(x(1262), y(60), 0xB22D29) // hedef can bari (sol taraf)
 
-        val on = if (rev) "rev_" else ""
+        val on = if (rev) "rev_" else if (nowa) "nowa_" else ""
         loadTemplate(ctx, on + "open.png", w, 20, 0.5f, 0.5f)?.let { c.openT = it }
         // Collect All + Close penceresi birlikte; dokunus ust butonun ortasina (Close'a asla degil)
         loadTemplate(ctx, on + "collect.png", w, 25, 0.5f, 0.22f)?.let { c.collectT = it }
@@ -122,6 +127,11 @@ object Preset {
     // RevengerOnline: sol üstteki MENU + P.U.S düğmeleri (2712x1220 referansında sol-üst köşe 435,10)
     private val ISARETLER_REV = listOf(
         Isaret("rev_m.png", 435, 10, 0.40f, 100)
+    )
+
+    // NowaOnline: portre yanındaki HP/MP çubuklarının sol ucu (ekran görüntüsünde 134,68; 2712 referansı 141,72)
+    private val ISARETLER_NOWA = listOf(
+        Isaret("nowa_m.png", 141, 72, 0.40f, 100)
     )
 
     private fun yukle(ctx: Context, i: Isaret): Boolean {
@@ -190,7 +200,7 @@ object Preset {
         ScreenSampler.bekle(600)
         val f = ScreenSampler.grab() ?: return null
         val (w, h) = landscapeSize(ctx)
-        for (i in (if (Config.revMi(ctx)) ISARETLER_REV else ISARETLER)) {
+        for (i in (if (Config.revMi(ctx)) ISARETLER_REV else if (Config.nowaMi(ctx)) ISARETLER_NOWA else ISARETLER)) {
             if (!yukle(ctx, i)) continue
             val r = ara(f, i)
             sonFark = if (r[0] == Long.MAX_VALUE) -1L else r[0]
