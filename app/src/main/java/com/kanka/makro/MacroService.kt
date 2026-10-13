@@ -6360,15 +6360,16 @@ class MacroService : AccessibilityService() {
         olcek = o
         collectAnkorHazirla(o)
         openBandHazirla(o)
+        val nw = Config.nowaMi(this)
         val rv = Config.revMi(this)
-        val hp = if (rv) Preset.solUst(o, 308, 72) else Preset.solUst(o, 315, 26)
-        val mp = if (rv) Preset.solUst(o, 119, 102) else Preset.solUst(o, 150, 68)
-        val tb = Preset.ustOrta(o, 1262, 60)
+        val hp = if (nw) Preset.solUst(o, 375, 84) else if (rv) Preset.solUst(o, 308, 72) else Preset.solUst(o, 315, 26)
+        val mp = if (nw) Preset.solUst(o, 239, 114) else if (rv) Preset.solUst(o, 119, 102) else Preset.solUst(o, 150, 68)
+        val tb = if (nw) Preset.ustOrta(o, 1326, 58) else Preset.ustOrta(o, 1262, 60)
         cfg.hp = RenkNokta(hp[0], hp[1], 0)
         cfg.mp = RenkNokta(mp[0], mp[1], 0)
         cfg.tgtBar = RenkNokta(tb[0], tb[1], 0)
-        val a = Preset.ustOrta(o, 1195, if (rv) 60 else 66)
-        val b = Preset.ustOrta(o, 1560, if (rv) 60 else 66)
+        val a = Preset.ustOrta(o, if (nw) 1230 else 1195, if (nw) 58 else if (rv) 60 else 66)
+        val b = Preset.ustOrta(o, if (nw) 1560 else 1560, if (nw) 58 else if (rv) 60 else 66)
         tgtStrip = intArrayOf(a[0], b[0], a[1])
         // Bu cihazda daha önce öğrenilmiş ve doğrulanmış hedef barı varsa onu kullan (aramaya gerek kalmaz)
         tgtProfilKesin = false
@@ -6384,12 +6385,12 @@ class MacroService : AccessibilityService() {
         Preset.loadTemplateF(this, varlik("collect.png"), o.s, 25, 0.5f, 0.22f)?.let { cfg.collectT = it }
         Preset.loadTemplateF(this, varlik("collect_btn.png"), o.s, 19, 0.5f, 0.5f)?.let { cfg.collectT2 = it }
         dcT = Preset.loadTemplateF(this, "disconnect.png", o.s, 20, 0.5f, 0.5f)
-        hpSol = Preset.solUst(o, 72, if (rv) 72 else 26)
-        val h1 = Preset.solUst(o, if (rv) 30 else 62, if (rv) 72 else 26)
-        val h2 = Preset.solUst(o, 405, if (rv) 72 else 26)
+        hpSol = if (nw) Preset.solUst(o, 175, 84) else Preset.solUst(o, 72, if (rv) 72 else 26)
+        val h1 = if (nw) Preset.solUst(o, 168, 84) else Preset.solUst(o, if (rv) 30 else 62, if (rv) 72 else 26)
+        val h2 = if (nw) Preset.solUst(o, 458, 84) else Preset.solUst(o, 405, if (rv) 72 else 26)
         hpBar = intArrayOf(h1[0], h2[0], h1[1])
-        val m1 = Preset.solUst(o, if (rv) 30 else 62, if (rv) 102 else 70)
-        val m2 = Preset.solUst(o, 407, if (rv) 102 else 70)
+        val m1 = if (nw) Preset.solUst(o, 168, 114) else Preset.solUst(o, if (rv) 30 else 62, if (rv) 102 else 70)
+        val m2 = if (nw) Preset.solUst(o, 468, 114) else Preset.solUst(o, 407, if (rv) 102 else 70)
         mpBar = intArrayOf(m1[0], m2[0], m1[1])
         isimRect = isimAlani(o)
         // Tuslar oyuncudan: kaydettigi yerlere asla dokunma (eski "hazir tuslari tasima" kapali)
@@ -6440,7 +6441,7 @@ class MacroService : AccessibilityService() {
     private fun isimAlani(o: Preset.Olcek): IntArray {
         // Üst ortadaki kırmızı mob ismi — barın üstündeki ince şerit
         val a = Preset.ustOrta(o, 1050, 2)
-        val b = Preset.ustOrta(o, 1690, if (Config.revMi(this)) 34 else 40)
+        val b = Preset.ustOrta(o, 1690, if (Config.revMi(this) || Config.nowaMi(this)) 34 else 40)
         return intArrayOf(a[0], a[1], b[0], b[1])
     }
 
