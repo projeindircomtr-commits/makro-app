@@ -3054,7 +3054,7 @@ class MacroService : AccessibilityService() {
     private fun modMenu() {
         val farmAcik = Config.botGorunur("farm")
         val pkAcik = Config.botGorunur("pk")
-        val pazarAcik = Config.botGorunur("pazar") && !Config.revMi(this)   // RevengerOnline'da Pazar yok
+        val pazarAcik = Config.botGorunur("pazar") && !Config.revMi(this) && !Config.nowaMi(this)   // RevengerOnline'da Pazar yok
         val genieAcik = Config.botGorunur("genie")
         val say = listOf(farmAcik, pkAcik, pazarAcik, genieAcik).count { it }
         if (say <= 1) {
@@ -3887,12 +3887,13 @@ class MacroService : AccessibilityService() {
         val hs = olcek?.s ?: (0.988f * uiU())
         val hox = (olcek?.ox ?: 0).toFloat()
         val hoy = (olcek?.oy ?: 0).toFloat()
-        val rvK = Config.revMi(this)
-        // RevengerOnline: koordinat BEYAZ yazı, Exp çubuğunun altında, FPS satırının hemen altında (referans 156..251, 177..200)
-        val x1 = (if (rvK) minOf(screenW * 0.050f, hox + 150f * hs) else minOf(screenW * 0.0745f, hox + 202f * hs)).toInt().coerceAtLeast(0)
-        val y1 = (if (rvK) minOf(screenH * 0.142f, hoy + 173f * hs) else minOf(screenH * 0.1245f, hoy + 152f * hs)).toInt().coerceAtLeast(0)
-        val x2 = (if (rvK) maxOf(screenW * 0.098f, hox + 256f * hs) else maxOf(screenW * 0.1400f, hox + 380f * hs)).toInt().coerceAtMost(screenW - 1)
-        val y2 = (if (rvK) maxOf(screenH * 0.168f, hoy + 204f * hs) else maxOf(screenH * 0.1660f, hoy + 203f * hs)).toInt().coerceAtMost(screenH - 1)
+        val nwK = Config.nowaMi(this)
+        val rvK = Config.revMi(this) || nwK
+        // NowaOnline: koordinat portrenin sağında, adın üstünde (referans ~147..221 x 13..32); RevengerOnline: koordinat BEYAZ yazı, Exp çubuğunun altında, FPS satırının hemen altında (referans 156..251, 177..200)
+        val x1 = (if (nwK) hox + 135f * hs else if (rvK) minOf(screenW * 0.050f, hox + 150f * hs) else minOf(screenW * 0.0745f, hox + 202f * hs)).toInt().coerceAtLeast(0)
+        val y1 = (if (nwK) hoy + 6f * hs else if (rvK) minOf(screenH * 0.142f, hoy + 173f * hs) else minOf(screenH * 0.1245f, hoy + 152f * hs)).toInt().coerceAtLeast(0)
+        val x2 = (if (nwK) hox + 232f * hs else if (rvK) maxOf(screenW * 0.098f, hox + 256f * hs) else maxOf(screenW * 0.1400f, hox + 380f * hs)).toInt().coerceAtMost(screenW - 1)
+        val y2 = (if (nwK) hoy + 38f * hs else if (rvK) maxOf(screenH * 0.168f, hoy + 204f * hs) else maxOf(screenH * 0.1660f, hoy + 203f * hs)).toInt().coerceAtMost(screenH - 1)
         val r = ScreenSampler.bolge(x1, y1, x2, y2) ?: return
         val w = r.first
         val hh = r.second
@@ -4777,8 +4778,8 @@ class MacroService : AccessibilityService() {
     /** İstiflenebilir eşyada çıkan "miktar gir" penceresinde Confirm'e bas */
     private fun miktarKontrol() {
         if (!rotaCalisiyor) return
-        if (Config.revMi(this)) {
-            // Rev: "Please enter the quantity" penceresi (varsayılan = tüm yığın). Şablon yok; Confirm sabit yerde (ref 1769,606).
+        if (Config.revMi(this) || Config.nowaMi(this)) {
+            // Rev (Nowa'da pencere düzeni aynı görünüyor, doğrulanmadı): "Please enter the quantity" penceresi (varsayılan = tüm yığın). Şablon yok; Confirm sabit yerde (ref 1769,606).
             // Pencere yoksa bu nokta bankada boş bir alan (sayfa okları arası), zararsız.
             TestLog.olay("ROTA_MIKTAR", "Rev: Confirm noktasına basılıyor", "")
             tap(uiX(1769f), uiYOrta(606f), 0f) { rh.postDelayed({ bankaBosaltAdim() }, 450) }
@@ -4801,11 +4802,15 @@ class MacroService : AccessibilityService() {
         rh.postDelayed({ bankaBosaltAdim() }, 120)
     }
 
+    /** Banka (Warehouse) penceresinin X düğmesi: oyuna göre */
+    private fun bankaXx(): Float = uiX(if (Config.nowaMi(this)) 2267f else 2216f)
+    private fun bankaXy(): Float = uiYUst(if (Config.nowaMi(this)) 52f else 82f)
+
     private fun rotaKapat() {
         if (!rotaCalisiyor) return
         rotaAsama = 7
         TestLog.olay("ROTA_KAPAT", "banka penceresi kapatılıyor", "")
-        tap(uiX(2216f), uiYUst(82f), 0f) { rh.postDelayed({ rotaKapatDogrula(0) }, 600) }
+        tap(bankaXx(), bankaXy(), 0f) { rh.postDelayed({ rotaKapatDogrula(0) }, 600) }
     }
 
     private fun rotaKapatDogrula(deneme: Int) {
@@ -4813,7 +4818,7 @@ class MacroService : AccessibilityService() {
         if (revBankaKor) {
             // başlık algılanamadığı için kapanış doğrulanamaz: bir kez daha X'e bas, devam et
             revBankaKor = false
-            tap(uiX(2216f), uiYUst(82f), 0f) { rh.postDelayed({ rotaDon() }, 700) }
+            tap(bankaXx(), bankaXy(), 0f) { rh.postDelayed({ rotaDon() }, 700) }
             return
         }
         if (!bankaPencereVar()) {
@@ -4821,7 +4826,7 @@ class MacroService : AccessibilityService() {
             return
         }
         if (deneme == 3) {
-            tap(uiX(2216f), uiYUst(82f), 0f) { }
+            tap(bankaXx(), bankaXy(), 0f) { }
         }
         if (deneme > 8) {
             rotaIptal("banka penceresi kapanmadı")
@@ -4882,7 +4887,7 @@ class MacroService : AccessibilityService() {
         yuruSonuc = null
         jBirak()
         try {
-            if (bankaPencereVar() || (Config.revMi(this) && rotaAsama in 4..7)) tap(uiX(2216f), uiYUst(82f), 0f) { }
+            if (bankaPencereVar() || (Config.revMi(this) && rotaAsama in 4..7)) tap(bankaXx(), bankaXy(), 0f) { }
             revBankaKor = false
         } catch (e: Exception) { }
         rh.postDelayed({
@@ -5452,7 +5457,7 @@ class MacroService : AccessibilityService() {
 
     private fun townEnvKapat(n: Int, tam: Boolean) {
         if (!rotaCalisiyor) return
-        tap(uiX(if (Config.revMi(this)) 2341f else 2335f), uiYAlt(if (Config.revMi(this)) 138f else 96.5f), 0f) {
+        tap(uiX(if (Config.nowaMi(this)) 2357f else if (Config.revMi(this)) 2341f else 2335f), uiYAlt(if (Config.nowaMi(this)) 105f else if (Config.revMi(this)) 138f else 96.5f), 0f) {
             rh.postDelayed({
                 if (!rotaCalisiyor) return@postDelayed
                 val simdi = townPanelImza()
@@ -5901,7 +5906,7 @@ class MacroService : AccessibilityService() {
             try {
                 // Sadece MykoMobile + Farm modu, Genie kapaliyken (tum uyeler; MykoMobile yonetiminin izniyle)
                 // RevengerOnline'da kapalı: bu özellik yalnızca MykoMobile yönetiminin izniyle var, diğer oyunlara taşınmaz
-                if (!koAktif && !Config.revMi(this@MacroService) && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
+                if (!koAktif && !Config.revMi(this@MacroService) && !Config.nowaMi(this@MacroService) && !pkAktif && !genieAktif() && !kontrolde && !kontrolOkunuyor && ScreenSampler.running &&
                     SystemClock.uptimeMillis() >= kontrolBekleBitis &&
                     pencereVarMi()) {
                     // Pencereler hep ekranin ortasinda cikar: sadece orta bolgeyi oku (hizli)
@@ -6347,9 +6352,9 @@ class MacroService : AccessibilityService() {
     /** Yedek olcekte HP barinin sol kismi kirmizi mi? (barin gercekten orada oldugunu dogrular) */
     private fun yedekOlcekMakul(o: Preset.Olcek): Boolean {
         if (!ScreenSampler.hasFrame()) return false
-        val hy = if (Config.revMi(this)) 72 else 26
+        val hy = if (Config.nowaMi(this)) 84 else if (Config.revMi(this)) 72 else 26
         val y = Preset.solUst(o, 0, hy)[1]
-        for (xr in intArrayOf(75, 100, 125)) {
+        for (xr in (if (Config.nowaMi(this)) intArrayOf(190, 220, 250) else intArrayOf(75, 100, 125))) {
             val c = ScreenSampler.readPixel(Preset.solUst(o, xr, hy)[0], y)
             if (c >= 0 && isRed(c)) return true
         }
@@ -7361,7 +7366,7 @@ class MacroService : AccessibilityService() {
     private fun closeHedef(co: Sablon, pos: IntArray): Hedef {
         // Tum pencere sablonunda Close alt kisimda (%74), sadece-buton sablonunda butonun altinda
         // Sadece-buton şablonunda Close'un konumu oyuna göre: Myko 2,15 / RevengerOnline 1,68 (buton yüksekliği katı)
-        val ty = if (co === cfg.collectT2) (if (Config.revMi(this)) 1.68f else 2.15f) else 0.74f
+        val ty = if (co === cfg.collectT2) (if (Config.nowaMi(this)) 1.56f else if (Config.revMi(this)) 1.68f else 2.15f) else 0.74f
         val cx = ScreenSampler.toScreen(pos[0] + co.w * 0.5f)
         val cy = ScreenSampler.toScreen(pos[1] + co.h * ty)
         return Hedef(cx, cy, minOf(cfg.radius.toFloat(), ScreenSampler.toScreen(co.w.toFloat()) * 0.15f, dp(5).toFloat()), fast = true)
