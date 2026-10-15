@@ -5167,6 +5167,12 @@ class MacroService : AccessibilityService() {
     /** Open düğmesi yarı saydam oyunlar (RevengerOnline, NowaOnline): gevşek eşik + ölçek varyantları + Inn'de öğrenilmiş yer */
     private fun openGevsekOyun(): Boolean = Config.revMi(this) || Config.nowaMi(this)
     private fun openTol(norm: Int): Int = if (openGevsekOyun()) 26 else norm
+    /** Tablet/katlanır ekran (en/boy oranı < 1,9, ör. Galaxy Z Fold): Open çizim boyu HUD ölçeğinden sapabilir, boyut varyantları denensin */
+    private fun tabletBenzeri(): Boolean {
+        val a = maxOf(screenW, screenH).toFloat() / minOf(screenW, screenH).coerceAtLeast(1).toFloat()
+        return a < 1.9f
+    }
+    private fun openVaryantOyun(): Boolean = openGevsekOyun() || (Lisans.foldHesabi() && !Config.koMu(this) && tabletBenzeri())
     private var revInnOpenGX = -1
     private var revInnOpenGY = -1
     private fun revInnOpenOgren(pos: IntArray) {
@@ -6119,7 +6125,8 @@ class MacroService : AccessibilityService() {
                 hataKaydet("kutu", e)
             }
             // Kutu akışı sürerken (Open→Collect All) daha sık bak; yer bilindiyse bu ucuz bir yakın arama
-            h.postDelayed(this, if (lootPhase == Loot.COLLECT_BEKLE && collectKesin) 28L else if (lootPhase != Loot.BOS && collectKesin) 40L else if (lootPhase != Loot.BOS) 70L else 120L)
+            val foldHizli = Lisans.foldHesabi()
+            h.postDelayed(this, if (lootPhase == Loot.COLLECT_BEKLE && (collectKesin || foldHizli)) 25L else if (lootPhase != Loot.BOS && (collectKesin || foldHizli)) 40L else if (lootPhase != Loot.BOS) 70L else if (foldHizli) 60L else 120L)
         }
 
         private fun gozcuIc() {
@@ -7135,7 +7142,7 @@ class MacroService : AccessibilityService() {
 
     private fun scanGap(): Long {
         // Kutu taramasi her zaman seri: en fazla 150 ms
-        val b = minOf(cfg.lootEvery, 150).coerceAtLeast(100)
+        val b = if (Lisans.foldHesabi()) 70 else minOf(cfg.lootEvery, 150).coerceAtLeast(100)
         return rand((b * 0.8).toInt(), (b * 1.2).toInt())
     }
 
@@ -7188,7 +7195,7 @@ class MacroService : AccessibilityService() {
     private fun findOpen(f: ScreenSampler.Frame, op: Sablon): IntArray? {
         val r = if (openBandGY1 < 0) findT(f, op)
         else ScreenSampler.findBand(f, op, if (op.tol > 0) op.tol else cfg.ttol, openBandGY1, openBandGY2)
-        if (r != null || !openGevsekOyun()) return r
+        if (r != null || !openVaryantOyun()) return r
         // RevengerOnline: Open çizimi HUD ölçeğiyle birebir örtüşmeyebilir -> komşu boylarda da dene
         // (en sık 250 ms'de bir), bulunan boyu öğren; sonraki Open'lar hızlı aranır.
         val simdi = System.currentTimeMillis()
@@ -7196,7 +7203,8 @@ class MacroService : AccessibilityService() {
         openAltAt = simdi
         val k = openOlcek()
         if (openAlt.isEmpty() || openAltK != k) {
-            openAlt = listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f).mapNotNull { m ->
+            val boylar = if (tabletBenzeri()) listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f, 0.7f, 1.45f, 1.6f) else listOf(1.1f, 0.9f, 1.2f, 0.8f, 1.3f)
+            openAlt = boylar.mapNotNull { m ->
                 Preset.loadTemplateF(this, varlik("open.png"), k * m, openTol(24) + (if (openGevsekOyun()) 1 else 0), 0.5f, 0.5f)?.let { m to it }
             }
             openAltK = k
@@ -7338,13 +7346,15 @@ class MacroService : AccessibilityService() {
         when (lootPhase) {
             Loot.COLLECT_BEKLE -> {
                 findCollect(f, genis = true, bekleme = now - lastOpenAt < 600)?.let { (t, pos) -> return collectHit(now, t, pos) }
+                // Fold/Tablet yetkili hesap: şablon tutmasa da Collect All penceresi SABİT yerde açılır; yer renk kontrolüyle doğrulanırsa bas
+                if (Lisans.foldHesabi() && now - lastOpenAt > 100) collectSabitHedef()?.let { return collectSabitHit(now, it) }
                 if (now > phaseUntil) {
                     val openHala = cfg.openT?.let { findOpen(f, it) }
                     TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH open_hala_ekranda=${openHala != null} son_open_tap=$lastOpenX,$lastOpenY")
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + (if (collectKesin) rand(15, 30) else rand(60, 100))
+                    nextLootScan = now + (if (collectKesin || Lisans.foldHesabi()) rand(15, 30) else rand(60, 100))
                 }
                 return null
             }
@@ -7405,6 +7415,57 @@ class MacroService : AccessibilityService() {
      * iki kez Collect All denenir; pencere yine kapanmazsa Close ile kapatilip devam edilir.
      */
     private var collectSonAt = 0L
+    /**
+     * Collect All penceresi oyunda sabit yerde (referans 2712x1220: buton merkezi 499,564; Close 499,610).
+     * Dört nokta (iki butonun sol/sağ içi) koyu lacivert ise pencere vardır (dünya zemini sarı/kahve/yeşil).
+     * Doğrulanırsa Collect All merkezini döndürür, yoksa null.
+     */
+    private fun collectSabitNokta(xr: Int, yr: Int): IntArray? = olcek?.let { Preset.solUst(it, xr, yr) }
+
+    private fun collectSabitHedef(): Hedef? {
+        val o = olcek ?: return null
+        if (!ScreenSampler.hasFrame()) return null
+        fun lacivert(c: Int): Boolean {
+            if (c < 0) return false
+            val r = (c shr 16) and 0xff
+            val g = (c shr 8) and 0xff
+            val b = c and 0xff
+            return r < 80 && b >= r + 12 && b < 115 && g >= r - 4 && g <= b + 2
+        }
+        for ((xr, yr) in listOf(427 to 564, 569 to 564, 427 to 610, 569 to 610)) {
+            val q = Preset.solUst(o, xr, yr)
+            if (!lacivert(ScreenSampler.readPixel(q[0], q[1]))) return null
+        }
+        val c = Preset.solUst(o, 499, 564)
+        return Hedef(c[0].toFloat(), c[1].toFloat(), minOf(cfg.radius.toFloat(), dp(4).toFloat()), fast = true)
+    }
+
+    private fun collectSabitHit(now: Long, h: Hedef): Hedef? {
+        if (collectStreak > 0 && now - collectSonAt < 800L) {
+            nextLootScan = now + 120
+            return null
+        }
+        collectSonAt = now
+        collectStreak++
+        TestLog.olay("KUTU_COLLECT_SABIT", "Collect All (sabit yer, renk doğrulamalı)", "seri=$collectStreak x=${h.x.toInt()} y=${h.y.toInt()}")
+        lootPhase = Loot.SONRAKI_KUTU
+        phaseUntil = now + 700
+        nextLootScan = now + rand(60, 110)
+        if (collectStreak >= 3) {
+            doluKutuX = lastOpenX
+            doluKutuY = lastOpenY
+            doluKutuAt = now
+            cantaDoluBayrak = true
+            TestLog.olay("CANTA_DOLU", "Collect All kapanmadı: envanter dolu (sabit yer)", "")
+            collectedSinceOpen = true
+            val c = collectSabitNokta(499, 610) ?: return null
+            return Hedef(c[0].toFloat(), c[1].toFloat(), minOf(cfg.radius.toFloat(), dp(4).toFloat()), fast = true)
+        }
+        collectedSinceOpen = true
+        toplanan++
+        return h
+    }
+
     private fun collectHit(now: Long, co: Sablon, pos: IntArray): Hedef? {
         // Basıştan sonra pencere kapanma animasyonu sürerken (yavaş tablet) aynı pencereyi yeniden 'basılmadı' sayma:
         // 800 ms dolmadan ne tekrar bas ne seri say; gerçekten kapanmadıysa sonraki taramada sayılır.

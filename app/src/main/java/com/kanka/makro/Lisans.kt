@@ -56,6 +56,9 @@ object Lisans {
      */
     fun testHesabi(): Boolean = gecerliSimdi() && ozellikler.contains("test")
 
+    /** Katlanır/tablet ekran düzeltmeleri: SADECE panelde "Fold/Tablet" verilen hesap (yönetici istisnası yok). */
+    fun foldHesabi(): Boolean = gecerliSimdi() && ozellikler.contains("fold")
+
     @Suppress("DEPRECATION")
     fun surumKodu(ctx: Context): Int = try {
         val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
@@ -250,7 +253,7 @@ object Lisans {
                     sig2.update("v2|$kullanici|$cihaz|$nonce|$zaman|$ozS".toByteArray(Charsets.UTF_8))
                     if (sig2.verify(Base64.decode(imza2S, Base64.DEFAULT))) {
                         ozKume = ozS.split(",").map { it.trim() }
-                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" || it == "test" }.toSet()
+                            .filter { it == "farm" || it == "pk" || it == "pazar" || it == "ko" || it == "botkontrol" || it == "genie" || it == "test" || it == "fold" }.toSet()
                     }
                 } catch (e: Exception) {
                 }
