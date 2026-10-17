@@ -102,6 +102,10 @@ object Lisans {
     /** Mesaj/surum kontrolu icin sunucunun verdigi oturum anahtari */
     fun token(ctx: Context): String = prefs(ctx).getString("t", "") ?: ""
 
+    /** Sitedeki kurulum videosu (lisans adresinin yanında; panelden yüklenir) */
+    fun kurulumVideoUrl(ctx: Context): String =
+        yanUrl(ctx, "kurulum-videosu.mp4") ?: "https://projeindir.com.tr/makro/kurulum-videosu.mp4"
+
     /** Lisans adresinin yanindaki baska bir sayfa (ör. mesaj.php) */
     fun yanUrl(ctx: Context, dosya: String): String? {
         val u = ayar(ctx)?.optString("url") ?: return null

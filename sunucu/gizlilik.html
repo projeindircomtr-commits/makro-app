@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Projeindir Bot – Gizlilik Politikası</title>
+<style>
+:root{--bg:#12161c;--kart:#1c232d;--yazi:#e8ecf1;--gri:#9aa4b2;--altin:#e0b04a}
+body{background:var(--bg);color:var(--yazi);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;line-height:1.6}
+main{max-width:820px;margin:0 auto;padding:24px 16px 48px}
+h1{color:var(--altin);font-size:28px;margin:8px 0 4px}
+h2{color:var(--altin);font-size:19px;margin:28px 0 8px}
+p,li{font-size:16px}
+.gri{color:var(--gri);font-size:14px}
+.kart{background:var(--kart);border-radius:14px;padding:14px 18px;margin:12px 0}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid #2a3442;vertical-align:top}
+th{color:var(--gri);font-weight:600}
+a{color:var(--altin)}
+</style>
+</head>
+<body>
+<main>
+<h1>Projeindir Bot – Gizlilik Politikası</h1>
+<p class="gri">Son güncelleme: 17 Ekim 2026 · Uygulama: Projeindir Bot (Android) · Yayıncı: projeindir.com.tr (Muhammed Salman)</p>
+
+<div class="kart">
+<p><b>Kısaca:</b> Projeindir Bot, oyun içi makro aracıdır. Ekran görüntülerini yalnızca telefonunda işler; saklamaz ve göndermez.
+Sunucumuza yalnızca üyelik bilgilerin ve destek için tanılama raporları gelir. Verilerini satmayız ve üçüncü kişilerle paylaşmayız.
+Uygulamanın giriş ekranında Google AdMob reklamı gösterilir; reklam verilerini Google işler (bkz. 4. madde). Oyunun içinde reklam yoktur.</p>
+</div>
+
+<h2>1. Erişilebilirlik hizmeti nasıl kullanılır?</h2>
+<p>Uygulama, Android Erişilebilirlik hizmetini (AccessibilityService) kullanır. Bu bir engelli erişim aracı değildir. İzin, yalnızca şu işler için kullanılır:</p>
+<ul>
+<li>Senin kaydettiğin noktalara (oyun tuşlarına) dokunma ve kaydırma hareketleri yapmak. Bot yalnızca sen başlattığında çalışır.</li>
+<li>Ekranda hangi uygulamanın açık olduğunu (paket adı) görmek; kontrol paneli yalnızca seçtiğin oyun açıkken görünür.</li>
+<li>Oyun ekranının görüntüsünü alıp telefonda işlemek: can/mana çubuğu, hedef çubuğu, kutu düğmeleri gibi oyun öğelerini bulmak için.</li>
+<li>Oyunun açtığı yazı kutularına yazı yazmak ve klavyedeki onay tuşuna basmak.</li>
+</ul>
+<p>Uygulama bu izinle şifre, mesaj, kişi, fotoğraf veya ödeme bilgisi okumaz ve toplamaz. İzni istediğin an Ayarlar → Erişilebilirlik bölümünden kapatabilirsin.
+Uygulama, erişilebilirlik iznini istemeden önce bunu uygulama içinde ayrı bir ekranda açıklar ve onayını ister.</p>
+
+<h2>2. Ekran görüntüleri ve yazı tanıma</h2>
+<p>Ekran görüntüleri yalnızca telefonda, bellekte işlenir; saklanmaz ve sunucumuza gönderilmez. Tek istisna: uygulamadaki "Ekran testi"ni sen kullanırsan bir görüntü telefonunun İndirilenler klasörüne kaydedilir.
+Ekrandaki oyun yazılarını okumak için Google Play Hizmetleri'ndeki ML Kit yazı tanıma telefonda çalışır. ML Kit, Google'ın kendi koşulları kapsamında anonim performans ve kullanım ölçümleri gönderebilir; ekran görüntüsünün kendisi gönderilmez.</p>
+
+<h2>3. Topladığımız veriler</h2>
+<table>
+<tr><th>Veri</th><th>Ne için</th><th>Ne kadar saklanır</th></tr>
+<tr><td>Kullanıcı adı, şifre (sunucuda yalnızca tek yönlü şifrelenmiş hali), üyelik bitiş tarihi</td><td>Üyelik girişi</td><td>Üyelik sürdükçe</td></tr>
+<tr><td>Cihaz kodu (Android kimliğinden türetilmiş kısa özet), son giriş zamanı, uygulama sürümü</td><td>Üyeliği tek cihaza bağlamak, eski sürümü uyarmak</td><td>Üyelik sürdükçe</td></tr>
+<tr><td>Son hata kaydı (uygulamanın kısa hata metni)</td><td>Hata düzeltme</td><td>Yeni hata gelene kadar</td></tr>
+<tr><td>Tanılama raporu: uygulama sürümü, telefon markası/modeli, Android sürümü, ekran boyutu, seçili oyun ve mod, botun olay kaydı (zaman, durma nedeni, bastığı tuşların ekran konumu, oyun içi koordinat, kutu/rota adımları)</td><td>Destek ve hata ayıklama</td><td>30 gün, sonra otomatik silinir</td></tr>
+</table>
+<p>Tanılama raporları bot durduğunda ve bot çalışırken 30 dakikada bir, üyelik hesabınla ilişkilendirilerek gönderilir. Raporlarda ekran görüntüsü, şifre, mesaj, kişi veya ödeme bilgisi yoktur.</p>
+
+<h2>4. Reklamlar (Google AdMob)</h2>
+<p>Uygulamanın giriş (ana) ekranında tek bir banner reklam gösterilir. Reklamları Google AdMob sunar. AdMob; reklam kimliği (Android Advertising ID),
+IP adresi, cihaz ve uygulama bilgileri ile reklam etkileşimleri gibi verileri reklam gösterme, ölçme ve dolandırıcılığı önleme amacıyla toplayabilir.
+Avrupa Ekonomik Alanı, İngiltere ve İsviçre'deki kullanıcılardan reklamlar için Google'ın rıza penceresiyle izin istenir.
+Ayrıntılar: <a href="https://policies.google.com/technologies/partner-sites">Google, iş ortaklarının sitelerini veya uygulamalarını kullandığınızda verilerinizi nasıl kullanır</a>.
+Kişiselleştirilmiş reklamları telefonunun Ayarlar → Google → Reklamlar bölümünden kapatabilir veya reklam kimliğini silebilirsin.</p>
+
+<h2>5. Paylaşım</h2>
+<p>Verilerini satmayız, kiralamayız ve üçüncü kişilerle paylaşmayız (reklamlar için Google AdMob'un kendi topladıkları hariç; 4. madde). Veriler yalnızca sitemizin barındırıldığı sunucuda tutulur ve yalnızca yönetim tarafından destek için görülür. Yasal zorunluluk hâlinde yetkili makamlara verilebilir.</p>
+
+<h2>6. Güvenlik</h2>
+<p>Uygulama ile sunucu arasındaki tüm iletişim HTTPS ile şifrelenir. Şifreler sunucuda düz metin olarak tutulmaz. Lisans cevapları dijital imzayla doğrulanır.</p>
+
+<h2>7. Hakların ve silme talebi</h2>
+<p>6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında verilerine erişme, düzeltilmesini veya silinmesini isteme hakkın vardır.
+Hesabının ve raporlarının silinmesini istemek için bize yaz: <b>[İLETİŞİM E-POSTASI]</b>. Talebin en geç 30 gün içinde sonuçlandırılır.</p>
+
+<h2>8. Çocuklar</h2>
+<p>Uygulama 13 yaşından küçükler için tasarlanmamıştır ve bilerek bu yaştaki kişilerden veri toplamayız.</p>
+
+<h2>9. Değişiklikler</h2>
+<p>Bu politika değişirse bu sayfa güncellenir ve üstteki tarih değişir. Önemli değişiklikler uygulama içinde duyurulur.</p>
+
+<p class="gri">İletişim: <b>[İLETİŞİM E-POSTASI]</b> · <a href="https://projeindir.com.tr">projeindir.com.tr</a></p>
+</main>
+</body>
+</html>

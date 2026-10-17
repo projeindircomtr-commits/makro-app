@@ -406,10 +406,12 @@ class MacroService : AccessibilityService() {
      */
     private fun oyunGorunurluk() {
         if (oyundaMi()) {
+            yanlisOyunUyarilan = ""
             panel?.visibility = View.VISIBLE
             // Oyun disindayken gelen mesajlari simdi goster
             if (kart == null && mesajKuyrugu.isNotEmpty()) siradakiMesaj()
         } else {
+            yanlisOyunUyari()
             removeOverlay()
             closeEditor()
             kartKapat()
@@ -423,10 +425,38 @@ class MacroService : AccessibilityService() {
             if (!ekranTanindi && !running && !ilkKartGoruldu && kart == null && panel != null) {
                 ilkKartGoruldu = true
                 kartGoster("👋 Projeindir Bot  ·  Adım 1/${sihirbazToplam()}  ·  EKRANI TANI",
-                    "Başlamadan önce karakterinle oyunun İÇİNE gir (karakter ekranda görünsün; açılış ya da karakter seçme ekranında olma).\n\nSonra bu panelde 🔍 EKRANI TANI düğmesine bas. İlk seferde ekran kaydı izni sorulur: izin ver. Bot ekranı tanıyınca sıradaki adımları sana tek tek gösterecek.", listOf(
-                    "Tamam" to { kartKapat() }))
+                    "Başlamadan önce karakterinle oyunun İÇİNE gir; ekran yukarıdaki görsel gibi görünmeli (açılış ya da karakter seçme ekranında olma).\n\nSonra bu panelde 🔍 EKRANI TANI düğmesine bas. İlk seferde ekran kaydı izni sorulur: izin ver. Bot ekranı tanıyınca sıradaki adımları sana tek tek gösterecek.", listOf(
+                    "Tamam" to { kartKapat() }), kurulumResmi(1))
             }
         }
+    }
+
+    // ---- Yanlış oyun seçiliyse uyar: öndeki uygulama desteklenen başka bir oyunsa ----
+    private var yanlisOyunUyarilan = ""
+
+    private fun ondekiOyunKodu(p: String): String? {
+        val k = p.lowercase()
+        return when {
+            k.contains("revenger") -> "rev"
+            k.contains("nowa") -> "nowa"
+            k.contains("myko") -> "myko"          // "mykomobile" içinde "komobile" de geçer: önce Myko
+            k.contains("komobile") -> "ko"
+            else -> null
+        }
+    }
+
+    private fun oyunAdiKod(k: String): String = when (k) {
+        "rev" -> "RevengerOnline"; "nowa" -> "NowaOnline"; "ko" -> "KO Mobile"; else -> "MykoMobile"
+    }
+
+    private fun yanlisOyunUyari() {
+        val p = sonPaket
+        val on = ondekiOyunKodu(p) ?: return
+        val secili = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else "myko"
+        if (on == secili || p == yanlisOyunUyarilan) return
+        yanlisOyunUyarilan = p
+        toast("🎮 Açık oyun ${oyunAdiKod(on)}, uygulamada ${Config.oyunAd(this)} seçili. Projeindir Bot'u aç → Oyun seç → ${oyunAdiKod(on)} → Bağlan.")
+        TestLog.olay("YANLIS_OYUN", "öndeki oyun ${oyunAdiKod(on)}, seçili ${Config.oyunAd(this)}", "paket=$p")
     }
 
     private fun oyunPaketiMi(p: String): Boolean {
@@ -1084,6 +1114,13 @@ class MacroService : AccessibilityService() {
         val tusOk = cfg.points.isNotEmpty() || Config.load(this).points.isNotEmpty()
         val liste = ArrayList<Pair<String, () -> Unit>>()
         liste.add("🧭 Adım adım kurulumu başlat" to { sihirbazBaslat() })
+        liste.add("🎬 Kurulum videosu" to {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(Lisans.kurulumVideoUrl(this))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                toast("Video açılamadı")
+            }
+        })
         liste.add((if (ekranTanindi) "✅ 1) Ekran tanındı" else "⬜ 1) Ekranı tanı") to { if (!ekranTanindi) ekranTani() else toast("Ekran zaten tanındı") })
         liste.add((if (tusOk) "✅ 2) Tuşlar hazır (değiştirmek için dokun)" else "⬜ 2) Tuşlarını ayarla") to { openEditor() })
         if (!Config.koMu(this)) {
@@ -1238,7 +1275,6 @@ class MacroService : AccessibilityService() {
                 },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
                 "🧹 Ekran öğrenmesini sıfırla" to { profilSifirla() },
-                "🩺 Sorun bildir (bilgiyi kopyala)" to { sorunBildir() },
                 "⚙ Uygulamayı aç" to {
                     try {
                         startActivity(
@@ -1539,15 +1575,14 @@ class MacroService : AccessibilityService() {
                 "• Ekran rengi filtresi, gece modu, parlaklık/renk uygulaması açma. Oyunu yatay tut, ekranı kapatma, bildirim çubuğunu aşağı çekme.\n" +
                 "• Oyunda envanter, harita, sohbet gibi pencereleri açık bırakma.\n" +
                 "• Karakter av alanında ve oyunun içinde olsun.", listOf(
-                "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }))
+                "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }), kurulumResmi(1))
             3 -> kartGoster("Adım 3/$n  ·  TUŞLARI AYARLA",
-                "Bot, oyundaki tuşlara (kılıç, mob seç, HP/MP pot, skiller) senin yerine basar. Bunun için ekranda hangi tuşun nerede olduğunu bilmesi lazım.\n\n" +
-                "1) 'Otomatik yerleştir'e bas: bot renkli yuvarlakları tuşların üstüne koyar.\n" +
-                "2) Yuvarlaklar oyundaki tuşların TAM ÜSTÜNE gelmiş mi bak. Gelmemişse yuvarlağı parmağınla sürükle.\n" +
+                "Bot, oyunda senin seçtiğin tuşlara basar. Hangi tuşları kullanacağına sen karar verirsin, hiçbiri zorunlu değil.\n\n" +
+                "1) 'Tuşları ayarla'ya bas.\n" +
+                "2) Kullanmak istediğin oyun tuşunun üstüne dokun, ne olduğunu seç (mob seç, skill, HP/MP pot, kılıç...). Yuvarlağı sürükleyip tuşun TAM ÜSTÜNE getir.\n" +
                 "3) Bitince üstteki 'Bitti'ye bas.", listOf(
                 "Sonra" to { sihirbaz = false; kartKapat() },
-                "Elle ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() },
-                "Otomatik yerleştir" to { kartKapat(); tuslariOtoYerlestir() }))
+                "Tuşları ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() }), kurulumResmi(2))
             4 -> if (n == 5) kartGoster("Adım 4/$n  ·  ÇANTA BOŞALTMA YOLLARI",
                 "Çanta dolunca bot Town'a gidip eşyaları bankaya atar, sonra slota döner. Bunun için iki yürüyüşü bir kere kaydetmen lazım. Ekrandaki yönlendirmeleri sırayla uygula.", listOf(
                 "Sonra" to { sihirbaz = false; kartKapat() },
@@ -1715,7 +1750,7 @@ class MacroService : AccessibilityService() {
         }
         bar.addView(TextView(this).apply {
             text = if (Config.genieMi(this@MacroService)) "Genie Hızlandır: sadece Kılıç tuşunu kaydet  •  sürükleyerek yerine oturt"
-                else if (sihirbaz) "Yuvarlaklar oyundaki tuşların TAM ÜSTÜNE gelmeli. Yerinde değilse parmağınla sürükle. Bitince 'Bitti'ye bas."
+                else if (sihirbaz) "Kullanacağın oyun tuşunun üstüne dokun → ne olduğunu seç (Mob seç, Skill, HP pot...). Yuvarlağı sürükleyip TAM üstüne getir. Bitince 'Bitti'."
                 else "Boş slota dokun: ekle  •  Etikete dokun: değiştir  •  Etiketi sürükle: kaydır" +
                 (Config.sinifOnerisi(this@MacroService)?.let { "\n" + it } ?: "")
             setTextColor(Color.WHITE)
@@ -2208,7 +2243,18 @@ class MacroService : AccessibilityService() {
     }
 
     /** Oyunun ustunde buyuk bilgi karti */
-    private fun kartGoster(baslik: String, metin: String, butonlar: List<Pair<String, () -> Unit>>) {
+    /** Kurulum görseli: seçili oyunun işaretli ekran görüntüsü (KO için yok) */
+    private fun kurulumResmi(no: Int): String? {
+        val oyun = when {
+            Config.koMu(this) -> return null
+            Config.revMi(this) -> "rev"
+            Config.nowaMi(this) -> "nowa"
+            else -> "myko"
+        }
+        return "kurulum_${oyun}_$no.jpg"
+    }
+
+    private fun kartGoster(baslik: String, metin: String, butonlar: List<Pair<String, () -> Unit>>, resim: String? = null) {
         kartKapat()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2229,7 +2275,22 @@ class MacroService : AccessibilityService() {
             textSize = if (kucukEkran) 14f else 17f
             setPadding(0, dp(6), 0, dp(10))
         }
-        val sv = android.widget.ScrollView(this).apply { isFillViewport = false; addView(tv) }
+        // İçerik: (varsa) işaretli oyun görseli + metin, birlikte kayar
+        val icerik = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (resim != null) {
+            try {
+                val bm = assets.open(resim).use { android.graphics.BitmapFactory.decodeStream(it) }
+                if (bm != null) icerik.addView(ImageView(this).apply {
+                    setImageBitmap(bm)
+                    adjustViewBounds = true
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setPadding(0, dp(6), 0, 0)
+                }, LinearLayout.LayoutParams(dp(340), LinearLayout.LayoutParams.WRAP_CONTENT))
+            } catch (e: Exception) {
+            }
+        }
+        icerik.addView(tv)
+        val sv = android.widget.ScrollView(this).apply { isFillViewport = false; addView(icerik) }
         box.addView(sv, LinearLayout.LayoutParams(dp(340), 0, 1f))
         val satir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         for ((ad, is_) in butonlar) {
@@ -2241,12 +2302,12 @@ class MacroService : AccessibilityService() {
         // Sabit genislik + olculmus yukseklik (WRAP_CONTENT bazi cihazlarda eziliyor)
         val gen = dp(376)
         // Doğal yükseklik: metin ayrı ölçülür (ScrollView içinde ağırlıklı olduğu için box.measure onu 0 görür)
-        tv.measure(
+        icerik.measure(
             View.MeasureSpec.makeMeasureSpec(dp(340), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
         val ustAlt = dp(14) * 2 + dp(26) + dp(56)   // dolgu + başlık + buton satırı payı
-        val yuk = minOf(tv.measuredHeight + ustAlt, mevcutY)
+        val yuk = minOf(icerik.measuredHeight + ustAlt, mevcutY)
         kart = box
         try {
             wm.addView(box, lp(gen, yuk).apply { gravity = Gravity.CENTER })
@@ -3291,17 +3352,10 @@ class MacroService : AccessibilityService() {
             return
         }
         // Tuslar oyuncunun kendisinden: hic tus yoksa ekran ayarini yukle, tus duzenleyiciyi ac
+        // Hiçbir tuş zorunlu değil: oyuncu ne kaydettiyse bot onu kullanır (tuş yoksa ekran ayarı yüklenir, örn. sadece kutu toplar)
         if (cfg.points.isEmpty()) {
             Config.hazirAyar(this)
             cfg = Config.load(this)
-            toast("Önce tuşlarını kaydet: saldırı, mob seç, HP/MP pot ve skillerin yerine dokun")
-            openEditor()
-            return
-        }
-        if (!Config.pkMi(this) && !Config.genieMi(this) && cfg.points.none { it.type == "hedef" || it.type == "saldiri" }) {
-            toast("Farm için en az bir Mob seç ya da Saldırı tuşu kaydet (⋯ → Tuşları düzenle)")
-            openEditor()
-            return
         }
         val wantsScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
             cfg.openT != null || cfg.collectT != null
@@ -3334,9 +3388,6 @@ class MacroService : AccessibilityService() {
         minorSon = 0L
         if (pkAktif && cfg.points.none { it.type == "saldiri" }) {
             toast("PK için ⚔ Kılıç tuşunu ata: ⋯ → 🛠 Tuşları düzenle"); return
-        }
-        if (!pkAktif && cfg.points.none { it.type == "hedef" || (it.type == "skill" && it.on) }) {
-            toast("Önce + ile saldırı / mob seç / skill tuşu kaydet"); return
         }
         val needScreen = cfg.hp != null || cfg.mp != null || cfg.tgtBar != null ||
             cfg.openT != null || cfg.collectT != null
@@ -3401,6 +3452,9 @@ class MacroService : AccessibilityService() {
         }
         running = true
         oturumBaslat()
+        // Otomatik rapor: çalışırken 30 dk'da bir siteye
+        ah.removeCallbacks(raporDongu)
+        ah.postDelayed(raporDongu, RAPOR_ARALIK_MS)
         cantaDoluBayrak = false
         if (testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !koAktif) {
             rotaYukle()
@@ -3671,6 +3725,68 @@ class MacroService : AccessibilityService() {
         showMenu("📌 Olay işaretle", maddeler)
     }
 
+    // ---- Otomatik rapor: üyenin oturum anahtarıyla siteye (rapor.php), panelde "📋 Raporlar"da üye bazlı görünür ----
+    private val RAPOR_ARALIK_MS = 30 * 60_000L
+    private val raporDongu = object : Runnable {
+        override fun run() {
+            if (!running) return
+            raporGonder("periyodik", "30 dk")
+            ah.postDelayed(this, RAPOR_ARALIK_MS)
+        }
+    }
+
+    /** Ekran tanıma yapmadan (oyunu bölmeden) rapor başlığı */
+    private fun raporBaslik(neden: String): String {
+        val ls = try { Preset.landscapeSize(this) } catch (e: Exception) { 0 to 0 }
+        val o = olcek
+        val sb = StringBuilder()
+        sb.append("PROJEINDIR BOT - OTOMATİK RAPOR\n")
+        sb.append("sürüm=").append(surumAdi()).append('\n')
+        sb.append("cihaz=").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL)
+            .append(" android=").append(android.os.Build.VERSION.SDK_INT).append('\n')
+        sb.append("ekran=${screenW}x$screenH gercek=${ls.first}x${ls.second} yogunluk=${resources.displayMetrics.densityDpi}dpi\n")
+        sb.append("oyun_paketi=").append(oyunPaketiBul() ?: "bulunamadi").append('\n')
+        sb.append("ekran_okuma=").append(ScreenSampler.running).append(" ekran_tanindi=").append(ekranTanindi)
+            .append(" olcek=").append(if (o != null) "%.3f ox=${o.ox} oy=${o.oy}".format(o.s) else "yok").append('\n')
+        sb.append(profilOzeti()).append('\n')
+        sb.append("mod=").append(Config.bot(this)).append(" oyun=").append(Config.oyun(this)).append('\n')
+        sb.append("neden=").append(neden).append('\n')
+        sb.append("----\n")
+        return sb.toString()
+    }
+
+    /** Raporu arka planda siteye gönderir; ağ/sunucu hatasında sessizce geçer (bot etkilenmez). */
+    private fun raporGonder(tur: String, neden: String, hazirMetin: String? = null) {
+        ah.post {
+            try {
+                val token = Lisans.token(this)
+                val url = Lisans.yanUrl(this, "rapor.php") ?: return@post
+                if (token.isEmpty()) return@post
+                val metin = hazirMetin ?: (raporBaslik(neden) + TestLog.rapor(surumAdi()))
+                fun k(v: String) = URLEncoder.encode(v, "UTF-8")
+                val govde = "token=" + k(token) + "&tur=" + k(tur) + "&surum=" + Lisans.surumKodu(this) +
+                    "&oyun=" + k(Config.oyun(this)) + "&neden=" + k(neden) + "&metin=" + k(metin)
+                val bag = URL(url).openConnection() as HttpURLConnection
+                bag.requestMethod = "POST"
+                bag.doOutput = true
+                bag.connectTimeout = 8000
+                bag.readTimeout = 15000
+                bag.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+                bag.outputStream.use { it.write(govde.toByteArray(Charsets.UTF_8)) }
+                val cevap = bag.inputStream.bufferedReader().use { it.readText() }
+                bag.disconnect()
+                if (JSONObject(cevap).optInt("ok") == 1) {
+                    val pr = getSharedPreferences("rapor", MODE_PRIVATE)
+                    if (!pr.getBoolean("bilgi", false)) {
+                        pr.edit().putBoolean("bilgi", true).apply()
+                        ui.post { toast("ℹ Bot raporları destek için siteye gönderiliyor") }
+                    }
+                }
+            } catch (e: Exception) {
+            }
+        }
+    }
+
     /** Herkesin kullanabildiği teşhis: cihaz/ekran/tanıma bilgisini panoya kopyalar (rapor menüsü olmayan hesaplar için) */
     private fun sorunBildir() {
         toast("🩺 Bilgi toplanıyor, 2-3 sn bekle...")
@@ -3699,6 +3815,7 @@ class MacroService : AccessibilityService() {
             sb.append("mod=").append(Config.bot(this)).append(" oyun=").append(Config.oyun(this)).append('\n')
             sb.append("---- son olaylar ----\n")
             sb.append(try { TestLog.rapor(surumAdi()).takeLast(2500) } catch (e: Exception) { "(günlük yok)" })
+            raporGonder("sorun", "Sorun bildir", sb.toString())
             ui.post {
                 try {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -5757,6 +5874,10 @@ class MacroService : AccessibilityService() {
             rotaMesgul = false
         }
         if (calisiyordu) oturumKapat(reason)
+        if (calisiyordu) {
+            ah.removeCallbacks(raporDongu)
+            raporGonder("durdu", reason ?: "kullanıcı durdurdu")
+        }
         padKaldir()
         h.removeCallbacksAndMessages(null)
         ui.removeCallbacks(statusTick)

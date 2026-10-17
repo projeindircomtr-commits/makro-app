@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="service_desc">Kaydettigin noktalara otomatik dokunur ve ekranda yuzen kontrol paneli gosterir.</string>
+    <string name="service_desc">Projeindir Bot bir engelli erişim aracı değildir; oyun içi makro aracıdır. Bu izinle yalnızca senin seçtiğin oyunda, senin kaydettiğin tuşlara dokunur, oyun öğelerini bulmak için ekran görüntüsünü telefonda işler (saklamaz, göndermez) ve ekranda bir kontrol paneli gösterir. Bot sadece sen BAŞLAT\'a bastığında çalışır.</string>
 </resources>

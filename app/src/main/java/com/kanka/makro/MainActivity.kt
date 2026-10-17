@@ -20,6 +20,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -32,7 +33,34 @@ import android.webkit.WebViewClient
 class MainActivity : Activity() {
 
     companion object {
+        /** Google Play "açık bilgilendirme": erişilebilirlik için ayrı ekran (başka veri bilgilendirmesiyle birleştirilmez) */
+        const val ERISIM_BILGI =
+            "Projeindir Bot, Android'in Erişilebilirlik hizmetini (AccessibilityService) kullanır. Bu bir engelli erişim aracı değildir; " +
+            "oyun içi makro aracıdır (senin belirlediğin tuşlara otomatik dokunur).\n\n" +
+            "Bu izinle uygulama ŞUNLARI YAPAR:\n" +
+            "• Senin kaydettiğin noktalara (oyun tuşlarına) dokunma ve kaydırma hareketleri yapar. Bot yalnızca sen ▶ BAŞLAT'a bastığında çalışır, DURDUR ile durur.\n" +
+            "• Ekranda hangi uygulamanın açık olduğunu (uygulama paket adı) görür: panel yalnızca seçtiğin oyun açıkken görünür.\n" +
+            "• Oyun ekranının görüntüsünü alır: HP/MP çubuğu, mob can çubuğu, kutu (Open / Collect All) gibi öğeleri bulmak için. Görüntüler telefonda işlenir, " +
+            "saklanmaz ve hiçbir yere gönderilmez (yalnızca sen 'Ekran testi'ni kullanırsan bir görüntü telefonunun İndirilenler klasörüne kaydedilir).\n" +
+            "• Ekrandaki oyun yazılarını (koordinat, düğme adları) telefonda okur.\n" +
+            "• Oyunun açtığı yazı kutularına (ör. pazar fiyatı, oyunun kontrol penceresi) yazı yazar ve klavyedeki Tamam'a basabilir.\n\n" +
+            "Bu izinle uygulama ŞUNLARI YAPMAZ:\n" +
+            "• Şifre, mesaj, kişi, fotoğraf veya ödeme bilgisi okumaz, toplamaz.\n" +
+            "• Seçtiğin oyun ve oyunun açtığı klavye dışındaki uygulamalara dokunmaz.\n\n" +
+            "İzni istediğin an Ayarlar → Erişilebilirlik → Projeindir Bot'tan kapatabilirsin; o zaman bot çalışmaz."
+
+        /** Tanılama raporu bilgilendirmesi (erişilebilirlik bilgilendirmesinden ayrı) */
+        const val RAPOR_BILGI =
+            "Destek verebilmemiz için bot, üyelik hesabınla birlikte projeindir.com.tr'ye otomatik tanılama raporu gönderir: " +
+            "bot durduğunda ve çalışırken 30 dakikada bir.\n\n" +
+            "Raporda: uygulama sürümü, telefon markası/modeli, Android sürümü, ekran boyutu, seçili oyun ve mod, botun olay kaydı " +
+            "(zaman, durma nedeni, bastığı tuşların ekran konumu, oyun içi koordinat, kutu/rota adımları).\n\n" +
+            "Raporda YOK: ekran görüntüsü, şifre, mesaj, kişi veya ödeme bilgisi.\n\n" +
+            "Raporlar yalnızca yönetim tarafından destek için görülür, üçüncü kişilerle paylaşılmaz ve 30 gün sonra silinir."
         const val EXTRA_AUTO = "autoCapture"
+
+        /** AdMob reklam birimi (giriş ekranı banner'ı). Uygulama kimliği AndroidManifest.xml'de (APPLICATION_ID). */
+        const val ADMOB_BANNER = "ca-app-pub-1035543413650045/3046925537"
 
         // Knight Online arayuzu (oyundaki CHAR INFO / SKILL PAGE pencereleri gibi)
         private const val BG = 0xFF070707.toInt()          // siyah
@@ -107,16 +135,10 @@ class MainActivity : Activity() {
     private lateinit var cikisBtn: Button
     private lateinit var guncelleBtn: Button
     private lateinit var girisBtn: Button
-    private lateinit var siteUyari: LinearLayout
     private lateinit var kEdit: EditText
     private lateinit var sEdit: EditText
-    private lateinit var step1: TextView
-    private lateinit var step2: TextView
     private lateinit var step3: TextView
-    private lateinit var btn1: Button
-    private lateinit var btn2: Button
     private lateinit var btn3: Button
-    private lateinit var restrictHint: TextView
     private lateinit var startBtn: Button
     private lateinit var minutesTv: TextView
     private lateinit var speedNormal: Button
@@ -143,6 +165,10 @@ class MainActivity : Activity() {
     private lateinit var profName: EditText
     private var cfg = Config()
     private var web: WebView? = null
+    private var reklam: com.google.android.gms.ads.AdView? = null
+    private lateinit var reklamKutu: FrameLayout
+    private var reklamBasladi = false
+    private lateinit var reklamGizlilikBtn: Button
 
     /** Giris yapilmadan gizli kalan bolumler */
     private val uyeBolumleri = ArrayList<View>()
@@ -158,6 +184,11 @@ class MainActivity : Activity() {
     private lateinit var oyunKoBtn: Button
     private lateinit var oyunRevBtn: Button
     private lateinit var oyunNowaBtn: Button
+    private lateinit var oyunSecBtn: Button
+    private lateinit var koPaketBtn: Button
+    private lateinit var anaScroll: ScrollView
+    private lateinit var izinScroll: ScrollView
+    private lateinit var izinIcerik: LinearLayout
     private var gelismisAcik = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -187,11 +218,17 @@ class MainActivity : Activity() {
             setShadowLayer(8f, 0f, 2f, 0xFF000000.toInt())
         })
         root.addView(TextView(this).apply {
-            text = "MykoMobile için hazır  •  Yapımcı: Muhammed Salman"
+            text = "MykoMobile  •  RevengerOnline  •  NowaOnline  •  KO Mobile      Yapımcı: Muhammed Salman"
             textSize = 14f
             setTextColor(ACCENT)
             setPadding(0, 0, 0, dp(14))
         })
+
+        // --- Reklam: yalnızca uygulamanın giriş (ana) ekranında, tek banner; oyunun içinde reklam yok ---
+        reklamKutu = FrameLayout(this)
+        root.addView(reklamKutu, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) })
 
         // --- Uyelik karti ---
         val lk = card(root)
@@ -217,25 +254,6 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
         }
-        // Giris icin once site ziyareti (bir kere)
-        siteUyari = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(0xFF2A2230.toInt(), 10)
-            setPadding(dp(10), dp(8), dp(10), dp(10))
-        }
-        siteUyari.addView(TextView(this).apply {
-            text = "Giriş yapabilmek için önce sitemizi ziyaret et:"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setPadding(0, 0, 0, dp(6))
-        })
-        siteUyari.addView(smallButton("🌐 Siteye git") { siteyeGit() }.apply {
-            background = rounded(ACCENT, 10)
-            setTextColor(0xFF12161C.toInt())
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        girisBox.addView(siteUyari, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(8) })
         girisBox.addView(kEdit)
         girisBox.addView(sEdit)
         girisBtn = smallButton("Giriş yap") { girisYap() }
@@ -321,9 +339,9 @@ class MainActivity : Activity() {
         val oyunKart = card(root)
         oyunKartView = oyunKart
         uyeBolumleri.add(oyunKart)
-        oyunKart.addView(cardTitle("Sunucu seç"))
-        // Liste: her sunucu ayrı satır (seçili olan vurgulanır, ayarlar sunucuya göre ayrı saklanır)
-        val oyunSatir = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        oyunKart.addView(cardTitle("Oyun seç"))
+        // Tek satır: [Oyun seç ▾] [Bağlan] [Değiştir]. Oyun listesi açılır pencerede (ayarlar oyuna göre ayrı saklanır)
+        val oyunSatir = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         fun oyunBtn(t: String, kod: String) = Button(this).apply {
             text = t
             textSize = 16f
@@ -337,39 +355,45 @@ class MainActivity : Activity() {
         oyunRevBtn = oyunBtn("RevengerOnline", "rev")
         oyunKoBtn = oyunBtn("KO Mobile", "ko")
         oyunNowaBtn = oyunBtn("NowaOnline", "nowa")
-        for ((i, bt) in listOf(oyunMykoBtn, oyunRevBtn, oyunNowaBtn, oyunKoBtn).withIndex()) {
-            if (i > 0) oyunSatir.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
-            oyunSatir.addView(bt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        // (Eski oyun düğmeleri ekrana eklenmez; refresh() içindeki renk güncellemeleri zararsız kalır)
+        oyunSecBtn = Button(this).apply {
+            textSize = 16f
+            isAllCaps = false
+            setTextColor(0xFF12161C.toInt())
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(ACCENT, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setOnClickListener { oyunListesi() }
         }
+        oyunSatir.addView(oyunSecBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         oyunKart.addView(oyunSatir)
         baglanBtn = Button(this).apply {
             isAllCaps = false
             textSize = 16f
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(12), 0, dp(12))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
             setOnClickListener {
                 sunucuOnayYaz(true)
                 lisansYenile()
                 refresh()
             }
         }
-        oyunKart.addView(View(this), LinearLayout.LayoutParams(1, dp(10)))
-        oyunKart.addView(baglanBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        sunucuDegistirBtn = smallButton("↩ Sunucuyu değiştir") {
+        oyunSatir.addView(baglanBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) })
+        sunucuDegistirBtn = smallButton("↩ Değiştir") {
             sunucuOnayYaz(false)
             lisansYenile()
             refresh()
         }
-        oyunKart.addView(sunucuDegistirBtn)
+        oyunSatir.addView(sunucuDegistirBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) })
         oyunKart.addView(TextView(this).apply {
-            text = "Her oyunun tuşları ve ayarları ayrı saklanır. RevengerOnline yeni eklendi (görseller ekran görüntülerinden hazırlandı, test aşamasında). " +
-                "Farm'da dokunuşlar arası en az 0,7 sn."
+            text = "Her oyunun tuşları ve ayarları ayrı saklanır. Oyunu seç, sonra Bağlan'a bas."
             textSize = 12f
             setTextColor(MUTED)
             setPadding(dp(4), dp(8), 0, 0)
         })
-        oyunKart.addView(smallButton("📱 KO Mobile uygulamasını seç") { koPaketSec() })
+        koPaketBtn = smallButton("📱 KO Mobile uygulamasını seç") { koPaketSec() }
+        oyunKart.addView(koPaketBtn)
 
         // --- Kurulum karti ---
         // Mod karti oyun seciminin altinda dursun
@@ -378,22 +402,23 @@ class MainActivity : Activity() {
 
         val setup = card(root)
         uyeBolumleri.add(setup)
-        setup.addView(cardTitle("Kurulum (bir kere)"))
-        val r1 = stepRow(setup, "1. Erişilebilirlik izni", "İzin ver") { openAccessibility() }
-        step1 = r1.first; btn1 = r1.second
-        restrictHint = TextView(this).apply {
-            textSize = 13f
-            setTextColor(MUTED)
-            setPadding(dp(4), 0, dp(4), dp(8))
-            text = "Projeindir Bot gri görünüyorsa: aşağıdaki butona bas → sağ üstte ⋮ → " +
-                "\"Kısıtlı ayarlara izin ver\". Sonra tekrar \"İzin ver\"."
-        }
-        setup.addView(restrictHint)
-        setup.addView(smallButton("Kısıtlı ayar sayfasını aç") { openAppDetails() })
-        val r2 = stepRow(setup, "2. Arka planda kapanmasın", "Ayarla") { fixBattery() }
-        step2 = r2.first; btn2 = r2.second
-        val r3 = stepRow(setup, "3. Oyun yüklü", "Kontrol") { refreshSteps() }
+        setup.addView(cardTitle("Durum"))
+        // İzinler (arka plan, kısıtlı ayarlar, erişilebilirlik) uygulama açılışındaki zorunlu izin ekranında
+        val r3 = stepRow(setup, "Oyun yüklü", "Kontrol") { refreshSteps() }
         step3 = r3.first; btn3 = r3.second
+        setup.addView(smallButton("🎬 Kurulum videosu") { siteAc(Uri.parse(Lisans.kurulumVideoUrl(this))) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        setup.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        reklamGizlilikBtn = smallButton("Reklam gizlilik ayarları") {
+            try {
+                com.google.android.ump.UserMessagingPlatform.showPrivacyOptionsForm(this) { _ -> }
+            } catch (e: Throwable) {
+            }
+        }
+        reklamGizlilikBtn.visibility = View.GONE
+        setup.addView(reklamGizlilikBtn,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
         // --- Buyuk baslat ---
         startBtn = Button(this).apply {
@@ -572,10 +597,6 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             // Cihazda WebView yoksa sadece buton kalsin
         }
-        site.addView(smallButton("🌐 Siteye git") { siteyeGit() },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) })
 
         // --- Gelismis ---
         advToggle = TextView(this).apply {
@@ -602,10 +623,34 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, 0)
         })
 
-        setContentView(ScrollView(this).apply {
+        // Yatay düzen: üstte başlık, üyelik ve oyun seçimi; altta iki sütun (sol: mod/kurulum/başlat, sağ: ayarlar/site)
+        val baslatIpucu = root.getChildAt(root.indexOfChild(startBtn) + 1)
+        val sol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val sag = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for (v in listOf(modKart, setup, startBtn, baslatIpucu)) { root.removeView(v); sol.addView(v) }
+        for (v in listOf<View>(quick, advToggle, advBox, site)) { root.removeView(v); sag.addView(v) }
+        val kolonlar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        kolonlar.addView(sol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+        kolonlar.addView(sag, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
+        root.addView(kolonlar, root.indexOfChild(oyunKart) + 1)
+
+        anaScroll = ScrollView(this).apply {
             setBackgroundColor(BG)
             addView(root)
+        }
+        izinIcerik = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(30))
+        }
+        izinScroll = ScrollView(this).apply {
+            setBackgroundColor(BG)
+            addView(izinIcerik)
+        }
+        setContentView(FrameLayout(this).apply {
+            addView(anaScroll)
+            addView(izinScroll)
         })
+        izinGuncelle()
         handleAuto(intent)
 
         // Panel mesajlari bildirim olarak gelebilsin (Android 13+ izin ister)
@@ -623,6 +668,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        izinGuncelle()
+        reklam?.resume()
         web?.onResume()
         refresh()
         lisansYenile()
@@ -659,7 +706,8 @@ class MainActivity : Activity() {
         val acik = ayarlarAcik()
         for (v in uyeBolumleri) v.visibility = if (ok && (acik || v === oyunKartView)) View.VISIBLE else View.GONE
         // Mod karti (Farm/PK): sadece yonetici gorur. Diger uyelerde giris sonrasi da gizli kalir
-        modKartView.visibility = if (ok && Config.izinliModlar().isNotEmpty()) View.VISIBLE else View.GONE
+        // Tek mod (Farm) varken seçilecek bir şey yok: kart gizli
+        modKartView.visibility = if (ok && Config.izinliModlar().size > 1) View.VISIBLE else View.GONE
         oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik && acik) View.VISIBLE else View.GONE
         baglanBtn.visibility = if (ok && !acik) View.VISIBLE else View.GONE
@@ -667,33 +715,9 @@ class MainActivity : Activity() {
         baglanBtn.background = rounded(GREEN, 14)
         sunucuDegistirBtn.visibility = if (ok && acik && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
-        girisKilidi()
-    }
-
-    private fun siteGidildi(): Boolean =
-        getSharedPreferences("genel", MODE_PRIVATE).getBoolean("siteGidildi", false)
-
-    /** Siteyi acar ve giris kilidini kalici olarak kaldirir */
-    private fun siteyeGit() {
-        getSharedPreferences("genel", MODE_PRIVATE).edit().putBoolean("siteGidildi", true).apply()
-        siteAc(Uri.parse("https://projeindir.com.tr"))
-        girisKilidi()
-    }
-
-    /** Site ziyaret edilmediyse giris alanlari kilitli */
-    private fun girisKilidi() {
-        val acik = siteGidildi()
-        siteUyari.visibility = if (acik) View.GONE else View.VISIBLE
-        for (v in listOf<View>(kEdit, sEdit, girisBtn)) {
-            v.isEnabled = acik
-            v.alpha = if (acik) 1f else 0.35f
-        }
     }
 
     private fun girisYap() {
-        if (!siteGidildi()) {
-            toast("Önce 🌐 Siteye git'e bas"); return
-        }
         val k = kEdit.text.toString().trim()
         val s = sEdit.text.toString()
         if (k.isEmpty() || s.isEmpty()) {
@@ -707,15 +731,61 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Reklam izni (AB/İngiltere'de Google'ın rıza penceresi), sonra banner. Hata olursa uygulama etkilenmez. */
+    private var reklamIstendi = false
+
+    private fun reklamBaslat() {
+        if (reklamIstendi) return
+        reklamIstendi = true
+        try {
+            val ci = com.google.android.ump.UserMessagingPlatform.getConsentInformation(this)
+            val prm = com.google.android.ump.ConsentRequestParameters.Builder().setTagForUnderAgeOfConsent(false).build()
+            ci.requestConsentInfoUpdate(this, prm, {
+                com.google.android.ump.UserMessagingPlatform.loadAndShowConsentFormIfRequired(this) { _ ->
+                    if (ci.canRequestAds()) reklamYukle()
+                    // AB/İngiltere: rızayı sonradan değiştirebilmek için düğme (Google şartı)
+                    reklamGizlilikBtn.visibility = if (ci.getPrivacyOptionsRequirementStatus() ==
+                        com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED) View.VISIBLE else View.GONE
+                }
+            }, { _ ->
+                if (ci.canRequestAds()) reklamYukle()
+            })
+            // Önceki açılışta izin alınmışsa beklemeden yükle
+            if (ci.canRequestAds()) reklamYukle()
+        } catch (e: Throwable) {
+        }
+    }
+
+    private fun reklamYukle() {
+        if (reklamBasladi || isFinishing) return
+        reklamBasladi = true
+        try {
+            com.google.android.gms.ads.MobileAds.initialize(this) {}
+            val dm = resources.displayMetrics
+            val genDp = ((dm.widthPixels / dm.density).toInt() - 40).coerceIn(320, 728)
+            val av = com.google.android.gms.ads.AdView(this)
+            av.setAdSize(com.google.android.gms.ads.AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(this, genDp))
+            av.adUnitId = ADMOB_BANNER
+            reklamKutu.addView(av, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL))
+            av.loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+            reklam = av
+        } catch (e: Throwable) {
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         web?.onPause()
+        reklam?.pause()
         saveAll()
     }
 
     override fun onDestroy() {
         web?.destroy()
         web = null
+        reklam?.destroy()
+        reklam = null
         super.onDestroy()
     }
 
@@ -834,7 +904,8 @@ class MainActivity : Activity() {
             ?.contains(packageName) == true
 
     private fun batteryOk(): Boolean =
-        (getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
+        (getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName) ||
+            getSharedPreferences("genel", MODE_PRIVATE).getBoolean("pilAtla", false)
 
     private fun setStep(tv: TextView, b: Button, base: String, ok: Boolean) {
         tv.text = (if (ok) "✅  " else "❌  ") + base
@@ -842,14 +913,6 @@ class MainActivity : Activity() {
     }
 
     private fun refreshSteps() {
-        val acc = accEnabled()
-        setStep(step1, btn1, "Erişilebilirlik izni", acc)
-        restrictHint.visibility = if (acc) View.GONE else View.VISIBLE
-        (restrictHint.parent as? LinearLayout)?.let { p ->
-            val idx = p.indexOfChild(restrictHint)
-            if (idx >= 0 && idx + 1 < p.childCount) p.getChildAt(idx + 1).visibility = restrictHint.visibility
-        }
-        setStep(step2, btn2, "Arka planda kapanmasın", batteryOk())
         setStep(step3, btn3, "Oyun yüklü (${Config.oyunAd(this)})", findGame() != null)
     }
 
@@ -872,6 +935,8 @@ class MainActivity : Activity() {
         val rev = Config.revMi(this)
         val nowa = Config.nowaMi(this)
         val myko = !ko && !rev && !nowa
+        oyunSecBtn.text = "🎮  " + Config.oyunAd(this) + "  ▾"
+        koPaketBtn.visibility = if (ko) View.VISIBLE else View.GONE
         oyunNowaBtn.background = rounded(if (nowa) ACCENT else LACI, 14)
         oyunNowaBtn.text = (if (nowa) "✓ " else "") + "NowaOnline"
         oyunNowaBtn.setTextColor(if (nowa) 0xFF12161C.toInt() else Color.WHITE)
@@ -937,7 +1002,23 @@ class MainActivity : Activity() {
         if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
         MacroService.instance?.oyunDegisti()
         toast(Config.oyunAd(this) + " seçildi")
-        oyunKoBtn.postDelayed({ refresh(); lisansYenile() }, 150)
+        oyunSecBtn.postDelayed({ refresh(); lisansYenile() }, 150)
+    }
+
+    /** "Oyun seç" listesi: seçilen oyun için yeniden "Bağlan" gerekir */
+    private fun oyunListesi() {
+        val oyunlar = listOf("MykoMobile" to "myko", "RevengerOnline" to "rev", "NowaOnline" to "nowa", "KO Mobile" to "ko")
+        AlertDialog.Builder(this)
+            .setTitle("Oyun seç")
+            .setItems(oyunlar.map { it.first }.toTypedArray()) { _, i ->
+                val kod = oyunlar[i].second
+                if (Config.oyun(this) != kod) sunucuOnayYaz(false)
+                oyunSec(kod)
+                lisansYenile()
+                refresh()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
     }
 
     /** KO Mobile otomatik bulunamazsa: yuklu uygulamalardan elle sec */
@@ -1026,6 +1107,176 @@ class MainActivity : Activity() {
         gelismisAcik = show
         advBox.visibility = if (show) View.VISIBLE else View.GONE
         advToggle.text = if (show) "Gelişmiş ayarlar  ▴" else "Gelişmiş ayarlar  ▾"
+    }
+
+    // ================= Zorunlu izinler (sırayla): 1) arka plan 2) kısıtlı ayarlar 3) erişilebilirlik =================
+
+    private fun kisitliGerekli(): Boolean = Build.VERSION.SDK_INT >= 33
+    private fun kisitliTamam(): Boolean =
+        !kisitliGerekli() || accEnabled() || getSharedPreferences("genel", MODE_PRIVATE).getBoolean("kisitliOnay", false)
+
+    private fun markaAd(): String {
+        val m = (Build.MANUFACTURER ?: "").lowercase()
+        val b = (Build.BRAND ?: "").lowercase()
+        fun var_(vararg k: String) = k.any { m.contains(it) || b.contains(it) }
+        return when {
+            var_("xiaomi", "redmi", "poco") -> "xiaomi"
+            var_("samsung") -> "samsung"
+            var_("huawei", "honor") -> "huawei"
+            var_("oppo", "realme", "oneplus") -> "oppo"
+            var_("vivo", "iqoo") -> "vivo"
+            else -> "diger"
+        }
+    }
+
+    /** Markaya göre arka plan (pil / otomatik başlatma) anlatımı */
+    private fun markaPilMetni(): String = when (markaAd()) {
+        "xiaomi" -> "Xiaomi / Redmi / POCO:\n• Açılan pencerede 'İzin ver'e bas.\n• Sonra 'Marka ayarı'na bas: 'Otomatik başlatma'yı AÇ.\n• Uygulama bilgisi → Pil tasarrufu → 'Kısıtlama yok' seç."
+        "samsung" -> "Samsung:\n• Açılan pencerede 'İzin ver'e bas.\n• Ayarlar → Pil → Arka plan kullanım sınırları → 'Hiç uyumayan uygulamalar'a Projeindir Bot'u ekle.\n• Uygulama bilgisi → Pil → 'Kısıtlanmamış' seç."
+        "huawei" -> "Huawei / Honor:\n• Açılan pencerede 'İzin ver'e bas.\n• 'Marka ayarı'na bas: Uygulama başlatma → Projeindir Bot → 'Elle yönet' → üç seçeneği de AÇ."
+        "oppo" -> "Oppo / Realme / OnePlus:\n• Açılan pencerede 'İzin ver'e bas.\n• 'Marka ayarı'na bas: Otomatik başlatmayı AÇ.\n• Uygulama bilgisi → Pil → 'Arka planda çalışmaya izin ver'."
+        "vivo" -> "Vivo / iQOO:\n• Açılan pencerede 'İzin ver'e bas.\n• 'Marka ayarı'na bas: Arka planda başlatmayı AÇ.\n• Pil → 'Arka planda yüksek güç tüketimi'ne izin ver."
+        else -> "• Açılan pencerede 'İzin ver'e bas.\n• Telefonunda pil tasarrufu / otomatik başlatma ayarı varsa Projeindir Bot için kısıtlamayı kaldır."
+    }
+
+    /** Markanın otomatik başlatma / pil sayfası (yoksa uygulama bilgisi) */
+    private fun markaAyari() {
+        val adaylar = listOf(
+            "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.optimize.process.ProtectActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+            "com.oplus.safecenter" to "com.oplus.safecenter.permission.startup.StartupAppListActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+            "com.samsung.android.lool" to "com.samsung.android.sm.ui.battery.BatteryActivity"
+        )
+        for ((pk, cls) in adaylar) {
+            try {
+                startActivity(Intent().setComponent(ComponentName(pk, cls)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                toast("Listede 'Projeindir Bot'u bul ve izin ver")
+                return
+            } catch (e: Exception) {
+            }
+        }
+        openAppDetails()
+    }
+
+    private fun genelPref() = getSharedPreferences("genel", MODE_PRIVATE)
+    private fun gizlilikUrl(): String = Lisans.yanUrl(this, "gizlilik.html") ?: "https://projeindir.com.tr/makro/gizlilik.html"
+
+    /**
+     * İzinler ve bilgilendirmeler tamam değilse ana ekran yerine bu ekran gösterilir (şart).
+     * Sıra: 1) pil/arka plan 2) erişilebilirlik bilgilendirmesi + onay (Google Play "açık bilgilendirme" kuralı;
+     * erişilebilirlik ayarına gitmeden ÖNCE) 3) kısıtlı ayarlar 4) erişilebilirlik izni 5) tanılama raporu bilgisi (ayrı ekran).
+     */
+    private fun izinGuncelle() {
+        if (!::izinScroll.isInitialized) return
+        val pil = batteryOk()
+        val onay = genelPref().getBoolean("erisimOnay", false)
+        val kisitli = kisitliTamam()
+        val acc = accEnabled()
+        val rapor = genelPref().getBoolean("raporBilgi", false)
+        val tamam = pil && onay && kisitli && acc && rapor
+        izinScroll.visibility = if (tamam) View.GONE else View.VISIBLE
+        anaScroll.visibility = if (tamam) View.VISIBLE else View.GONE
+        if (tamam) {
+            reklamBaslat()   // reklam yalnızca ana ekran görünürken yüklenir
+            return
+        }
+        val adim = if (!pil) 1 else if (!onay) 2 else if (!kisitli) 3 else if (!acc) 4 else 5
+        val k = izinIcerik
+        k.removeAllViews()
+        k.addView(TextView(this).apply {
+            text = "Projeindir Bot • Kurulum izinleri"
+            textSize = 26f
+            typeface = SERIF_BOLD
+            setTextColor(ACCENT)
+        })
+        k.addView(TextView(this).apply {
+            text = "Botun telefonunda düzgün çalışması için aşağıdaki adımları SIRAYLA tamamla. Adımlar bitmeden uygulama açılmaz.\n" +
+                "Cihaz: ${Build.MANUFACTURER} ${Build.MODEL} • Android ${Build.VERSION.RELEASE}"
+            textSize = 14f
+            setTextColor(MUTED)
+            setPadding(0, dp(4), 0, dp(12))
+        })
+        fun durumSatiri(no: Int, ad: String, ok: Boolean) = TextView(this).apply {
+            text = (if (ok) "✅  " else if (no == adim) "👉  " else "⬜  ") + "$no) $ad" + (if (no == 3 && !kisitliGerekli()) " (bu Android'de gerekmiyor)" else "")
+            textSize = 17f
+            setTextColor(if (no == adim) Color.WHITE else MUTED)
+            setPadding(0, dp(3), 0, dp(3))
+        }
+        k.addView(durumSatiri(1, "Arka planda kapanmasın (pil izni)", pil))
+        k.addView(durumSatiri(2, "Erişilebilirlik bilgilendirmesi ve onayın", onay))
+        k.addView(durumSatiri(3, "Kısıtlı ayarlara izin ver", kisitli))
+        k.addView(durumSatiri(4, "Erişilebilirlik izni", acc))
+        k.addView(durumSatiri(5, "Tanılama raporları hakkında bilgi", rapor))
+        val kart = card(k)
+        when (adim) {
+            1 -> {
+                kart.addView(cardTitle("Adım 1/5 • Arka planda kapanmasın"))
+                kart.addView(label("Telefon pil tasarrufu için botu arka planda kapatabilir. Bunu engelliyoruz.\n\n" + markaPilMetni()))
+                kart.addView(smallButton("🔋 Pil izni ver") {
+                    genelPref().edit().putInt("pilDeneme", genelPref().getInt("pilDeneme", 0) + 1).apply()
+                    fixBattery()
+                })
+                kart.addView(smallButton("⚙ Marka ayarı (otomatik başlatma)") { markaAyari() })
+                // Bazı cihazlar bu izni hiç vermiyor: iki denemeden sonra kilitlenip kalmasın
+                if (genelPref().getInt("pilDeneme", 0) >= 2) kart.addView(smallButton("Bu telefonda verilemiyor, devam et") {
+                    genelPref().edit().putBoolean("pilAtla", true).apply()
+                    izinGuncelle()
+                })
+            }
+            2 -> {
+                kart.addView(cardTitle("Adım 2/5 • Erişilebilirlik izni hakkında"))
+                kart.addView(label(ERISIM_BILGI))
+                kart.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) })
+                kart.addView(smallButton("✅ Okudum, kabul ediyorum") {
+                    genelPref().edit().putBoolean("erisimOnay", true).putLong("erisimOnayZaman", System.currentTimeMillis()).apply()
+                    izinGuncelle()
+                })
+                kart.addView(smallButton("✖ Kabul etmiyorum") {
+                    toast("Bu izin olmadan bot çalışamaz. İstediğin zaman geri dönüp kabul edebilirsin.")
+                })
+            }
+            3 -> {
+                kart.addView(cardTitle("Adım 3/5 • Kısıtlı ayarlara izin ver"))
+                kart.addView(label("Android 13 ve üstünde, Play Store dışından yüklenen uygulamalarda erişilebilirlik kilitlidir. Kilidi açmak için:\n\n" +
+                    "1) 'Erişilebilirliği bir kez dene'ye bas. Listede Projeindir Bot'a dokun; gri / 'kısıtlı ayar' uyarısı çıkarsa normaldir, geri gel.\n" +
+                    "2) 'Uygulama bilgisini aç'a bas → sağ üstteki ⋮ (üç nokta) → 'Kısıtlı ayarlara izin ver' → onayla.\n" +
+                    "3) Buraya dönüp 'Yaptım, devam'a bas.\n\n" +
+                    "Not: Bazı telefonlarda bu kilit hiç yoktur. ⋮ menüsünde seçenek yoksa direkt 'Yaptım, devam'a bas."))
+                kart.addView(smallButton("① Erişilebilirliği bir kez dene") { openAccessibility() })
+                kart.addView(smallButton("② Uygulama bilgisini aç") { openAppDetails() })
+                kart.addView(smallButton("✅ Yaptım, devam") {
+                    genelPref().edit().putBoolean("kisitliOnay", true).apply()
+                    izinGuncelle()
+                })
+            }
+            4 -> {
+                kart.addView(cardTitle("Adım 4/5 • Erişilebilirlik izni"))
+                kart.addView(label("Bot oyundaki tuşlara bu izinle dokunur.\n\n" +
+                    "• 'Erişilebilirliği aç'a bas.\n• Listede 'Projeindir Bot'u bul (bazı telefonlarda 'Yüklü uygulamalar' / 'İndirilen uygulamalar' altında).\n" +
+                    "• Aç → 'İzin ver'.\n\nGri ve açılmıyorsa 3. adım tamamlanmamış demektir."))
+                kart.addView(smallButton("♿ Erişilebilirliği aç") { openAccessibility() })
+                if (kisitliGerekli()) kart.addView(smallButton("↩ 3. adıma dön") {
+                    genelPref().edit().putBoolean("kisitliOnay", false).apply()
+                    izinGuncelle()
+                })
+            }
+            else -> {
+                kart.addView(cardTitle("Adım 5/5 • Tanılama raporları"))
+                kart.addView(label(RAPOR_BILGI))
+                kart.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) })
+                kart.addView(smallButton("✅ Anladım") {
+                    genelPref().edit().putBoolean("raporBilgi", true).apply()
+                    izinGuncelle()
+                })
+            }
+        }
+        // Butonlar arası boşluk
+        for (i in 0 until kart.childCount) (kart.getChildAt(i) as? Button)?.let { b ->
+            (b.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
+        }
     }
 
     // ================= Kurulum adimlari =================

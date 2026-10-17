@@ -56,4 +56,7 @@ dependencies {
     // MykoMobile bot kontrol penceresini okumak icin (cihazda yazi tanima).
     // Google Play Hizmetleri surumu: model APK'ya girmez, telefona bir kez iner -> APK kucuk kalir
     implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
+    // Reklam: uygulamanın giriş ekranında tek banner (AdMob) + AB/İngiltere için Google rıza penceresi (UMP)
+    implementation 'com.google.android.gms:play-services-ads:23.0.0'
+    implementation 'com.google.android.ump:user-messaging-platform:2.2.0'
 }

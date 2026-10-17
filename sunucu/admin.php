@@ -183,7 +183,7 @@ a{color:#e0b04a}
 details summary{cursor:pointer;color:#9aa4b2;font-size:14px;padding:6px 0}
 .ara{width:100%;padding:12px;border-radius:10px;border:0;font-size:15px;margin:6px 0}
 </style></head><body>
-<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a></h2>
+<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a> <a href="raporlar.php" style="font-size:14px;float:right;margin-right:14px">📋 Raporlar</a></h2>
 <?php if ($mesaj): ?><div class="m"><?= e($mesaj) ?></div><?php endif; ?>
 
 <div class="k"><b>📢 Mesaj gönder</b>

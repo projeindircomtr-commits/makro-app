@@ -8,4 +8,5 @@
     android:canRequestFilterKeyEvents="true"
     android:accessibilityFlags="flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows"
     android:notificationTimeout="500"
+    android:isAccessibilityTool="false"
     android:description="@string/service_desc" />

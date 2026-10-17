@@ -28,10 +28,15 @@
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="ocr" />
+        <!-- AdMob uygulama kimliği (Projeindir Bot) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1035543413650045~4360007208" />
 
 
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
