@@ -169,6 +169,7 @@ class MainActivity : Activity() {
     private lateinit var reklamKutu: FrameLayout
     private var reklamBasladi = false
     private lateinit var reklamGizlilikBtn: Button
+    private lateinit var reklamDurumTv: TextView
 
     /** Giris yapilmadan gizli kalan bolumler */
     private val uyeBolumleri = ArrayList<View>()
@@ -229,6 +230,13 @@ class MainActivity : Activity() {
         root.addView(reklamKutu, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(8) })
+        // Sadece yöneticiye: reklam neden görünmüyor (AdMob hata kodu)
+        reklamDurumTv = TextView(this).apply {
+            textSize = 12f
+            setTextColor(MUTED)
+            visibility = View.GONE
+        }
+        root.addView(reklamDurumTv)
 
         // --- Uyelik karti ---
         val lk = card(root)
@@ -623,17 +631,6 @@ class MainActivity : Activity() {
             setPadding(0, dp(24), 0, 0)
         })
 
-        // Yatay düzen: üstte başlık, üyelik ve oyun seçimi; altta iki sütun (sol: mod/kurulum/başlat, sağ: ayarlar/site)
-        val baslatIpucu = root.getChildAt(root.indexOfChild(startBtn) + 1)
-        val sol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val sag = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        for (v in listOf(modKart, setup, startBtn, baslatIpucu)) { root.removeView(v); sol.addView(v) }
-        for (v in listOf<View>(quick, advToggle, advBox, site)) { root.removeView(v); sag.addView(v) }
-        val kolonlar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        kolonlar.addView(sol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
-        kolonlar.addView(sag, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
-        root.addView(kolonlar, root.indexOfChild(oyunKart) + 1)
-
         anaScroll = ScrollView(this).apply {
             setBackgroundColor(BG)
             addView(root)
@@ -711,7 +708,7 @@ class MainActivity : Activity() {
         oyunKartView.visibility = if (ok && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         advBox.visibility = if (ok && gelismisAcik && acik) View.VISIBLE else View.GONE
         baglanBtn.visibility = if (ok && !acik) View.VISIBLE else View.GONE
-        baglanBtn.text = "Bağlan: " + Config.oyunAd(this)
+        baglanBtn.text = "🔗 Bağlan"
         baglanBtn.background = rounded(GREEN, 14)
         sunucuDegistirBtn.visibility = if (ok && acik && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
@@ -747,8 +744,8 @@ class MainActivity : Activity() {
                     reklamGizlilikBtn.visibility = if (ci.getPrivacyOptionsRequirementStatus() ==
                         com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED) View.VISIBLE else View.GONE
                 }
-            }, { _ ->
-                if (ci.canRequestAds()) reklamYukle()
+            }, { hata ->
+                if (ci.canRequestAds()) reklamYukle() else reklamDurum("Reklam rızası alınamadı: ${hata.message}")
             })
             // Önceki açılışta izin alınmışsa beklemeden yükle
             if (ci.canRequestAds()) reklamYukle()
@@ -756,9 +753,18 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Yöneticiye reklam durumunu gösterir (üyeler görmez) */
+    private fun reklamDurum(t: String) {
+        runOnUiThread {
+            reklamDurumTv.text = t
+            reklamDurumTv.visibility = if (t.isNotEmpty() && Lisans.yoneticiMi()) View.VISIBLE else View.GONE
+        }
+    }
+
     private fun reklamYukle() {
         if (reklamBasladi || isFinishing) return
         reklamBasladi = true
+        reklamDurum("Reklam yükleniyor...")
         try {
             com.google.android.gms.ads.MobileAds.initialize(this) {}
             val dm = resources.displayMetrics
@@ -766,6 +772,19 @@ class MainActivity : Activity() {
             val av = com.google.android.gms.ads.AdView(this)
             av.setAdSize(com.google.android.gms.ads.AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(this, genDp))
             av.adUnitId = ADMOB_BANNER
+            av.adListener = object : com.google.android.gms.ads.AdListener() {
+                override fun onAdLoaded() { reklamDurum("") }
+                override fun onAdFailedToLoad(e: com.google.android.gms.ads.LoadAdError) {
+                    val neden = when (e.code) {
+                        0 -> "AdMob iç hata"
+                        1 -> "geçersiz istek (uygulama/reklam kimliği?)"
+                        2 -> "internet bağlantısı"
+                        3 -> "gösterilecek reklam yok (yeni hesap/uygulama: AdMob onayı ve ilk reklamlar birkaç saat-gün sürebilir)"
+                        else -> "kod ${e.code}"
+                    }
+                    reklamDurum("Reklam yüklenemedi: $neden • ${e.message}")
+                }
+            }
             reklamKutu.addView(av, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL))
             av.loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
@@ -1165,25 +1184,25 @@ class MainActivity : Activity() {
     private fun gizlilikUrl(): String = Lisans.yanUrl(this, "gizlilik.html") ?: "https://projeindir.com.tr/makro/gizlilik.html"
 
     /**
-     * İzinler ve bilgilendirmeler tamam değilse ana ekran yerine bu ekran gösterilir (şart).
-     * Sıra: 1) pil/arka plan 2) erişilebilirlik bilgilendirmesi + onay (Google Play "açık bilgilendirme" kuralı;
-     * erişilebilirlik ayarına gitmeden ÖNCE) 3) kısıtlı ayarlar 4) erişilebilirlik izni 5) tanılama raporu bilgisi (ayrı ekran).
+     * İzinler tamam değilse ana ekran yerine bu ekran gösterilir (şart). Üç adım SIRAYLA:
+     * 1) pil / arka plan  2) kısıtlı ayarları kaldır  3) erişilebilirlik izni.
+     * Üç adım da ekranda görünür; yalnızca sıradaki adımın düğmeleri aktiftir.
+     * Erişilebilirlik ayarına İLK gidişte (2. veya 3. adımda) Google Play kuralı gereği açık bilgilendirme + onay penceresi çıkar.
      */
     private fun izinGuncelle() {
         if (!::izinScroll.isInitialized) return
         val pil = batteryOk()
-        val onay = genelPref().getBoolean("erisimOnay", false)
         val kisitli = kisitliTamam()
         val acc = accEnabled()
-        val rapor = genelPref().getBoolean("raporBilgi", false)
-        val tamam = pil && onay && kisitli && acc && rapor
+        val tamam = pil && kisitli && acc
         izinScroll.visibility = if (tamam) View.GONE else View.VISIBLE
         anaScroll.visibility = if (tamam) View.VISIBLE else View.GONE
         if (tamam) {
+            raporBilgisiGoster()
             reklamBaslat()   // reklam yalnızca ana ekran görünürken yüklenir
             return
         }
-        val adim = if (!pil) 1 else if (!onay) 2 else if (!kisitli) 3 else if (!acc) 4 else 5
+        val adim = if (!pil) 1 else if (!kisitli) 2 else 3
         val k = izinIcerik
         k.removeAllViews()
         k.addView(TextView(this).apply {
@@ -1193,90 +1212,111 @@ class MainActivity : Activity() {
             setTextColor(ACCENT)
         })
         k.addView(TextView(this).apply {
-            text = "Botun telefonunda düzgün çalışması için aşağıdaki adımları SIRAYLA tamamla. Adımlar bitmeden uygulama açılmaz.\n" +
+            text = "3 adımı SIRAYLA tamamla. Sıradaki adımın düğmeleri açılır; adımlar bitmeden bot çalışmaz.\n" +
                 "Cihaz: ${Build.MANUFACTURER} ${Build.MODEL} • Android ${Build.VERSION.RELEASE}"
             textSize = 14f
             setTextColor(MUTED)
             setPadding(0, dp(4), 0, dp(12))
         })
-        fun durumSatiri(no: Int, ad: String, ok: Boolean) = TextView(this).apply {
-            text = (if (ok) "✅  " else if (no == adim) "👉  " else "⬜  ") + "$no) $ad" + (if (no == 3 && !kisitliGerekli()) " (bu Android'de gerekmiyor)" else "")
-            textSize = 17f
-            setTextColor(if (no == adim) Color.WHITE else MUTED)
-            setPadding(0, dp(3), 0, dp(3))
+
+        /** Bir adım kartı: tamamlandıysa ✅, sıradaysa düğmeler aktif, değilse soluk ve kapalı */
+        fun adimKarti(no: Int, baslik: String, aciklama: String, ok: Boolean, dugmeler: List<Pair<String, () -> Unit>>) {
+            val kart = card(k)
+            val sirada = no == adim
+            kart.alpha = if (ok || sirada) 1f else 0.45f
+            if (sirada) kart.background = rounded(0xFF1E2A1E.toInt(), 16)
+            kart.addView(cardTitle((if (ok) "✅ " else if (sirada) "👉 " else "") + "Adım $no/3 • $baslik"))
+            if (ok) {
+                kart.addView(label("Tamamlandı."))
+                return
+            }
+            kart.addView(label(aciklama))
+            for ((ad, is_) in dugmeler) {
+                kart.addView(smallButton(ad) { if (sirada) is_() else toast("Önce ${adim}. adımı tamamla") }.apply {
+                    isEnabled = sirada
+                    alpha = if (sirada) 1f else 0.5f
+                }, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) })
+            }
         }
-        k.addView(durumSatiri(1, "Arka planda kapanmasın (pil izni)", pil))
-        k.addView(durumSatiri(2, "Erişilebilirlik bilgilendirmesi ve onayın", onay))
-        k.addView(durumSatiri(3, "Kısıtlı ayarlara izin ver", kisitli))
-        k.addView(durumSatiri(4, "Erişilebilirlik izni", acc))
-        k.addView(durumSatiri(5, "Tanılama raporları hakkında bilgi", rapor))
-        val kart = card(k)
-        when (adim) {
-            1 -> {
-                kart.addView(cardTitle("Adım 1/5 • Arka planda kapanmasın"))
-                kart.addView(label("Telefon pil tasarrufu için botu arka planda kapatabilir. Bunu engelliyoruz.\n\n" + markaPilMetni()))
-                kart.addView(smallButton("🔋 Pil izni ver") {
-                    genelPref().edit().putInt("pilDeneme", genelPref().getInt("pilDeneme", 0) + 1).apply()
-                    fixBattery()
-                })
-                kart.addView(smallButton("⚙ Marka ayarı (otomatik başlatma)") { markaAyari() })
-                // Bazı cihazlar bu izni hiç vermiyor: iki denemeden sonra kilitlenip kalmasın
-                if (genelPref().getInt("pilDeneme", 0) >= 2) kart.addView(smallButton("Bu telefonda verilemiyor, devam et") {
-                    genelPref().edit().putBoolean("pilAtla", true).apply()
-                    izinGuncelle()
-                })
-            }
-            2 -> {
-                kart.addView(cardTitle("Adım 2/5 • Erişilebilirlik izni hakkında"))
-                kart.addView(label(ERISIM_BILGI))
-                kart.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) })
-                kart.addView(smallButton("✅ Okudum, kabul ediyorum") {
-                    genelPref().edit().putBoolean("erisimOnay", true).putLong("erisimOnayZaman", System.currentTimeMillis()).apply()
-                    izinGuncelle()
-                })
-                kart.addView(smallButton("✖ Kabul etmiyorum") {
-                    toast("Bu izin olmadan bot çalışamaz. İstediğin zaman geri dönüp kabul edebilirsin.")
-                })
-            }
-            3 -> {
-                kart.addView(cardTitle("Adım 3/5 • Kısıtlı ayarlara izin ver"))
-                kart.addView(label("Android 13 ve üstünde, Play Store dışından yüklenen uygulamalarda erişilebilirlik kilitlidir. Kilidi açmak için:\n\n" +
-                    "1) 'Erişilebilirliği bir kez dene'ye bas. Listede Projeindir Bot'a dokun; gri / 'kısıtlı ayar' uyarısı çıkarsa normaldir, geri gel.\n" +
-                    "2) 'Uygulama bilgisini aç'a bas → sağ üstteki ⋮ (üç nokta) → 'Kısıtlı ayarlara izin ver' → onayla.\n" +
-                    "3) Buraya dönüp 'Yaptım, devam'a bas.\n\n" +
-                    "Not: Bazı telefonlarda bu kilit hiç yoktur. ⋮ menüsünde seçenek yoksa direkt 'Yaptım, devam'a bas."))
-                kart.addView(smallButton("① Erişilebilirliği bir kez dene") { openAccessibility() })
-                kart.addView(smallButton("② Uygulama bilgisini aç") { openAppDetails() })
-                kart.addView(smallButton("✅ Yaptım, devam") {
+
+        val pilDugmeler = ArrayList<Pair<String, () -> Unit>>()
+        pilDugmeler.add("🔋 Pil izni ver" to {
+            genelPref().edit().putInt("pilDeneme", genelPref().getInt("pilDeneme", 0) + 1).apply()
+            fixBattery()
+        })
+        pilDugmeler.add("⚙ Marka ayarı (otomatik başlatma)" to { markaAyari() })
+        // Bazı cihazlar bu izni hiç vermiyor: iki denemeden sonra kilitlenip kalmasın
+        if (genelPref().getInt("pilDeneme", 0) >= 2) pilDugmeler.add("Bu telefonda verilemiyor, devam et" to {
+            genelPref().edit().putBoolean("pilAtla", true).apply()
+            izinGuncelle()
+        })
+        adimKarti(1, "Pil izni (arka planda kapanmasın)",
+            "Telefon pil tasarrufu için botu arka planda kapatabilir. Bunu engelliyoruz.\n\n" + markaPilMetni(), pil, pilDugmeler)
+
+        adimKarti(2, "Kısıtlamaları kaldır",
+            if (!kisitliGerekli()) "Bu Android sürümünde gerekmiyor." else
+                "Android 13 ve üstünde, Play Store dışından yüklenen uygulamalarda erişilebilirlik kilitlidir. Kilidi açmak için:\n\n" +
+                "1) 'Erişilebilirliği bir kez dene'ye bas. Listede Projeindir Bot'a dokun; gri / 'kısıtlı ayar' uyarısı çıkarsa normaldir, geri gel.\n" +
+                "2) 'Uygulama bilgisini aç'a bas → sağ üstteki ⋮ (üç nokta) → 'Kısıtlı ayarlara izin ver' → onayla.\n" +
+                "3) Buraya dönüp 'Yaptım, devam'a bas.\n\n" +
+                "Not: Bazı telefonlarda bu kilit yoktur. ⋮ menüsünde seçenek yoksa direkt 'Yaptım, devam'a bas.",
+            kisitli, listOf(
+                "① Erişilebilirliği bir kez dene" to { erisimOnayliAc() },
+                "② Uygulama bilgisini aç" to { openAppDetails() },
+                "✅ Yaptım, devam" to {
                     genelPref().edit().putBoolean("kisitliOnay", true).apply()
                     izinGuncelle()
-                })
+                }))
+
+        val accDugmeler = ArrayList<Pair<String, () -> Unit>>()
+        accDugmeler.add("♿ Erişilebilirliği aç" to { erisimOnayliAc() })
+        if (kisitliGerekli()) accDugmeler.add("↩ 2. adıma dön" to {
+            genelPref().edit().putBoolean("kisitliOnay", false).apply()
+            izinGuncelle()
+        })
+        adimKarti(3, "Erişilebilirlik izni",
+            "Bot oyundaki tuşlara bu izinle dokunur.\n\n" +
+                "• 'Erişilebilirliği aç'a bas, çıkan bilgilendirmeyi oku ve onayla.\n" +
+                "• Listede 'Projeindir Bot'u bul (bazı telefonlarda 'Yüklü uygulamalar' / 'İndirilen uygulamalar' altında).\n" +
+                "• Aç → 'İzin ver'.\n\nGri ve açılmıyorsa 2. adım tamamlanmamış demektir.",
+            acc, accDugmeler)
+        k.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+    }
+
+    /**
+     * Erişilebilirlik ayarına gitmeden önce açık bilgilendirme + onay (Google Play kuralı). Onay bir kez alınır;
+     * "Kabul etmiyorum" derse ayara gidilmez.
+     */
+    private fun erisimOnayliAc() {
+        if (genelPref().getBoolean("erisimOnay", false)) { openAccessibility(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Erişilebilirlik izni hakkında")
+            .setMessage(ERISIM_BILGI)
+            .setCancelable(false)
+            .setPositiveButton("Okudum, kabul ediyorum") { _, _ ->
+                genelPref().edit().putBoolean("erisimOnay", true).putLong("erisimOnayZaman", System.currentTimeMillis()).apply()
+                openAccessibility()
             }
-            4 -> {
-                kart.addView(cardTitle("Adım 4/5 • Erişilebilirlik izni"))
-                kart.addView(label("Bot oyundaki tuşlara bu izinle dokunur.\n\n" +
-                    "• 'Erişilebilirliği aç'a bas.\n• Listede 'Projeindir Bot'u bul (bazı telefonlarda 'Yüklü uygulamalar' / 'İndirilen uygulamalar' altında).\n" +
-                    "• Aç → 'İzin ver'.\n\nGri ve açılmıyorsa 3. adım tamamlanmamış demektir."))
-                kart.addView(smallButton("♿ Erişilebilirliği aç") { openAccessibility() })
-                if (kisitliGerekli()) kart.addView(smallButton("↩ 3. adıma dön") {
-                    genelPref().edit().putBoolean("kisitliOnay", false).apply()
-                    izinGuncelle()
-                })
+            .setNegativeButton("Kabul etmiyorum") { _, _ ->
+                toast("Bu izin olmadan bot çalışamaz. İstediğin zaman tekrar deneyebilirsin.")
             }
-            else -> {
-                kart.addView(cardTitle("Adım 5/5 • Tanılama raporları"))
-                kart.addView(label(RAPOR_BILGI))
-                kart.addView(smallButton("📄 Gizlilik politikası") { siteAc(Uri.parse(gizlilikUrl())) })
-                kart.addView(smallButton("✅ Anladım") {
-                    genelPref().edit().putBoolean("raporBilgi", true).apply()
-                    izinGuncelle()
-                })
-            }
-        }
-        // Butonlar arası boşluk
-        for (i in 0 until kart.childCount) (kart.getChildAt(i) as? Button)?.let { b ->
-            (b.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
-        }
+            .setNeutralButton("Gizlilik politikası") { _, _ -> siteAc(Uri.parse(gizlilikUrl())) }
+            .show()
+    }
+
+    /** Tanılama raporu bilgisi: izinler bittikten sonra bir kez (erişilebilirlik bilgilendirmesinden ayrı) */
+    private fun raporBilgisiGoster() {
+        if (genelPref().getBoolean("raporBilgi", false)) return
+        genelPref().edit().putBoolean("raporBilgi", true).apply()
+        AlertDialog.Builder(this)
+            .setTitle("Tanılama raporları")
+            .setMessage(RAPOR_BILGI)
+            .setPositiveButton("Anladım", null)
+            .setNeutralButton("Gizlilik politikası") { _, _ -> siteAc(Uri.parse(gizlilikUrl())) }
+            .show()
     }
 
     // ================= Kurulum adimlari =================
