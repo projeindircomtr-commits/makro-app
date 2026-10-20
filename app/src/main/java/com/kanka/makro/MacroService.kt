@@ -431,6 +431,70 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ---- Slot kilidi: farm alanı sınırı (aynı isimli mobun bulunduğu komşu slota gitmesin) ----
+    @Volatile private var slotDonuyor = false
+
+    /** true: sınır dışındayız ya da merkeze dönülüyor (farm adımları beklesin) */
+    private fun slotSinirDisi(now: Long): Boolean {
+        if (slotDonuyor) return true
+        if (!slotKilitAktif() || rotaMesgul || rotaCalisiyor) return false
+        val kx = konumX
+        val ky = konumY
+        if (kx < 0 || now - konumAt > 2500L) return false   // koordinat yoksa engelleme (güvenli taraf)
+        val d = Math.hypot((kx - cfg.slotKx).toDouble(), (ky - cfg.slotKy).toDouble())
+        if (d <= cfg.slotKr) return false
+        slotDonuyor = true
+        TestLog.olay("SLOT_SINIR", "slot sınırı aşıldı, hedef bırakılıp merkeze dönülüyor", "konum=$kx,$ky merkez=${cfg.slotKx},${cfg.slotKy} uzaklik=${d.toInt()} r=${cfg.slotKr}")
+        olcek?.let { o -> val x = iptalNoktasi(o); tap(x[0].toFloat(), x[1].toFloat(), 0f) { } }
+        oncekiCanli = false
+        nextTarget = 0L
+        yuruBaslat(listOf(intArrayOf(kx, ky), intArrayOf(cfg.slotKx, cfg.slotKy)), 3.0, 20_000L) { ok, neden ->
+            rh.post {
+                slotDonuyor = false
+                TestLog.olay("SLOT_DONDU", if (ok) "slot merkezine dönüldü" else "merkeze dönülemedi: $neden", "konum=$konumX,$konumY")
+            }
+        }
+        return true
+    }
+
+    /** Oyun içi menü: slot kilidi */
+    private fun slotKilidiMenu() {
+        val c = Config.load(this)
+        val durum = if (c.slotKilit && c.slotKx >= 0) "📍 Kilitli: ${c.slotKx},${c.slotKy} • yarıçap ${c.slotKr}" else "Slot kilidi kapalı"
+        val liste = ArrayList<Pair<String, () -> Unit>>()
+        liste.add("📍 Bulunduğum yeri slot merkezi yap" to { slotMerkezKaydet() })
+        for ((ad, r) in listOf("Küçük alan (8)" to 8, "Orta alan (15)" to 15, "Büyük alan (25)" to 25)) {
+            liste.add((if (c.slotKr == r) "✓ " else "") + ad to {
+                val k = Config.load(this); k.slotKr = r; k.save(this); if (!running) cfg = Config.load(this) else cfg.slotKr = r
+                toast("Slot yarıçapı: $r")
+            })
+        }
+        if (c.slotKilit) liste.add("🔓 Slot kilidini kaldır" to {
+            val k = Config.load(this); k.slotKilit = false; k.save(this); if (!running) cfg = Config.load(this) else cfg.slotKilit = false
+            toast("Slot kilidi kaldırıldı")
+        })
+        showMenu("$durum\nBot bu alanın dışına çıkarsa mobu bırakıp merkeze döner.", liste)
+    }
+
+    private fun slotMerkezKaydet() {
+        if (!ScreenSampler.running) { toast("Önce 🔍 EKRANI TANI'ya bas"); return }
+        toast("📍 Koordinat okunuyor...")
+        konumBaslat()
+        rh.postDelayed({
+            val kx = konumX
+            val ky = konumY
+            if (kx >= 0 && SystemClock.uptimeMillis() - konumAt < 2500L) {
+                val k = Config.load(this); k.slotKilit = true; k.slotKx = kx; k.slotKy = ky; k.save(this)
+                if (!running) cfg = Config.load(this) else { cfg.slotKilit = true; cfg.slotKx = kx; cfg.slotKy = ky }
+                TestLog.olay("SLOT_KILITLENDI", "slot merkezi kaydedildi", "merkez=$kx,$ky r=${k.slotKr}")
+                toast("📍 Slot kilitlendi: $kx,$ky (yarıçap ${k.slotKr})")
+            } else {
+                toast("📍 Koordinat okunamadı. Ekranda koordinat yazısı görünmeli, sonra tekrar dene")
+            }
+            if (!konumGerekliMi()) konumDurdur()
+        }, 2000)
+    }
+
     // ---- Yanlış oyun seçiliyse uyar: öndeki uygulama desteklenen başka bir oyunsa ----
     private var yanlisOyunUyarilan = ""
 
@@ -1267,6 +1331,14 @@ class MacroService : AccessibilityService() {
                 "🛠 Tuşları düzenle" to { openEditor() }
             ) + yoneticiListesi + testListesi + listOf<Pair<String, () -> Unit>>(
                 "🎯 Seçili mobu kilitle" to { mobuKilitle() },
+            ) + (if (Lisans.veriHesabi()) listOf<Pair<String, () -> Unit>>(
+                (if (veriKarar() == 1) "📸 Görüntü paylaşımı: AÇIK (kapat)" else "📸 Görüntü paylaşımı: KAPALI (aç)") to {
+                    if (veriKarar() == 1) {
+                        veriKararYaz(2); ah.removeCallbacks(veriDongu); toast("📸 Görüntü paylaşımı kapatıldı")
+                    } else veriOnayKarti()
+                }
+            ) else emptyList()) + listOf<Pair<String, () -> Unit>>(
+                "📍 Slot kilidi (alan sınırı)" to { if (Config.koMu(this)) toast("KO'da koordinat okunmuyor, slot kilidi yok") else slotKilidiMenu() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
                     c.kilitler.clear()
@@ -1542,8 +1614,8 @@ class MacroService : AccessibilityService() {
         val vardi = editor != null
         editor?.let { safeRemove(it) }
         editor = null
-        if (vardi && sihirbaz && sihirbazAdim == 3 && tusAdimiYapildi && !running) {
-            sihirbazAdim = if (sihirbazToplam() == 5) 4 else 5
+        if (vardi && sihirbaz && sihirbazAdim == 4 && tusAdimiYapildi && !running) {
+            sihirbazAdim = 5
             ui.postDelayed({ if (oyundaMi() && sihirbaz && !running) kurulumSonrakiAdim() }, 500)
         }
     }
@@ -1553,7 +1625,9 @@ class MacroService : AccessibilityService() {
     @Volatile private var tusAdimiYapildi = false
     private var ilkKartGoruldu = false
 
-    private fun sihirbazToplam() = if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this)) 4 else 5
+    /** Banka (çanta boşaltma) adımı yalnızca Myko/Rev/Nowa farm'da */
+    private fun bankaAdimiVar() = !(Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this))
+    private fun sihirbazToplam() = if (bankaAdimiVar()) 7 else 6
 
     /** Sıfır bilgili kullanıcı için adım adım kurulum: 2) uyarılar → 3) tuşlar → (4) çanta yolları) → hazır */
     private fun sihirbazBaslat() {
@@ -1564,34 +1638,54 @@ class MacroService : AccessibilityService() {
         kurulumSonrakiAdim()
     }
 
+    /**
+     * Hiç bilmeyen biri için oyun içi kurulum: her adımda tek iş, "Sonra" ile çıkılabilir.
+     * 1) ekranı tanı (ilk kart) 2) uyarılar 3) slota git 4) tuşlar 5) mob / slot kilidi (isteğe bağlı)
+     * 6) banka yolu (atlanabilir; KO'da yok) 7) başlat
+     */
     private fun kurulumSonrakiAdim() {
         val n = sihirbazToplam()
-        val sonAdim = n
+        fun no(a: Int) = if (!bankaAdimiVar() && a == 7) 6 else a
+        val sonra = "Sonra" to { sihirbaz = false; kartKapat() }
         when (sihirbazAdim) {
             2 -> kartGoster("✅ Ekran tanındı  ·  Adım 2/$n  ·  ÖNEMLİ UYARILAR",
-                "Bot oyun ekranına fotoğraf gibi bakar. Hata olmasın diye:\n" +
-                "• Sol üstteki HP / MP çubuklarının ve üst ortadaki mob can çubuğunun ÜSTÜNE hiçbir şey koyma (başka uygulama balonu, mesaj balonu, bot paneli).\n" +
+                "Bot oyun ekranına fotoğraf gibi bakar. Korkma, bu adımlar oyununa hiçbir şey yapmaz. Hata olmasın diye:\n" +
+                "• Görseldeki işaretli yerlerin (HP / MP çubukları, mob can çubuğu) ÜSTÜNE hiçbir şey koyma.\n" +
                 "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa panelin solundaki 🔽 düğmesine bas.\n" +
-                "• Ekran rengi filtresi, gece modu, parlaklık/renk uygulaması açma. Oyunu yatay tut, ekranı kapatma, bildirim çubuğunu aşağı çekme.\n" +
-                "• Oyunda envanter, harita, sohbet gibi pencereleri açık bırakma.\n" +
-                "• Karakter av alanında ve oyunun içinde olsun.", listOf(
+                "• Ekran rengi filtresi, gece modu açma; ekranı kapatma.\n" +
+                "• Oyunda envanter, harita gibi pencereleri açık bırakma.", listOf(
+                sonra,
                 "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }), kurulumResmi(1))
-            3 -> kartGoster("Adım 3/$n  ·  TUŞLARI AYARLA",
-                "Bot, oyunda senin seçtiğin tuşlara basar. Hangi tuşları kullanacağına sen karar verirsin, hiçbiri zorunlu değil.\n\n" +
+            3 -> kartGoster("Adım 3/$n  ·  FARM YERİNE GİT",
+                "Karakterini kasacağın yere (slotuna) götür. Oraya varınca 'Vardım'a bas.", listOf(
+                sonra,
+                "Vardım" to { kartKapat(); sihirbazAdim = 4; kurulumSonrakiAdim() }))
+            4 -> kartGoster("Adım 4/$n  ·  TUŞLARINI KAYDET",
+                "Bot, oyunda senin seçtiğin tuşlara basar. Hiçbiri zorunlu değil, istediğin kadar ekle.\n\n" +
                 "1) 'Tuşları ayarla'ya bas.\n" +
-                "2) Kullanmak istediğin oyun tuşunun üstüne dokun, ne olduğunu seç (mob seç, skill, HP/MP pot, kılıç...). Yuvarlağı sürükleyip tuşun TAM ÜSTÜNE getir.\n" +
-                "3) Bitince üstteki 'Bitti'ye bas.", listOf(
-                "Sonra" to { sihirbaz = false; kartKapat() },
+                "2) Kullanmak istediğin oyun tuşunun üstüne dokun, ne olduğunu seç (mob seç, skill, HP/MP pot...). Yuvarlağı sürükleyip tuşun TAM ÜSTÜNE getir.\n" +
+                "3) Bitince üstteki 'Bitti'ye bas.\n\nKutuları (Open / Collect All) bot kendisi bulur, onlar için tuş eklemene gerek yok.", listOf(
+                sonra,
                 "Tuşları ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() }), kurulumResmi(2))
-            4 -> if (n == 5) kartGoster("Adım 4/$n  ·  ÇANTA BOŞALTMA YOLLARI",
-                "Çanta dolunca bot Town'a gidip eşyaları bankaya atar, sonra slota döner. Bunun için iki yürüyüşü bir kere kaydetmen lazım. Ekrandaki yönlendirmeleri sırayla uygula.", listOf(
-                "Sonra" to { sihirbaz = false; kartKapat() },
+            5 -> kartGoster("Adım 5/$n  ·  MOB VE SLOT KİLİDİ (isteğe bağlı)",
+                "• Sadece bir mob türüne vurmak istersen: oyunda o moba dokunup seç, sonra 'Mobu kilitle'ye bas.\n" +
+                (if (Config.koMu(this)) "" else "• Yanındaki slottaki aynı mobların üstüne gitmesin istersen: slotunun ortasında dur, 'Slotu kilitle'ye bas. Bot bu alanın dışına çıkarsa mobu bırakıp geri döner.\n") +
+                "\nİstemezsen 'Geç'e bas.", listOf(
+                "Geç" to { kartKapat(); sihirbazAdim = 6; kurulumSonrakiAdim() }) +
+                listOf("Mobu kilitle" to { kartKapat(); mobuKilitle(); sihirbazAdim = 6; ui.postDelayed({ if (sihirbaz) kurulumSonrakiAdim() }, 1200); Unit }) +
+                (if (Config.koMu(this)) emptyList() else listOf("Slotu kilitle" to {
+                    kartKapat(); slotMerkezKaydet(); sihirbazAdim = 6; ui.postDelayed({ if (sihirbaz) kurulumSonrakiAdim() }, 2600); Unit
+                })))
+            6 -> if (bankaAdimiVar()) kartGoster("Adım 6/$n  ·  ÇANTA DOLUNCA BANKA (isteğe bağlı)",
+                "Çanta dolunca bot Town'a gidip eşyaları bankaya atabilir, sonra slota döner. Bunun için iki yürüyüşü bir kere kaydetmen lazım.\n\nŞimdi istemezsen 'Sonra yaparım'a bas; istediğin zaman ☰ Menü → Otomatik çanta boşaltma'dan kaydedebilirsin.", listOf(
+                "Sonra yaparım" to { kartKapat(); sihirbazAdim = 7; kurulumSonrakiAdim() },
                 "Yolları kaydet" to { kartKapat(); sihirbaz = false; townSihirbaz() }))
-            else { sihirbazAdim = 5; kurulumSonrakiAdim() }
+            else { sihirbazAdim = 7; kurulumSonrakiAdim() }
             else -> {
                 sihirbaz = false
-                kartGoster("✅ Adım $sonAdim/$n  ·  HAZIRSIN",
-                    "Son kontrol:\n• Karakter av alanında mı?\n• HP/MP ve mob can çubuklarının üstü boş mu?\n• Panel tuşların üstünde değil mi?\n\nHazırsan ▶ BAŞLAT'a bas. Bot kendiliğinden başlamaz. Durdurmak için ⏸ DURDUR. Ayarı değiştirmek için ☰ Menü → 📋 Kurulum adımları.", listOf(
+                kartGoster("✅ Adım ${no(7)}/$n  ·  HAZIRSIN",
+                    "Paneldeki ▶ BAŞLAT'a bas, bot çalışmaya başlar. Durdurmak istediğinde aynı yerdeki ⏸ DURDUR'a bas.\n\n" +
+                    "Bot kendiliğinden başlamaz. Kurulumu tekrar görmek için: ☰ Menü → 📋 Kurulum adımları.", listOf(
                     "Tamam" to { kartKapat() }))
             }
         }
@@ -1789,10 +1883,10 @@ class MacroService : AccessibilityService() {
         "⚔ Kılıç (PK)" to { onPick("saldiri") },
         "❌ İptal (X)" to { onPick("iptal") },
         "💗 Can skilli (Heal)" to { onPick("heal") },
-        "📦 Kutu butonu (KO)" to { onPick("kutu") },
         "🕹 Oyunun yürüme joystick'i (halkanın ortasına)" to { onPick("joy") },
         "🛡 Buff (süreyle)" to { onPick("buff") }
-    ) + (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
+    ) + (if (Config.koMu(this)) listOf("📦 Kutu butonu (KO)" to { onPick("kutu") }) else emptyList()) +
+        (if (Config.minorVar(this)) listOf("💚 Minor" to { onPick("minor") }) else emptyList())
 
     // ---- Genie hizlandirma ----
     private var genieKilicAt = 0L
@@ -3452,9 +3546,12 @@ class MacroService : AccessibilityService() {
         }
         running = true
         oturumBaslat()
+        slotDonuyor = false
+        if (slotKilitAktif()) konumBaslat()   // slot kilidi: koordinat okunsun
         // Otomatik rapor: çalışırken 30 dk'da bir siteye
         ah.removeCallbacks(raporDongu)
         ah.postDelayed(raporDongu, RAPOR_ARALIK_MS)
+        veriBaslat()
         cantaDoluBayrak = false
         if (testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !koAktif) {
             rotaYukle()
@@ -3735,6 +3832,78 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ---- 📸 Görüntü paylaşımı (eğitim verisi): panelde "Veri" verilen + uygulamada KABUL eden üye ----
+    // Bot çalışırken ve oyun öndeyken 5 dk'da bir yarı çözünürlük oyun ekranı goruntu.php'ye gider (sadece yönetim görür, 30 gün).
+    private val VERI_ARALIK_MS = 5 * 60_000L
+
+    /** 0 = sorulmadı, 1 = kabul, 2 = hayır */
+    private fun veriKarar(): Int = getSharedPreferences("veri", MODE_PRIVATE).getInt("karar", 0)
+    private fun veriKararYaz(k: Int) = getSharedPreferences("veri", MODE_PRIVATE).edit().putInt("karar", k).apply()
+
+    private val veriDongu = object : Runnable {
+        override fun run() {
+            if (!running || !Lisans.veriHesabi() || veriKarar() != 1) return
+            goruntuGonder()
+            ah.postDelayed(this, VERI_ARALIK_MS)
+        }
+    }
+
+    private fun veriBaslat() {
+        ah.removeCallbacks(veriDongu)
+        if (!Lisans.veriHesabi()) return
+        when (veriKarar()) {
+            1 -> ah.postDelayed(veriDongu, 60_000L)
+            0 -> ui.postDelayed({ if (running) veriOnayKarti() }, 2500)
+        }
+    }
+
+    private fun veriOnayKarti() {
+        kartGoster(
+            "📸 Ekran görüntüsü paylaşımı",
+            "Yönetim bu hesap için oyun ekranı görüntüsü toplamayı açtı (botun ekran tanımasını geliştirmek için).\n\n" +
+                "• Bot çalışırken ve oyun açıkken 5 dakikada bir oyun ekranının küçük bir görüntüsü siteye gönderilir.\n" +
+                "• O an ekranda ne varsa (sohbet, karakter adları dahil) görüntüde olur.\n" +
+                "• Görüntüleri sadece yönetim görür, 30 gün sonra silinir.\n" +
+                "• İstediğin an Menü → 📸 Görüntü paylaşımı'ndan kapatabilirsin.",
+            listOf(
+                "✅ Kabul ediyorum" to {
+                    veriKararYaz(1); kartKapat(); toast("📸 Görüntü paylaşımı açık")
+                    if (running) { ah.removeCallbacks(veriDongu); ah.postDelayed(veriDongu, 60_000L) }
+                    Unit
+                },
+                "Hayır" to { veriKararYaz(2); kartKapat(); toast("Görüntü gönderilmeyecek"); Unit }
+            )
+        )
+    }
+
+    /** Son ekran karesini JPEG yapıp gönderir; oyun önde değilse hiçbir şey göndermez. Hata sessizce geçer. */
+    private fun goruntuGonder() {
+        try {
+            if (!ScreenSampler.running || sonPaket.isEmpty() || !oyundaMi()) return
+            val token = Lisans.token(this)
+            val url = Lisans.yanUrl(this, "goruntu.php") ?: return
+            if (token.isEmpty()) return
+            val bmp = ScreenSampler.tamKare() ?: return
+            val bos = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 75, bos)
+            bmp.recycle()
+            val b64 = android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+            fun k(v: String) = URLEncoder.encode(v, "UTF-8")
+            val govde = "token=" + k(token) + "&oyun=" + k(Config.oyun(this)) + "&etiket=" + k(Config.bot(this)) + "&resim=" + k(b64)
+            val bag = URL(url).openConnection() as HttpURLConnection
+            bag.requestMethod = "POST"
+            bag.doOutput = true
+            bag.connectTimeout = 8000
+            bag.readTimeout = 20000
+            bag.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+            bag.outputStream.use { it.write(govde.toByteArray(Charsets.UTF_8)) }
+            bag.inputStream.bufferedReader().use { it.readText() }
+            bag.disconnect()
+        } catch (e: Exception) {
+        } catch (e: OutOfMemoryError) {
+        }
+    }
+
     /** Ekran tanıma yapmadan (oyunu bölmeden) rapor başlığı */
     private fun raporBaslik(neden: String): String {
         val ls = try { Preset.landscapeSize(this) } catch (e: Exception) { 0 to 0 }
@@ -3990,7 +4159,10 @@ class MacroService : AccessibilityService() {
     }
 
     private fun konumGerekliMi(): Boolean =
-        rotaKayit || rotaCalisiyor || (running && testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !Config.koMu(this))
+        rotaKayit || rotaCalisiyor || (running && testCalisiyor && (cfg.rotaAcik || cfg.townAcik) && !Config.koMu(this)) ||
+            (running && slotKilitAktif())
+
+    private fun slotKilitAktif(): Boolean = cfg.slotKilit && cfg.slotKx >= 0 && cfg.slotKy >= 0 && !Config.koMu(this)
 
     private fun konumOkunamadi(neden: String) {
         konumHataSay++
@@ -5865,6 +6037,13 @@ class MacroService : AccessibilityService() {
             }
         }
         running = false
+        if (slotDonuyor) {
+            slotDonuyor = false
+            yuruAktif = false
+            yuruSonuc = null
+            jBirak()
+        }
+        if (!konumGerekliMi()) konumDurdur()
         if (rotaCalisiyor) {
             TestLog.olay("ROTA_IPTAL", "bot durduruldu", "asama=$rotaAsama")
             yuruAktif = false
@@ -5876,6 +6055,7 @@ class MacroService : AccessibilityService() {
         if (calisiyordu) oturumKapat(reason)
         if (calisiyordu) {
             ah.removeCallbacks(raporDongu)
+            ah.removeCallbacks(veriDongu)
             raporGonder("durdu", reason ?: "kullanıcı durdurdu")
         }
         padKaldir()
@@ -6004,6 +6184,8 @@ class MacroService : AccessibilityService() {
             if (korumaKontrol(now)) return
             if (safetyStop(now)) return
         }
+        // Slot kilidi: sınır dışına çıkıldıysa hedefi bırak, merkeze yürü (bu sırada atak durur)
+        if (slotSinirDisi(now)) { stepPlanla(300); return }
 
         // Pot, kutu (Open/Collect) ve skill/saldiri BIRLIKTE, ayni anda basilir (iki el gibi):
         // biri digerini bekletmez, digeri de onu bekletmez.
@@ -7044,6 +7226,8 @@ class MacroService : AccessibilityService() {
 
     private fun pick(now: Long): Nokta? {
         if (pkAktif) return pkSec(now)
+        // Open'a basıldı, Collect All bekleniyor: yeni mob seçip kutudan uzaklaşma (en fazla ~1,5 sn)
+        if (lootPhase == Loot.COLLECT_BEKLE && now - lastOpenAt < collectBekleMs()) return null
         val pts = cfg.points
         val target = pts.firstOrNull { it.type == "hedef" }
         val bar = cfg.tgtBar
@@ -7416,8 +7600,22 @@ class MacroService : AccessibilityService() {
         return out
     }
 
+    // Açılmayan kutu: yeri ve kaç kez açılmadığı (KUTU_BIRAKILDI)
+    private var kotuKutuX = 0f
+    private var kotuKutuY = 0f
+    private var kotuKutuAt = 0L
+    private var kotuKutuSay = 0
+
+    /** Open'dan sonra Collect All için bekleme: pencere normalde yarım saniyede gelir; uzun beklemek atağı durduruyordu */
+    private fun collectBekleMs(): Long = minOf(cfg.collectWait.toLong(), 1500L)
+
     /** Ayni Open'a, kutu toplanmadan tekrar basma */
     private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {
+        // İki kez açılmayan kutu 20 sn yok sayılır (karakter uzakta; aynı kutuya basıp durmasın)
+        if (kotuKutuSay >= 2 && now - kotuKutuAt < 20_000L) {
+            val d = sablonHedef(op, pos)
+            if (kotlin.math.abs(d.x - kotuKutuX) < 80 && kotlin.math.abs(d.y - kotuKutuY) < 80) return true
+        }
         // Dolu envanter yuzunden kapatilan kutu: 45 sn ayni yerdeki Open'a basma
         if (now - doluKutuAt < 45_000) {
             val d = sablonHedef(op, pos)
@@ -7471,7 +7669,18 @@ class MacroService : AccessibilityService() {
                 if (Lisans.foldHesabi() && now - lastOpenAt > 100) collectSabitHedef()?.let { return collectSabitHit(now, it) }
                 if (now > phaseUntil) {
                     val openHala = cfg.openT?.let { findOpen(f, it) }
-                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${cfg.collectWait} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH open_hala_ekranda=${openHala != null} son_open_tap=$lastOpenX,$lastOpenY")
+                    TestLog.olay("KUTU_ZAMAN_ASIMI", "Collect All penceresi çıkmadı", "bekleme_ms=${collectBekleMs()} ankor=$collectAnkorGX,$collectAnkorGY ekran ${screenW}x$screenH open_hala_ekranda=${openHala != null} son_open_tap=$lastOpenX,$lastOpenY")
+                    // Aynı kutu (aynı yer) art arda açılmıyorsa (genelde karakter kutuya uzak): ikinci seferde 20 sn bırak, atağa dön
+                    if (kotuKutuAt > 0 && now - kotuKutuAt < 20_000L &&
+                        kotlin.math.abs(lastOpenX - kotuKutuX) < 80 && kotlin.math.abs(lastOpenY - kotuKutuY) < 80) {
+                        kotuKutuSay++
+                    } else {
+                        kotuKutuSay = 1
+                    }
+                    kotuKutuX = lastOpenX
+                    kotuKutuY = lastOpenY
+                    kotuKutuAt = now
+                    if (kotuKutuSay >= 2) TestLog.olay("KUTU_BIRAKILDI", "kutu 2 kez açılmadı, 20 sn yok sayılıyor", "x=${lastOpenX.toInt()} y=${lastOpenY.toInt()}")
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
@@ -7510,7 +7719,7 @@ class MacroService : AccessibilityService() {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
         TestLog.olay("KUTU_OPEN", "Open basıldı", "grid=${pos[0]},${pos[1]} sablon=${op.w}x${op.h}")
-        phaseUntil = now + cfg.collectWait
+        phaseUntil = now + collectBekleMs()
         // Collect All'ın yeri bu cihazda öğrenildiyse pencere belirir belirmez bas: beklemeyi kısalt
         nextLootScan = now + (if (collectKesin) rand(30, 50) else rand(100, 150))
         val t = sablonHedef(op, pos)

@@ -22,10 +22,10 @@ a{color:var(--altin)}
 <body>
 <main>
 <h1>Projeindir Bot – Gizlilik Politikası</h1>
-<p class="gri">Son güncelleme: 17 Ekim 2026 · Uygulama: Projeindir Bot (Android) · Yayıncı: projeindir.com.tr (Muhammed Salman)</p>
+<p class="gri">Son güncelleme: 20 Ekim 2026 · Uygulama: Projeindir Bot (Android) · Yayıncı: projeindir.com.tr (Muhammed Salman)</p>
 
 <div class="kart">
-<p><b>Kısaca:</b> Projeindir Bot, oyun içi makro aracıdır. Ekran görüntülerini yalnızca telefonunda işler; saklamaz ve göndermez.
+<p><b>Kısaca:</b> Projeindir Bot, oyun içi makro aracıdır. Ekran görüntülerini telefonunda işler. Görüntü yalnızca, yönetimin açtığı hesaplarda ve sen uygulamada "Kabul ediyorum" dersen gönderilir (bkz. 2. madde).
 Sunucumuza yalnızca üyelik bilgilerin ve destek için tanılama raporları gelir. Verilerini satmayız ve üçüncü kişilerle paylaşmayız.
 Uygulamanın giriş ekranında Google AdMob reklamı gösterilir; reklam verilerini Google işler (bkz. 4. madde). Oyunun içinde reklam yoktur.</p>
 </div>
@@ -42,7 +42,10 @@ Uygulamanın giriş ekranında Google AdMob reklamı gösterilir; reklam veriler
 Uygulama, erişilebilirlik iznini istemeden önce bunu uygulama içinde ayrı bir ekranda açıklar ve onayını ister.</p>
 
 <h2>2. Ekran görüntüleri ve yazı tanıma</h2>
-<p>Ekran görüntüleri yalnızca telefonda, bellekte işlenir; saklanmaz ve sunucumuza gönderilmez. Tek istisna: uygulamadaki "Ekran testi"ni sen kullanırsan bir görüntü telefonunun İndirilenler klasörüne kaydedilir.
+<p>Ekran görüntüleri normalde yalnızca telefonda, bellekte işlenir; saklanmaz ve sunucumuza gönderilmez. "Ekran testi"ni sen kullanırsan bir görüntü telefonunun İndirilenler klasörüne kaydedilir.</p>
+<p><b>Görüntü paylaşımı (isteğe bağlı):</b> Yönetim bazı hesaplarda, botun ekran tanımasını geliştirmek için oyun ekranı görüntüsü toplamayı açabilir. Bu durumda uygulama sana ayrı bir ekranda sorar; yalnızca "Kabul ediyorum" dersen, bot çalışırken ve oyun ekrandayken 5 dakikada bir oyun ekranının küçültülmüş bir görüntüsü sunucumuza gönderilir.
+Görüntüde o an oyun ekranında ne varsa (sohbet yazıları, karakter adları dahil) bulunur; başka uygulamalar açıkken görüntü alınmaz. Görüntüleri yalnızca yönetim görür, 30 gün sonra otomatik silinir. İstediğin an Menü → "📸 Görüntü paylaşımı"ndan kapatabilirsin.</p>
+<p>
 Ekrandaki oyun yazılarını okumak için Google Play Hizmetleri'ndeki ML Kit yazı tanıma telefonda çalışır. ML Kit, Google'ın kendi koşulları kapsamında anonim performans ve kullanım ölçümleri gönderebilir; ekran görüntüsünün kendisi gönderilmez.</p>
 
 <h2>3. Topladığımız veriler</h2>
@@ -51,9 +54,10 @@ Ekrandaki oyun yazılarını okumak için Google Play Hizmetleri'ndeki ML Kit ya
 <tr><td>Kullanıcı adı, şifre (sunucuda yalnızca tek yönlü şifrelenmiş hali), üyelik bitiş tarihi</td><td>Üyelik girişi</td><td>Üyelik sürdükçe</td></tr>
 <tr><td>Cihaz kodu (Android kimliğinden türetilmiş kısa özet), son giriş zamanı, uygulama sürümü</td><td>Üyeliği tek cihaza bağlamak, eski sürümü uyarmak</td><td>Üyelik sürdükçe</td></tr>
 <tr><td>Son hata kaydı (uygulamanın kısa hata metni)</td><td>Hata düzeltme</td><td>Yeni hata gelene kadar</td></tr>
+<tr><td>Oyun ekranı görüntüsü (yalnızca görüntü paylaşımını kabul edersen)</td><td>Botun ekran tanımasını geliştirmek</td><td>30 gün, sonra otomatik silinir</td></tr>
 <tr><td>Tanılama raporu: uygulama sürümü, telefon markası/modeli, Android sürümü, ekran boyutu, seçili oyun ve mod, botun olay kaydı (zaman, durma nedeni, bastığı tuşların ekran konumu, oyun içi koordinat, kutu/rota adımları)</td><td>Destek ve hata ayıklama</td><td>30 gün, sonra otomatik silinir</td></tr>
 </table>
-<p>Tanılama raporları bot durduğunda ve bot çalışırken 30 dakikada bir, üyelik hesabınla ilişkilendirilerek gönderilir. Raporlarda ekran görüntüsü, şifre, mesaj, kişi veya ödeme bilgisi yoktur.</p>
+<p>Tanılama raporları bot durduğunda ve bot çalışırken 30 dakikada bir, üyelik hesabınla ilişkilendirilerek gönderilir. Raporlarda ekran görüntüsü, şifre, mesaj, kişi veya ödeme bilgisi yoktur (görüntüler yalnızca yukarıdaki isteğe bağlı paylaşımla gelir).</p>
 
 <h2>4. Reklamlar (Google AdMob)</h2>
 <p>Uygulamanın giriş (ana) ekranında tek bir banner reklam gösterilir. Reklamları Google AdMob sunar. AdMob; reklam kimliği (Android Advertising ID),

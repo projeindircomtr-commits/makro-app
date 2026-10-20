@@ -712,6 +712,7 @@ class MainActivity : Activity() {
         baglanBtn.background = rounded(GREEN, 14)
         sunucuDegistirBtn.visibility = if (ok && acik && Config.botGorunur("ko")) View.VISIBLE else View.GONE
         if (kEdit.text.isEmpty()) kEdit.setText(Lisans.kayitliKullanici(this))
+        izinGuncelle()   // giriş yapıldıysa sıradaki adım: izinler
     }
 
     private fun girisYap() {
@@ -1191,6 +1192,13 @@ class MainActivity : Activity() {
      */
     private fun izinGuncelle() {
         if (!::izinScroll.isInitialized) return
+        // Önce üye girişi: giriş yapılmadan izin ekranı çıkmaz (giriş kartı ana ekranda)
+        if (!Lisans.gecerliSimdi()) {
+            izinScroll.visibility = View.GONE
+            anaScroll.visibility = View.VISIBLE
+            reklamBaslat()
+            return
+        }
         val pil = batteryOk()
         val kisitli = kisitliTamam()
         val acc = accEnabled()

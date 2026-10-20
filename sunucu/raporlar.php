@@ -4,7 +4,7 @@ define('MAKRO', 1);
 define('RAPOR_SADECE_TABLO', 1);
 require_once __DIR__ . '/ortak.php';
 require_once __DIR__ . '/rapor.php';
-session_start();
+oturum_baslat();
 if (empty($_SESSION['admin'])) { header('Location: admin.php'); exit; }
 
 $pdo = db();

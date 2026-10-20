@@ -2,7 +2,7 @@
 // Uye yonetim paneli (telefondan kullanima uygun)
 define('MAKRO', 1);
 require __DIR__ . '/ortak.php';
-session_start();
+oturum_baslat();
 
 if (!file_exists(GIZLI . '/admin.hash')) exit('Önce kurulum.php ile kurulum yap.');
 
@@ -12,13 +12,24 @@ if (empty($_SESSION['admin'])) {
     $h = '';
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         usleep(400000);
-        if (password_verify($_POST['sifre'] ?? '', trim(file_get_contents(GIZLI . '/admin.hash')))) {
+        // Kaba kuvvet koruması: aynı IP'den 10 dakikada 5 yanlış şifre → bekle
+        $pdo = db();
+        $ipA = substr('admin:' . ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+        $pdo->prepare('DELETE FROM makro_denemeler WHERE zaman < ?')->execute([time() - 600]);
+        $q = $pdo->prepare('SELECT COUNT(*) FROM makro_denemeler WHERE ip = ?');
+        $q->execute([$ipA]);
+        if ((int)$q->fetchColumn() >= 5) {
+            $h = 'Çok fazla yanlış deneme. 10 dakika sonra tekrar dene.';
+        } elseif (password_verify($_POST['sifre'] ?? '', trim(file_get_contents(GIZLI . '/admin.hash')))) {
+            $pdo->prepare('DELETE FROM makro_denemeler WHERE ip = ?')->execute([$ipA]);
             session_regenerate_id(true);
             $_SESSION['admin'] = 1;
             $_SESSION['csrf'] = bin2hex(random_bytes(16));
             header('Location: admin.php'); exit;
+        } else {
+            $pdo->prepare('INSERT INTO makro_denemeler (ip, zaman) VALUES (?, ?)')->execute([$ipA, time()]);
+            $h = 'Şifre yanlış';
         }
-        $h = 'Şifre yanlış';
     }
     ?><!doctype html><html lang="tr"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1"><title>Makro Panel</title>
@@ -132,6 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } elseif ($is === 'github_cek') {
             $mesaj = github_cek();
+        } elseif ($is === 'github_token') {
+            $t = preg_replace('/[^A-Za-z0-9_]/', '', (string)($_POST['github_token'] ?? ''));
+            ayar_yaz('github_token', $t);
+            $mesaj = $t !== '' ? '✅ GitHub anahtarı kaydedildi (özel depo çekilebilir).' : '✅ GitHub anahtarı silindi.';
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Silindi.';
@@ -182,8 +197,13 @@ a{color:#e0b04a}
 .bolum-ad{color:#9aa4b2;font-size:12px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
 details summary{cursor:pointer;color:#9aa4b2;font-size:14px;padding:6px 0}
 .ara{width:100%;padding:12px;border-radius:10px;border:0;font-size:15px;margin:6px 0}
+.sekmeler{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.sekme{background:#2d3846;color:#cfd6df;border:1px solid #3b4a5c;padding:9px 11px;border-radius:20px;font-size:13px}
+.sekme b{color:#e0b04a;margin-left:4px}
+.sekme.secili{background:#e0b04a;color:#12161c;border-color:#e0b04a}
+.sekme.secili b{color:#12161c}
 </style></head><body>
-<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a> <a href="raporlar.php" style="font-size:14px;float:right;margin-right:14px">📋 Raporlar</a></h2>
+<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a> <a href="raporlar.php" style="font-size:14px;float:right;margin-right:14px">📋 Raporlar</a> <a href="goruntuler.php" style="font-size:14px;float:right;margin-right:14px">📸 Görüntüler</a></h2>
 <?php if ($mesaj): ?><div class="m"><?= e($mesaj) ?></div><?php endif; ?>
 
 <div class="k"><b>📢 Mesaj gönder</b>
@@ -211,6 +231,11 @@ details summary{cursor:pointer;color:#9aa4b2;font-size:14px;padding:6px 0}
 İndirme sayfası: <b><?= e(indirme_sayfasi_url()) ?></b> (dosyanın gerçek yeri gizli: <?= e($kl) ?>)<br>
 Commit mesajında [yayinla] olan derleme GitHub'da yayınlanır. "GitHub'dan çek"e basınca APK bu klasöre alınır. Eski sürümleri durdurmak için "zorunlu yap"a bas.</p>
 <?= form('github_cek', 0, "⬇ GitHub'dan yeni sürümü çek", '#2b6cb0') ?>
+<form method="post">
+<input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="github_token">
+<input class="tam" name="github_token" type="password" autocomplete="off" value="" placeholder="<?= ayar_al('github_token', '') !== '' ? 'GitHub anahtarı kayıtlı ✓ (değiştirmek için yenisini yaz)' : 'GitHub anahtarı (depo özel ise gerekli)' ?>">
+<button class="tam" style="background:#2d3846;padding:11px">GitHub anahtarını kaydet</button>
+</form>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="apk_klasor">
 <input class="tam" name="apk_klasor" value="<?= e($kl) ?>" placeholder="Klasör (site köküne göre, ör. makro/indir)">
@@ -269,14 +294,35 @@ Yükleme anahtarı (bir daha gösterilmez, kopyala):<br><b><?= e($yeniAnahtar) ?
 </form></div>
 
 <?php
-$sayAktif = 0; $sayBitti = 0;
-foreach ($uyeler as $x) { if ((int)$x['aktif'] && (int)$x['bitis'] > time()) $sayAktif++; else $sayBitti++; }
+/** Üye hangi sekmelerde görünür: aktif / bitti / kapali / bugun / cihazsiz */
+function uye_gruplari(array $u): string {
+    $g = [];
+    if (!(int)$u['aktif']) $g[] = 'kapali';
+    elseif ((int)$u['bitis'] > time()) $g[] = 'aktif';
+    else $g[] = 'bitti';
+    if ((int)($u['olusturma'] ?? 0) >= strtotime('today')) $g[] = 'bugun';
+    if (empty($u['cihaz'])) $g[] = 'cihazsiz';
+    return implode(' ', $g);
+}
+$say = ['tum' => count($uyeler), 'aktif' => 0, 'bitti' => 0, 'kapali' => 0, 'bugun' => 0, 'cihazsiz' => 0];
+foreach ($uyeler as $x) foreach (explode(' ', uye_gruplari($x)) as $g) $say[$g]++;
+$sekmeler = ['tum' => 'Tümü', 'aktif' => 'Aktif', 'bitti' => 'Süresi dolan', 'kapali' => 'Kapalı', 'bugun' => 'Bugün eklenen', 'cihazsiz' => 'Cihaz bağlamamış'];
 ?>
-<div class="k"><b>👥 Üyeler</b> <span class="gri">• <?= count($uyeler) ?> üye • <span class="yesil"><?= $sayAktif ?> aktif</span> • <span class="kirmizi"><?= $sayBitti ?> kapalı/süresi bitmiş</span></span>
-<input class="ara" id="ara" placeholder="🔍 Üye ara (kullanıcı adı ya da isim)" oninput="uyeAra(this.value)">
+<div class="k"><b>👥 Üyeler</b> <span class="gri">• <?= count($uyeler) ?> üye</span>
+<div class="sekmeler">
+<?php foreach ($sekmeler as $kod => $ad): ?>
+<button type="button" class="sekme<?= $kod === 'tum' ? ' secili' : '' ?>" data-g="<?= $kod ?>" onclick="sekmeSec('<?= $kod ?>')"><?= $ad ?> <b><?= (int)$say[$kod] ?></b></button>
+<?php endforeach; ?>
+</div>
+<input class="ara" id="ara" placeholder="🔍 Üye ara (kullanıcı adı ya da isim)" oninput="uyeSuz()">
+<div class="gri" id="bos" style="display:none">Bu sekmede üye yok.</div>
 </div>
 <script>
-function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(function(d){d.style.display=d.dataset.ad.indexOf(q)>=0?'':'none';});}
+var sekme='tum';
+function sekmeSec(g){sekme=g;document.querySelectorAll('.sekme').forEach(function(b){b.classList.toggle('secili',b.dataset.g===g);});uyeSuz();}
+function uyeSuz(){var q=document.getElementById('ara').value.toLowerCase(),n=0;
+document.querySelectorAll('.uye').forEach(function(d){var ok=d.dataset.ad.indexOf(q)>=0&&(sekme==='tum'||(' '+d.dataset.g+' ').indexOf(' '+sekme+' ')>=0);d.style.display=ok?'':'none';if(ok)n++;});
+document.getElementById('bos').style.display=n?'none':'';}
 </script>
 
 <?php foreach ($uyeler as $u):
@@ -284,7 +330,7 @@ function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(f
     $durum = !(int)$u['aktif'] ? '<span class="kirmizi">Kapalı</span>'
         : ($kalan > 0 ? '<span class="yesil">' . e(kalan_yazi((int)$u['bitis'])) . '</span>' : '<span class="kirmizi">Süresi doldu</span>');
 ?>
-<div class="k uye" data-ad="<?= e(function_exists('mb_strtolower') ? mb_strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? '')) : strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? ''))) ?>">
+<div class="k uye" data-g="<?= uye_gruplari($u) ?>" data-ad="<?= e(function_exists('mb_strtolower') ? mb_strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? '')) : strtolower($u['kullanici'] . ' ' . ($u['isim'] ?? ''))) ?>">
 <div class="uye-bas">
 <div><span class="ad"><?= e($u['kullanici']) ?></span> <?= $u['isim'] ? '<span class="gri">(' . e($u['isim']) . ')</span>' : '' ?></div>
 <div>
@@ -310,7 +356,7 @@ function uyeAra(q){q=q.toLowerCase();document.querySelectorAll('.uye').forEach(f
 <div class="bolum"><div class="bolum-ad">Bölümler (dokun: aç/kapat, sonra kaydet)</div>
 <form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="ozellik_uye"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
 <div class="chips">
-<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test', 'fold' => '📱 Fold/Tablet'] as $kod => $ad): ?>
+<?php foreach (['farm' => '🌾 Farm', 'pk' => '⚔ PK', 'pazar' => '🏪 Pazar', 'genie' => '🧞 Genie', 'test' => '🧪 Test', 'fold' => '📱 Fold/Tablet', 'veri' => '📸 Veri'] as $kod => $ad): ?>
 <label class="chip"><input type="checkbox" name="oz[]" value="<?= $kod ?>" <?= in_array($kod, $uo, true) ? 'checked' : '' ?>><span><?= $ad ?></span></label>
 <?php endforeach; ?>
 </div>

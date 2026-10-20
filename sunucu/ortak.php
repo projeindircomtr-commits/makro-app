@@ -20,6 +20,22 @@ function db(): PDO {
 
 function e($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
+/** Panel oturumu: çerez JavaScript'ten okunamaz, başka siteden gönderilmez, HTTPS'te şifreli; 2 saat işlem yoksa düşer */
+function oturum_baslat(): void {
+    session_set_cookie_params([
+        'lifetime' => 0, 'path' => '/', 'httponly' => true, 'samesite' => 'Strict',
+        'secure' => (($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off'),
+    ]);
+    session_start();
+    $son = (int)($_SESSION['son_islem'] ?? 0);
+    if (!empty($_SESSION['admin']) && $son > 0 && time() - $son > 7200) {
+        $_SESSION = [];
+        session_destroy();
+        session_start();
+    }
+    $_SESSION['son_islem'] = time();
+}
+
 function rastgele_sifre(int $n = 8): string {
     $h = 'abcdefghjkmnpqrstuvwxyz23456789';
     $s = '';
@@ -60,7 +76,7 @@ function sema_guncelle(): void {
     file_put_contents($kilit, date('c'));
 }
 
-const OZELLIKLER = ['farm', 'pk', 'pazar', 'genie', 'test', 'fold'];
+const OZELLIKLER = ['farm', 'pk', 'pazar', 'genie', 'test', 'fold', 'veri'];
 
 /** "farm,pk" gibi metni temizler: sadece bilinen bolumler kalir (farm da artik panelden verilir) */
 function ozellik_temizle(string $s): string {
@@ -123,7 +139,9 @@ function github_cek(): string {
     $apkAdi = 'ProjeindirBot.apk';
     @set_time_limit(300);
 
-    $istek = function (string $url, ?string $dosya = null) {
+    // Depo özel (private) yapılırsa: panelden girilen salt-okunur GitHub anahtarı ile istek
+    $tok = trim(ayar_al('github_token', ''));
+    $istek = function (string $url, ?string $dosya = null, string $kabul = 'application/vnd.github+json') use ($tok) {
         $ch = curl_init($url);
         $fp = null;
         curl_setopt_array($ch, [
@@ -132,7 +150,7 @@ function github_cek(): string {
             CURLOPT_CONNECTTIMEOUT => 20,
             CURLOPT_TIMEOUT => 240,
             CURLOPT_USERAGENT => 'ProjeindirBot-Panel',
-            CURLOPT_HTTPHEADER => ['Accept: application/vnd.github+json'],
+            CURLOPT_HTTPHEADER => array_merge(['Accept: ' . $kabul], $tok !== '' ? ['Authorization: Bearer ' . $tok] : []),
         ]);
         if ($dosya !== null) {
             $fp = fopen($dosya, 'wb');
@@ -165,7 +183,11 @@ function github_cek(): string {
 
         $url = null;
         foreach (($r['assets'] ?? []) as $a) {
-            if (($a['name'] ?? '') === $apkAdi) { $url = (string)$a['browser_download_url']; break; }
+            if (($a['name'] ?? '') === $apkAdi) {
+                // Özel depoda tarayıcı linki çalışmaz: API varlık adresinden (anahtarla) indirilir
+                $url = $tok !== '' ? (string)($a['url'] ?? '') : (string)$a['browser_download_url'];
+                break;
+            }
         }
         if ($url === null) return "Sürüm $surum içinde $apkAdi bulunamadı.";
 
@@ -177,7 +199,7 @@ function github_cek(): string {
         }
         $hedef = $klasor . '/' . $apkAdi;
         $gec = $hedef . '.tmp';
-        [$ok, $kod, $hata] = $istek($url, $gec);
+        [$ok, $kod, $hata] = $istek($url, $gec, $tok !== '' ? 'application/octet-stream' : 'application/vnd.github+json');
         if ($ok === false || $kod !== 200) { @unlink($gec); return "APK indirilemedi (kod $kod) $hata"; }
 
         $boyut = (int)filesize($gec);
