@@ -1338,6 +1338,7 @@ class MacroService : AccessibilityService() {
                     } else veriOnayKarti()
                 }
             ) else emptyList()) + listOf<Pair<String, () -> Unit>>(
+                "✏ Ekranı çizerek işaretle" to { if (Config.koMu(this)) toast("KO'da gerekmiyor: barları bot kendisi buluyor") else cizimEditoru() },
                 "📍 Slot kilidi (alan sınırı)" to { if (Config.koMu(this)) toast("KO'da koordinat okunmuyor, slot kilidi yok") else slotKilidiMenu() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
@@ -1608,6 +1609,187 @@ class MacroService : AccessibilityService() {
         ortadaGoster(box, dp(440))
     }
 
+    // ================= ✏ Ekranı çizerek işaretle =================
+    // Kullanıcı oyun ekranının üstünde parmağıyla kare çizer: HP/MP çubuğu, mob can çubuğu, Collect All, koordinat.
+    // Bot bu telefonda tam o yerlere bakar (hazır ayarların önüne geçer). "Veri" izni olan ve kabul eden
+    // üyede çizim + o anki ekran görüntüsü eğitim verisi olarak siteye gider (yapay zekâ için etiketli örnek).
+    private val CIZIM_ETIKET = linkedMapOf(
+        "hp" to ("HP çubuğu" to 0xFFFF4D4D.toInt()),
+        "mp" to ("MP çubuğu" to 0xFF4DA3FF.toInt()),
+        "hedef" to ("Mob can çubuğu" to 0xFFFF9F1A.toInt()),
+        "collect" to ("Collect All penceresi" to 0xFF39D98A.toInt()),
+        "koord" to ("Koordinat yazısı" to 0xFFFFE14D.toInt())
+    )
+    private var cizimKok: FrameLayout? = null
+    @Volatile private var cizimKoord: IntArray? = null
+
+    private fun cizimAnahtar() = "cizim_${ekranAnahtar()}"
+
+    /** Kayıtlı çizim: etiket -> [x1,y1,x2,y2] (ekran pikseli) */
+    private fun cizimOku(): Map<String, IntArray> {
+        val m = LinkedHashMap<String, IntArray>()
+        try {
+            val o = JSONObject(profOku(cizimAnahtar()) ?: return m)
+            for (k in CIZIM_ETIKET.keys) {
+                val a = o.optJSONArray(k) ?: continue
+                if (a.length() == 4) m[k] = IntArray(4) { a.getInt(it) }
+            }
+        } catch (e: Exception) { }
+        return m
+    }
+
+    /** Çizilen yerleri botun okuduğu noktalara uygular (olcekUygula sonunda ve kaydedince) */
+    private fun cizimUygula() {
+        val m = cizimOku()
+        cizimKoord = m["koord"]?.let { intArrayOf((it[0] - 4).coerceAtLeast(0), (it[1] - 3).coerceAtLeast(0), (it[2] + 4).coerceAtMost(screenW - 1), (it[3] + 3).coerceAtMost(screenH - 1)) }
+        if (Config.koMu(this) || m.isEmpty()) return
+        fun cy(r: IntArray) = (r[1] + r[3]) / 2
+        m["hp"]?.let { r ->
+            val p = maxOf(2, (r[2] - r[0]) / 60)
+            hpBar = intArrayOf(r[0] + p, r[2] - p, cy(r))
+            hpSol = intArrayOf(r[0] + maxOf(3, (r[2] - r[0]) * 3 / 100), cy(r))
+            cfg.hp = RenkNokta((r[0] + r[2]) / 2, cy(r), 0)
+        }
+        m["mp"]?.let { r ->
+            val p = maxOf(2, (r[2] - r[0]) / 60)
+            mpBar = intArrayOf(r[0] + p, r[2] - p, cy(r))
+            cfg.mp = RenkNokta((r[0] + r[2]) / 2, cy(r), 0)
+        }
+        m["hedef"]?.let { r ->
+            tgtStrip = intArrayOf(r[0], r[2], cy(r))
+            cfg.tgtBar = RenkNokta((r[0] + r[2]) / 2, cy(r), 0)
+            tgtProfilKesin = true
+            tgtKaydedilecek = null
+        }
+        m["collect"]?.let { r ->
+            // Şablon sol üstünün ızgara yeri; çevresinde (geniş payla) aranır, tam yer ilk kutuda öğrenilir
+            collectKesin = false
+            collectAnkorGX = ScreenSampler.toGrid(r[0])
+            collectAnkorGY = ScreenSampler.toGrid(r[1])
+        }
+        TestLog.olay("CIZIM_UYGULANDI", "kullanıcının çizdiği yerler kullanılıyor", m.entries.joinToString(" ") { "${it.key}=${it.value.joinToString(",")}" })
+    }
+
+    private fun cizimKapat() {
+        cizimKok?.let { safeRemove(it) }
+        cizimKok = null
+    }
+
+    private fun cizimEditoru(sonraki: (() -> Unit)? = null) {
+        if (running) { toast("Önce botu durdur"); return }
+        removeOverlay(); closeEditor(); cizimKapat()
+        updateScreenSize()
+        // Eğitim verisi için: çizim ekranı açılmadan ÖNCEKİ oyun görüntüsü (üstünde çizim katmanı olmasın)
+        val kare = if (ScreenSampler.running) ScreenSampler.tamKare() else null
+        val renk = CIZIM_ETIKET.mapValues { it.value.second }
+        val ad = CIZIM_ETIKET.mapValues { it.value.first }
+        val cv = CizimView(this, renk, ad)
+        for ((k, v) in cizimOku()) cv.kutular[k] = Rect(v[0], v[1], v[2], v[3])
+        val kok = FrameLayout(this)
+        kok.addView(cv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        val cubuk = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xE6101318.toInt())
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        val bilgi = TextView(this).apply { setTextColor(Color.WHITE); textSize = 12f }
+        val sira = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val chipler = HashMap<String, TextView>()
+        fun yenile() {
+            for ((k, t) in chipler) {
+                val sec = k == cv.secili
+                t.background = GradientDrawable().apply {
+                    cornerRadius = dp(14).toFloat(); setColor(if (sec) renk[k]!! else 0xFF2A313B.toInt()); setStroke(dp(2), renk[k]!!)
+                }
+                t.setTextColor(if (sec) Color.BLACK else Color.WHITE)
+                t.text = (if (cv.kutular.containsKey(k)) "✓ " else "") + ad[k]
+            }
+            bilgi.text = "1) Aşağıdan ne çizeceğini seç  2) Parmağınla ekranda o yerin etrafına kare çiz.  Seçili: ${ad[cv.secili]}" +
+                (if (cv.secili == "hedef") "\n(Mob can çubuğu için önce oyunda bir mob seçili olsun)" else if (cv.secili == "collect") "\n(Collect All için önce bir kutu aç, pencere açıkken bu ekrana gel)" else "")
+        }
+        for (k in CIZIM_ETIKET.keys) {
+            val t = TextView(this).apply {
+                textSize = 12f; setPadding(dp(10), dp(6), dp(10), dp(6))
+                setOnClickListener { cv.secili = k; yenile() }
+            }
+            chipler[k] = t
+            sira.addView(t, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6) })
+        }
+        val kaydir = android.widget.HorizontalScrollView(this).apply { addView(sira); isHorizontalScrollBarEnabled = false }
+        val alt = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        fun dugme(yazi: String, r: Int, is_: () -> Unit) = TextView(this).apply {
+            text = yazi; textSize = 13f; setTextColor(Color.WHITE); setPadding(dp(12), dp(7), dp(12), dp(7))
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(r) }
+            setOnClickListener { is_() }
+        }.also { alt.addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) }) }
+        var ustte = false
+        dugme("⇅ Taşı", 0xFF3A4350.toInt()) {
+            ustte = !ustte
+            (cubuk.layoutParams as FrameLayout.LayoutParams).gravity = (if (ustte) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+            cubuk.requestLayout()
+        }
+        dugme("🗑 Seçiliyi sil", 0xFF6B3030.toInt()) { cv.kutular.remove(cv.secili); cv.invalidate(); yenile() }
+        dugme("İptal", 0xFF3A4350.toInt()) { cizimKapat(); kare?.recycle(); sonraki?.invoke() }
+        dugme("💾 Kaydet", 0xFF2E9E5B.toInt()) {
+            val o = JSONObject()
+            for ((k, r) in cv.kutular) o.put(k, org.json.JSONArray().put(r.left).put(r.top).put(r.right).put(r.bottom))
+            profYaz(cizimAnahtar(), o.toString())
+            cizimUygula()
+            cizimKapat()
+            toast(if (cv.kutular.isEmpty()) "Çizim temizlendi, bot hazır ayarları kullanacak" else "✅ Kaydedildi: bot bu telefonda çizdiğin yerlere bakacak")
+            TestLog.olay("CIZIM_KAYDEDILDI", "ekran çizerek işaretlendi", o.toString())
+            if (kare != null && cv.kutular.isNotEmpty()) cizimGonder(kare, LinkedHashMap(cv.kutular)) else kare?.recycle()
+            sonraki?.invoke()
+        }
+        cubuk.addView(bilgi)
+        cubuk.addView(kaydir, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        cubuk.addView(alt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        kok.addView(cubuk, FrameLayout.LayoutParams(minOf(screenW - dp(16), dp(620)), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(8); topMargin = dp(8) })
+        cv.degisti = { yenile() }
+        yenile()
+        try {
+            wm.addView(kok, lp(screenW, screenH).apply { x = 0; y = 0 })
+            cizimKok = kok
+        } catch (e: Exception) {
+            kare?.recycle()
+            toast("Çizim ekranı açılamadı")
+        }
+    }
+
+    /** Etiketli eğitim örneği: sadece "Veri" verilmiş VE görüntü paylaşımını kabul etmiş üyede gönderilir */
+    private fun cizimGonder(kare: Bitmap, kutular: Map<String, Rect>) {
+        if (!Lisans.veriHesabi() || veriKarar() != 1) { kare.recycle(); return }
+        ah.post {
+            try {
+                val token = Lisans.token(this)
+                val url = Lisans.yanUrl(this, "goruntu.php") ?: return@post
+                if (token.isEmpty()) return@post
+                // Kutular görüntünün kendi çözünürlüğüne çevrilir (yarı çözünürlük)
+                val sx = kare.width.toFloat() / maxOf(1, screenW)
+                val sy = kare.height.toFloat() / maxOf(1, screenH)
+                val et = JSONObject().put("w", kare.width).put("h", kare.height)
+                val kj = JSONObject()
+                for ((k, r) in kutular) kj.put(k, org.json.JSONArray().put((r.left * sx).toInt()).put((r.top * sy).toInt()).put((r.right * sx).toInt()).put((r.bottom * sy).toInt()))
+                et.put("kutular", kj)
+                val bos = ByteArrayOutputStream()
+                kare.compress(Bitmap.CompressFormat.JPEG, 80, bos)
+                val b64 = android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+                fun k(v: String) = URLEncoder.encode(v, "UTF-8")
+                val govde = "token=" + k(token) + "&oyun=" + k(Config.oyun(this)) + "&etiket=cizim&etiketler=" + k(et.toString()) + "&resim=" + k(b64)
+                val bag = URL(url).openConnection() as HttpURLConnection
+                bag.requestMethod = "POST"; bag.doOutput = true; bag.connectTimeout = 8000; bag.readTimeout = 20000
+                bag.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+                bag.outputStream.use { it.write(govde.toByteArray(Charsets.UTF_8)) }
+                bag.inputStream.bufferedReader().use { it.readText() }
+                bag.disconnect()
+            } catch (e: Exception) {
+            } catch (e: OutOfMemoryError) {
+            } finally {
+                kare.recycle()
+            }
+        }
+    }
+
     // ================= Oyun icinde tus duzenleme =================
 
     private fun closeEditor() {
@@ -1653,8 +1835,9 @@ class MacroService : AccessibilityService() {
                 "• Görseldeki işaretli yerlerin (HP / MP çubukları, mob can çubuğu) ÜSTÜNE hiçbir şey koyma.\n" +
                 "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa panelin solundaki 🔽 düğmesine bas.\n" +
                 "• Ekran rengi filtresi, gece modu açma; ekranı kapatma.\n" +
-                "• Oyunda envanter, harita gibi pencereleri açık bırakma.", listOf(
-                sonra,
+                "• Oyunda envanter, harita gibi pencereleri açık bırakma.\n\n" +
+                (if (Config.koMu(this)) "" else "İstersen '✏ Çizerek işaretle' ile HP/MP çubuklarının, mob can çubuğunun ve koordinat yazısının yerini parmağınla çiz: bot bu telefonda tam oraya bakar."), listOf(
+                sonra) + (if (Config.koMu(this)) emptyList() else listOf("✏ Çizerek işaretle" to { kartKapat(); cizimEditoru(sonraki = { sihirbazAdim = 3; kurulumSonrakiAdim() }) })) + listOf(
                 "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }), kurulumResmi(1))
             3 -> kartGoster("Adım 3/$n  ·  FARM YERİNE GİT",
                 "Karakterini kasacağın yere (slotuna) götür. Oraya varınca 'Vardım'a bas.", listOf(
@@ -3578,6 +3761,8 @@ class MacroService : AccessibilityService() {
         toast("▶ BOT BAŞLADI")
         stepPlanla( 700)
         h.postDelayed(kutuGozcu, 900)
+        olumSay = 0
+        h.postDelayed(olumGozcu, 1000)
         h.postDelayed(botKontrolGozcu, 3000)
         ui.removeCallbacks(statusTick)
         ui.post(statusTick)
@@ -4183,7 +4368,8 @@ class MacroService : AccessibilityService() {
         val y1 = (if (nwK) hoy + 6f * hs else if (rvK) minOf(screenH * 0.142f, hoy + 173f * hs) else minOf(screenH * 0.1245f, hoy + 152f * hs)).toInt().coerceAtLeast(0)
         val x2 = (if (nwK) hox + 232f * hs else if (rvK) maxOf(screenW * 0.098f, hox + 256f * hs) else maxOf(screenW * 0.1400f, hox + 380f * hs)).toInt().coerceAtMost(screenW - 1)
         val y2 = (if (nwK) hoy + 38f * hs else if (rvK) maxOf(screenH * 0.168f, hoy + 204f * hs) else maxOf(screenH * 0.1660f, hoy + 203f * hs)).toInt().coerceAtMost(screenH - 1)
-        val r = ScreenSampler.bolge(x1, y1, x2, y2) ?: return
+        val ck = cizimKoord
+        val r = (if (ck != null) ScreenSampler.bolge(ck[0], ck[1], ck[2], ck[3]) else ScreenSampler.bolge(x1, y1, x2, y2)) ?: return
         val w = r.first
         val hh = r.second
         val px = r.third
@@ -6077,6 +6263,27 @@ class MacroService : AccessibilityService() {
 
     /** worker thread'inde calisir; her adimda tek dokunus, bitince sonraki planlanir */
     /** Adimi planla; ayni anda tek adim bekler (kutu araya girince cift dongu olusmasin) */
+    // Mob ölünce adım gecikmesini (min/max bekleme) beklemeden hemen yeni mob seç: hedef barına 40 ms'de bir bakar
+    private var olumSay = 0
+    private val olumGozcu = object : Runnable {
+        override fun run() {
+            if (!running) return
+            try {
+                val bar = cfg.tgtBar
+                if (!pkAktif && !koAktif && !tapping && oncekiCanli && bar != null && ScreenSampler.running &&
+                    SystemClock.uptimeMillis() >= menzilBekleUntil && cfg.points.any { it.type == "hedef" }) {
+                    if (!targetAlive(bar)) {
+                        // 2 okuma üst üste (≈40 ms) bar yoksa öldü say: tek karelik titreme yanlış tetiklemesin
+                        if (++olumSay >= 2) { olumSay = 0; stepPlanla(0) }
+                    } else olumSay = 0
+                } else olumSay = 0
+            } catch (e: Exception) {
+                hataKaydet("olum", e)
+            }
+            h.postDelayed(this, 40)
+        }
+    }
+
     private fun stepPlanla(ms: Long) {
         h.removeCallbacks(stepR)
         h.postDelayed(stepR, ms)
@@ -6744,6 +6951,7 @@ class MacroService : AccessibilityService() {
             skillReady.clear()
             skillLast.clear()
         }
+        cizimUygula()   // kullanıcı ekranı çizerek işaretlediyse o yerler hazır ayarların önüne geçer
         if (yedek) {
             toast("Ekran tanınamadı, varsayılan ayarla devam. ⋯ → 🧪 Ekran testi ile kontrol edebilirsin")
         } else {
@@ -7226,8 +7434,7 @@ class MacroService : AccessibilityService() {
 
     private fun pick(now: Long): Nokta? {
         if (pkAktif) return pkSec(now)
-        // Open'a basıldı, Collect All bekleniyor: yeni mob seçip kutudan uzaklaşma (en fazla ~1,5 sn)
-        if (lootPhase == Loot.COLLECT_BEKLE && now - lastOpenAt < collectBekleMs()) return null
+        // Kutu toplanırken de bekleme yok: mob ölünce yeni mob hemen seçilir, saldırı sürer (kutu paralel toplanır)
         val pts = cfg.points
         val target = pts.firstOrNull { it.type == "hedef" }
         val bar = cfg.tgtBar

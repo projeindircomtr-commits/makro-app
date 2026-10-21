@@ -17,9 +17,33 @@ function goruntu_tablo(PDO $pdo): void {
         oyun VARCHAR(10) NULL,
         etiket VARCHAR(40) NULL,
         boyut INT NOT NULL,
+        etiketler TEXT NULL,
         INDEX (uye_id, zaman),
         INDEX (zaman)
     ) CHARACTER SET utf8mb4");
+    // v76: eski tabloya "etiketler" (kullanıcının çizdiği kutular, JSON) kolonu eklenir
+    static $bakildi = false;
+    if (!$bakildi) {
+        $bakildi = true;
+        try { $pdo->query('SELECT etiketler FROM makro_goruntuler LIMIT 0'); }
+        catch (Throwable $e) { $pdo->exec('ALTER TABLE makro_goruntuler ADD COLUMN etiketler TEXT NULL'); }
+    }
+}
+
+/** Uygulamadan gelen etiket JSON'unu doğrular: {"w":..,"h":..,"kutular":{"hp":[x1,y1,x2,y2],...}} */
+function etiket_temizle(string $ham): ?string {
+    $j = json_decode($ham, true);
+    if (!is_array($j) || !is_array($j['kutular'] ?? null)) return null;
+    $w = (int)($j['w'] ?? 0); $h = (int)($j['h'] ?? 0);
+    if ($w < 10 || $h < 10 || $w > 5000 || $h > 5000) return null;
+    $k = [];
+    foreach ($j['kutular'] as $ad => $r) {
+        if (!in_array($ad, ['hp', 'mp', 'hedef', 'collect', 'koord', 'open', 'kutu'], true) || !is_array($r) || count($r) !== 4) continue;
+        $r = array_map('intval', array_values($r));
+        if ($r[2] <= $r[0] || $r[3] <= $r[1]) continue;
+        $k[$ad] = [max(0, $r[0]), max(0, $r[1]), min($w, $r[2]), min($h, $r[3])];
+    }
+    return $k ? json_encode(['w' => $w, 'h' => $h, 'kutular' => $k]) : null;
 }
 
 function goruntu_yol(int $id): string { return GORUNTU_DIZIN . '/' . $id . '.jpg'; }
@@ -53,6 +77,7 @@ $bilgi = @getimagesizefromstring($jpg);
 if (!$bilgi || ($bilgi[2] ?? 0) !== IMAGETYPE_JPEG) goruntu_cevap(false, 'JPEG değil');
 $oyun = substr(preg_replace('/[^a-z]/', '', strtolower((string)($_POST['oyun'] ?? ''))), 0, 10);
 $etiket = substr(preg_replace('/[^a-zA-Z0-9_\-]/', '', (string)($_POST['etiket'] ?? '')), 0, 40);
+$etiketler = etiket_temizle(substr((string)($_POST['etiketler'] ?? ''), 0, 4000));
 
 try {
     $pdo = db();
@@ -67,8 +92,8 @@ try {
     $q->execute([(int)$u['id'], time() - 3600]);
     if ((int)$q->fetchColumn() >= GORUNTU_SAAT_SINIR) goruntu_cevap(false, 'Çok sık');
     if (!is_dir(GORUNTU_DIZIN)) mkdir(GORUNTU_DIZIN, 0700, true);
-    $pdo->prepare('INSERT INTO makro_goruntuler (uye_id, zaman, oyun, etiket, boyut) VALUES (?, ?, ?, ?, ?)')
-        ->execute([(int)$u['id'], time(), $oyun, $etiket, strlen($jpg)]);
+    $pdo->prepare('INSERT INTO makro_goruntuler (uye_id, zaman, oyun, etiket, boyut, etiketler) VALUES (?, ?, ?, ?, ?, ?)')
+        ->execute([(int)$u['id'], time(), $oyun, $etiket, strlen($jpg), $etiketler]);
     $gid = (int)$pdo->lastInsertId();
     if (file_put_contents(goruntu_yol($gid), $jpg) === false) {
         $pdo->prepare('DELETE FROM makro_goruntuler WHERE id = ?')->execute([$gid]);
