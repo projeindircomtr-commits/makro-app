@@ -1614,12 +1614,15 @@ class MacroService : AccessibilityService() {
     // Bot bu telefonda tam o yerlere bakar (hazır ayarların önüne geçer). "Veri" izni olan ve kabul eden
     // üyede çizim + o anki ekran görüntüsü eğitim verisi olarak siteye gider (yapay zekâ için etiketli örnek).
     private val CIZIM_ETIKET = linkedMapOf(
+        "hud" to ("HP / MP / Koordinat alanı" to 0xFFFFFFFF.toInt()),
         "hp" to ("HP çubuğu" to 0xFFFF4D4D.toInt()),
         "mp" to ("MP çubuğu" to 0xFF4DA3FF.toInt()),
         "hedef" to ("Mob can çubuğu" to 0xFFFF9F1A.toInt()),
         "collect" to ("Collect All penceresi" to 0xFF39D98A.toInt()),
         "koord" to ("Koordinat yazısı" to 0xFFFFE14D.toInt())
     )
+    /** Kullanıcının çizdiği 3 şey: HP/MP/koordinat TEK karede (içinden bot kendisi ayırır), mob can çubuğu, Collect All */
+    private val CIZIM_SECIM = listOf("hud", "hedef", "collect")
     private var cizimKok: FrameLayout? = null
     @Volatile private var cizimKoord: IntArray? = null
 
@@ -1683,7 +1686,7 @@ class MacroService : AccessibilityService() {
         val kare = if (ScreenSampler.running) ScreenSampler.tamKare() else null
         val renk = CIZIM_ETIKET.mapValues { it.value.second }
         val ad = CIZIM_ETIKET.mapValues { it.value.first }
-        val cv = CizimView(this, renk, ad)
+        val cv = CizimView(this, renk, ad, kare, screenW, screenH)
         for ((k, v) in cizimOku()) cv.kutular[k] = Rect(v[0], v[1], v[2], v[3])
         val kok = FrameLayout(this)
         kok.addView(cv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -1704,10 +1707,13 @@ class MacroService : AccessibilityService() {
                 t.setTextColor(if (sec) Color.BLACK else Color.WHITE)
                 t.text = (if (cv.kutular.containsKey(k)) "✓ " else "") + ad[k]
             }
-            bilgi.text = "1) Aşağıdan ne çizeceğini seç  2) Parmağınla ekranda o yerin etrafına kare çiz.  Seçili: ${ad[cv.secili]}" +
-                (if (cv.secili == "hedef") "\n(Mob can çubuğu için önce oyunda bir mob seçili olsun)" else if (cv.secili == "collect") "\n(Collect All için önce bir kutu aç, pencere açıkken bu ekrana gel)" else "")
+            bilgi.text = when (cv.secili) {
+                "hud" -> "✏ Sol üstte HP çubuğu + MP çubuğu + koordinatın HEPSİNİ içine alan TEK bir kare çiz. Bot içinden kendisi ayırır."
+                "hedef" -> "👆 Mob can çubuğuna bir kere DOKUN, bot çubuğu kendisi bulur. (Önce oyunda bir mob seçili olsun.)"
+                else -> "✏ Collect All penceresinin etrafına kare çiz. (Önce bir kutu aç, pencere açıkken gel.)"
+            } + " Yuvarlak tutamaçlarla büyütüp küçültebilirsin."
         }
-        for (k in CIZIM_ETIKET.keys) {
+        for (k in CIZIM_SECIM) {
             val t = TextView(this).apply {
                 textSize = 12f; setPadding(dp(10), dp(6), dp(10), dp(6))
                 setOnClickListener { cv.secili = k; yenile() }
@@ -1730,29 +1736,114 @@ class MacroService : AccessibilityService() {
         }
         dugme("🗑 Seçiliyi sil", 0xFF6B3030.toInt()) { cv.kutular.remove(cv.secili); cv.invalidate(); yenile() }
         dugme("İptal", 0xFF3A4350.toInt()) { cizimKapat(); kare?.recycle(); sonraki?.invoke() }
-        dugme("💾 Kaydet", 0xFF2E9E5B.toInt()) {
+        var kaydediliyor = false
+        fun kaydet(kutular: Map<String, Rect>, not: String) {
             val o = JSONObject()
-            for ((k, r) in cv.kutular) o.put(k, org.json.JSONArray().put(r.left).put(r.top).put(r.right).put(r.bottom))
+            for ((k, r) in kutular) o.put(k, org.json.JSONArray().put(r.left).put(r.top).put(r.right).put(r.bottom))
             profYaz(cizimAnahtar(), o.toString())
             cizimUygula()
             cizimKapat()
-            toast(if (cv.kutular.isEmpty()) "Çizim temizlendi, bot hazır ayarları kullanacak" else "✅ Kaydedildi: bot bu telefonda çizdiğin yerlere bakacak")
+            toast(if (kutular.isEmpty()) "Çizim temizlendi, bot hazır ayarları kullanacak" else "✅ Kaydedildi$not")
             TestLog.olay("CIZIM_KAYDEDILDI", "ekran çizerek işaretlendi", o.toString())
-            if (kare != null && cv.kutular.isNotEmpty()) cizimGonder(kare, LinkedHashMap(cv.kutular)) else kare?.recycle()
+            if (kare != null && kutular.isNotEmpty()) cizimGonder(kare, LinkedHashMap(kutular)) else kare?.recycle()
             sonraki?.invoke()
+        }
+        dugme("💾 Kaydet", 0xFF2E9E5B.toInt()) {
+            if (kaydediliyor) return@dugme
+            val hud = cv.kutular["hud"]
+            val kutular = LinkedHashMap(cv.kutular)
+            if (hud == null || kare == null) { kaydet(kutular, ""); return@dugme }
+            kaydediliyor = true
+            bilgi.text = "🔍 Kare inceleniyor: HP, MP ve koordinat aranıyor..."
+            hudCoz(kare, hud) { bulunan ->
+                for (k in listOf("hp", "mp", "koord")) kutular.remove(k)
+                kutular.putAll(bulunan)
+                val eksik = listOf("hp" to "HP", "mp" to "MP", "koord" to "koordinat").filter { !bulunan.containsKey(it.first) }.map { it.second }
+                kaydet(kutular, if (eksik.isEmpty()) ": HP, MP ve koordinat bulundu ✓" else ". Bulunamayan: ${eksik.joinToString()} (onlar için hazır ayar kullanılır)")
+            }
         }
         cubuk.addView(bilgi)
         cubuk.addView(kaydir, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         cubuk.addView(alt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         kok.addView(cubuk, FrameLayout.LayoutParams(minOf(screenW - dp(16), dp(620)), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(8); topMargin = dp(8) })
-        cv.degisti = { yenile() }
+        cv.degisti = {
+            if (cv.secili == "hud") { cv.kutular.remove("hp"); cv.kutular.remove("mp"); cv.kutular.remove("koord"); cv.invalidate() }
+            yenile()
+        }
         yenile()
         try {
-            wm.addView(kok, lp(screenW, screenH).apply { x = 0; y = 0 })
+            // Donanım hızlandırma: yoksa tam ekran katman her parmak hareketinde işlemciyle çizilir, ekran ve bot kasar
+            wm.addView(kok, lp(screenW, screenH).apply { x = 0; y = 0; flags = flags or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED })
             cizimKok = kok
         } catch (e: Exception) {
             kare?.recycle()
             toast("Çizim ekranı açılamadı")
+        }
+    }
+
+    /**
+     * Kullanıcının çizdiği TEK karenin (HP/MP/koordinat alanı) içinden HP çubuğunu (kırmızı), MP çubuğunu (mavi)
+     * ve koordinat yazısını (yazı tanıma: "160,438" gibi satır) ayırır. Sonuç ekran pikseli.
+     */
+    private fun hudCoz(kare: Bitmap, hud: Rect, bitti: (Map<String, Rect>) -> Unit) {
+        val sx = kare.width.toFloat() / maxOf(1, screenW)
+        val sy = kare.height.toFloat() / maxOf(1, screenH)
+        val x1 = (hud.left * sx).toInt().coerceIn(0, kare.width - 1); val y1 = (hud.top * sy).toInt().coerceIn(0, kare.height - 1)
+        val x2 = (hud.right * sx).toInt().coerceIn(x1 + 1, kare.width); val y2 = (hud.bottom * sy).toInt().coerceIn(y1 + 1, kare.height)
+        val w = x2 - x1; val h = y2 - y1
+        val sonuc = LinkedHashMap<String, Rect>()
+        if (w < 10 || h < 6) { bitti(sonuc); return }
+        val px = IntArray(w * h)
+        try { kare.getPixels(px, 0, w, x1, y1, w, h) } catch (e: Exception) { bitti(sonuc); return }
+        fun ekran(ax: Int, ay: Int, bx: Int, by: Int) = Rect(((x1 + ax) / sx).toInt(), ((y1 + ay) / sy).toInt(), ((x1 + bx) / sx).toInt(), ((y1 + by) / sy).toInt())
+        // Her satırda renkli piksellerin EN UZUN kesintisiz koşusu (çubuk üstündeki "1918/1918" yazısı için 8 px boşluk serbest).
+        // En uzun koşulu satır çubuğun ortası; benzer koşulu komşu satırlar kalınlığı. Yan taraftaki kırmızı MENU düğmesi
+        // ya da mavi koordinat rozeti gibi şeyler koşuyu bölüp ayrı kaldığı için karışmaz.
+        fun cubuk(mavi: Boolean, altindan: Int): Rect? {
+            val L = IntArray(h); val S = IntArray(h); val E = IntArray(h)
+            for (yy in 0 until h) {
+                var s0 = -1; var son = -100
+                for (xx in 0 until w) {
+                    val c = px[yy * w + xx]
+                    if (if (mavi) isBlue(c) else isRed(c)) {
+                        if (s0 < 0 || xx - son > 9) s0 = xx
+                        son = xx
+                        if (son - s0 + 1 > L[yy]) { L[yy] = son - s0 + 1; S[yy] = s0; E[yy] = son }
+                    }
+                }
+            }
+            var en = -1
+            for (yy in maxOf(0, altindan + 1) until h) if (en < 0 || L[yy] > L[en]) en = yy
+            if (en < 0 || L[en] < maxOf(10, w / 8)) return null
+            fun benzer(yy: Int) = L[yy] >= L[en] * 6 / 10 && S[yy] <= E[en] && E[yy] >= S[en]
+            var ust = en; while (ust > 0 && benzer(ust - 1)) ust--
+            var alt = en; while (alt < h - 1 && benzer(alt + 1)) alt++
+            return ekran(S[en], ust, E[en] + 1, alt + 1)
+        }
+        // MP her oyunda HP'nin altında: HP bulunduysa MP onun ortasından aşağıda aranır (Nowa'daki mavi koordinat rozeti karışmasın)
+        val hpR = cubuk(false, -1)
+        hpR?.let { sonuc["hp"] = it }
+        val hpOrtaY = hpR?.let { ((it.exactCenterY() * sy).toInt() - y1) } ?: -1
+        cubuk(true, hpOrtaY)?.let { sonuc["mp"] = it }
+        // Koordinat: alanı 2x büyütüp yazı tanı, "sayı,sayı" olan satırı al ("1918/1918", "%0,00", "19:29" sayılmaz)
+        val bm = try { Bitmap.createScaledBitmap(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888), w * 2, h * 2, true) } catch (e: Throwable) { null }
+        if (bm == null) { bitti(sonuc); return }
+        val nw = Config.nowaMi(this)
+        BotKontrol.satirlar(bm) { satirlar ->
+            ui.post {
+                var secilen: Rect? = null
+                for ((metin, r) in satirlar ?: emptyList()) {
+                    if (metin.contains('/') || metin.contains('%') || metin.contains(':')) continue
+                    var t = metin.replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
+                    if (nw) t = t.replace('L', '1').replace('A', '3').replace('a', '3')
+                    if (!konumRegex.containsMatchIn(t)) continue
+                    if (secilen == null || metin.contains(',')) secilen = r
+                    if (metin.contains(',')) break
+                }
+                secilen?.let { r -> sonuc["koord"] = ekran(r.left / 2, r.top / 2, (r.right + 1) / 2 + 1, (r.bottom + 1) / 2 + 1) }
+                bm.recycle()
+                bitti(sonuc)
+            }
         }
     }
 
