@@ -433,10 +433,17 @@ class MacroService : AccessibilityService() {
 
     // ---- Slot kilidi: farm alanı sınırı (aynı isimli mobun bulunduğu komşu slota gitmesin) ----
     @Volatile private var slotDonuyor = false
+    private var slotDonusBas = 0L
 
     /** true: sınır dışındayız ya da merkeze dönülüyor (farm adımları beklesin) */
     private fun slotSinirDisi(now: Long): Boolean {
-        if (slotDonuyor) return true
+        if (slotDonuyor) {
+            // Yürüyüş bir sebeple haber vermezse bot sonsuza kadar beklemesin: 25 sn sonra farma dön
+            if (now - slotDonusBas < 25_000L) return true
+            slotDonuyor = false
+            TestLog.olay("SLOT_DONDU", "merkeze dönüş 25 sn'de bitmedi, farma devam", "konum=$konumX,$konumY")
+            return false
+        }
         if (!slotKilitAktif() || rotaMesgul || rotaCalisiyor) return false
         val kx = konumX
         val ky = konumY
@@ -444,6 +451,7 @@ class MacroService : AccessibilityService() {
         val d = Math.hypot((kx - cfg.slotKx).toDouble(), (ky - cfg.slotKy).toDouble())
         if (d <= cfg.slotKr) return false
         slotDonuyor = true
+        slotDonusBas = now
         TestLog.olay("SLOT_SINIR", "slot sınırı aşıldı, hedef bırakılıp merkeze dönülüyor", "konum=$kx,$ky merkez=${cfg.slotKx},${cfg.slotKy} uzaklik=${d.toInt()} r=${cfg.slotKr}")
         olcek?.let { o -> val x = iptalNoktasi(o); tap(x[0].toFloat(), x[1].toFloat(), 0f) { } }
         oncekiCanli = false
@@ -1680,6 +1688,8 @@ class MacroService : AccessibilityService() {
 
     private fun cizimEditoru(sonraki: (() -> Unit)? = null) {
         if (running) { toast("Önce botu durdur"); return }
+        // Çubukları bulmak için oyun görüntüsü lazım
+        if (!ScreenSampler.running) { toast("Önce panelde 🔍 EKRANI TANI'ya bas, sonra çiz"); sonraki?.invoke(); return }
         removeOverlay(); closeEditor(); cizimKapat()
         updateScreenSize()
         // Eğitim verisi için: çizim ekranı açılmadan ÖNCEKİ oyun görüntüsü (üstünde çizim katmanı olmasın)
@@ -1735,8 +1745,8 @@ class MacroService : AccessibilityService() {
             cubuk.requestLayout()
         }
         dugme("🗑 Seçiliyi sil", 0xFF6B3030.toInt()) { cv.kutular.remove(cv.secili); cv.invalidate(); yenile() }
-        dugme("İptal", 0xFF3A4350.toInt()) { cizimKapat(); kare?.recycle(); sonraki?.invoke() }
         var kaydediliyor = false
+        dugme("İptal", 0xFF3A4350.toInt()) { if (!kaydediliyor) { cizimKapat(); kare?.recycle(); sonraki?.invoke() } }
         fun kaydet(kutular: Map<String, Rect>, not: String) {
             val o = JSONObject()
             for ((k, r) in kutular) o.put(k, org.json.JSONArray().put(r.left).put(r.top).put(r.right).put(r.bottom))
@@ -4127,10 +4137,8 @@ class MacroService : AccessibilityService() {
     private fun veriBaslat() {
         ah.removeCallbacks(veriDongu)
         if (!Lisans.veriHesabi()) return
-        when (veriKarar()) {
-            1 -> ah.postDelayed(veriDongu, 60_000L)
-            0 -> ui.postDelayed({ if (running) veriOnayKarti() }, 2500)
-        }
+        // Sorulmadıysa kart bot DURUNCA gösterilir: bot çalışırken ekranın ortasındaki kart, botun dokunuşlarını yakalayabilir
+        if (veriKarar() == 1) ah.postDelayed(veriDongu, 60_000L)
     }
 
     private fun veriOnayKarti() {
@@ -6334,6 +6342,7 @@ class MacroService : AccessibilityService() {
             ah.removeCallbacks(raporDongu)
             ah.removeCallbacks(veriDongu)
             raporGonder("durdu", reason ?: "kullanıcı durdurdu")
+            if (Lisans.veriHesabi() && veriKarar() == 0) ui.postDelayed({ if (!running) veriOnayKarti() }, 1500)
         }
         padKaldir()
         h.removeCallbacksAndMessages(null)
@@ -6361,7 +6370,8 @@ class MacroService : AccessibilityService() {
             if (!running) return
             try {
                 val bar = cfg.tgtBar
-                if (!pkAktif && !koAktif && !tapping && oncekiCanli && bar != null && ScreenSampler.running &&
+                if (!pkAktif && !koAktif && !tapping && !kontrolde && !rotaMesgul && !slotDonuyor && duraklamaBas == 0L &&
+                    oncekiCanli && bar != null && ScreenSampler.running &&
                     SystemClock.uptimeMillis() >= menzilBekleUntil && cfg.points.any { it.type == "hedef" }) {
                     if (!targetAlive(bar)) {
                         // 2 okuma üst üste (≈40 ms) bar yoksa öldü say: tek karelik titreme yanlış tetiklemesin
@@ -6495,8 +6505,10 @@ class MacroService : AccessibilityService() {
         val adaylar = ArrayList<Pair<String, Hedef>>()
         for (n in potActions(now) + listOfNotNull(minorAction(now)) + destekActions(now))
             adaylar.add(kat(n) to Hedef(n.x.toFloat(), n.y.toFloat(), r))
-        lootAction(now)?.let { adaylar.add("kutu" to it) }
-        pick(now)?.let { adaylar.add("atak" to Hedef(it.x.toFloat(), it.y.toFloat(), r, fast = adaylar.any { a -> a.first == "kutu" })) }
+        lootOlc(now)?.let { adaylar.add("kutu" to it) }
+        val atakN = pick(now)
+        atakN?.let { adaylar.add("atak" to Hedef(it.x.toFloat(), it.y.toFloat(), r, fast = adaylar.any { a -> a.first == "kutu" })) }
+        kutuDonguIzle(now, atakN != null)
         val sira = Config.oncelikListe(cfg.oncelik)
         adaylar.sortBy { sira.indexOf(it.first) }
         val hedefler = adaylar.filter { it.first == "kutu" || it.first == "atak" }.map { it.second }
@@ -6737,7 +6749,7 @@ class MacroService : AccessibilityService() {
                 dokunmaEngeli(SystemClock.uptimeMillis()) == null
             ) {
                 val now = SystemClock.uptimeMillis()
-                val t = lootAction(now)
+                val t = lootOlc(now)
                 if (t != null) {
                     h.removeCallbacks(stepR)
                     tapping = true
@@ -6747,6 +6759,7 @@ class MacroService : AccessibilityService() {
                     val liste = ArrayList<Hedef>()
                     liste.add(t)
                     if (atk != null) liste.add(Hedef(atk.x.toFloat(), atk.y.toFloat(), cfg.radius.toFloat(), fast = true))
+                    kutuDonguIzle(now, atk != null)
                     tapMulti(liste) {
                         tapping = false
                         if (running) stepPlanla(if (koAktif) nextDelay() else rand(40, 90))
@@ -7686,13 +7699,15 @@ class MacroService : AccessibilityService() {
             if (!alive) {
                 // Alan icinde mob yok: kisa sure bekle (potlar ayri calismaya devam eder)
                 if (cfg.alanAktif && now < alanBekleUntil) return null
-                // Hedef yok / oldu: sadece yeni mob sec, skill harcama
+                // Hedef yok / oldu: yeni mob sec
                 if (now >= nextTarget) {
                     val tf = if (koAktif) cfg.tgtFast else minOf(cfg.tgtFast, 450)
                     nextTarget = now + rand(tf, tf + 250)
                     return target
                 }
-                return null
+                // Normalde hedef yokken skill harcanmaz. AMA kutu toplanırken (Open → Collect All) atak DURMAZ:
+                // mob ölünce kutu çıkar ve hedef kaybolur; skiller basılmaya devam eder (KO hariç)
+                if (lootPhase == Loot.BOS || koAktif || cfg.kilitler.isNotEmpty()) return null
             }
         } else if (target != null && now >= nextTarget) {
             // Basit mod: belirli araliklarla mob sec
@@ -7904,8 +7919,8 @@ class MacroService : AccessibilityService() {
     private var kotuKutuAt = 0L
     private var kotuKutuSay = 0
 
-    /** Open'dan sonra Collect All için bekleme: pencere normalde yarım saniyede gelir; uzun beklemek atağı durduruyordu */
-    private fun collectBekleMs(): Long = minOf(cfg.collectWait.toLong(), 1500L)
+    /** Open'dan sonra Collect All için bekleme (Ayarlar'daki süre). Bu sırada atak SÜRER; karakter kutuya yürürken geç açılan pencere kaçmasın */
+    private fun collectBekleMs(): Long = cfg.collectWait.toLong()
 
     /** Ayni Open'a, kutu toplanmadan tekrar basma */
     private fun openBlocked(now: Long, op: Sablon, pos: IntArray): Boolean {
@@ -8013,6 +8028,34 @@ class MacroService : AccessibilityService() {
         return null
     }
 
+    // ---- Teşhis: kutu toplanırken atak gerçekten sürüyor mu? (her raporda KUTU_DONGU satırı) ----
+    private var kdBas = 0L; private var kdSon = 0L; private var kdBosluk = 0L; private var kdTarama = 0L
+    private var kdAdim = 0; private var kdAtak = 0; private var kdCanli = 0; private var kdSay = 0
+
+    /** Kutu taraması + süresi (en uzun tarama: telefon yavaşlıyor mu?) */
+    private fun lootOlc(now: Long): Hedef? {
+        val t0 = SystemClock.uptimeMillis()
+        val r = lootAction(now)
+        if (kdBas > 0L) kdTarama = maxOf(kdTarama, SystemClock.uptimeMillis() - t0)
+        return r
+    }
+
+    private fun kutuDonguIzle(now: Long, atak: Boolean) {
+        if (kdBas == 0L) return
+        kdAdim++
+        if (oncekiCanli) kdCanli++
+        if (atak) { kdAtak++; kdBosluk = maxOf(kdBosluk, now - kdSon); kdSon = now }
+        if (lootPhase == Loot.BOS) {
+            kdBosluk = maxOf(kdBosluk, now - kdSon)
+            kdSay++
+            // Her 20 kutuda bir, ya da atak 0,7 sn'den uzun durduysa raporda görünür
+            if (kdBosluk > 700 || kdSay % 20 == 1)
+                TestLog.olay("KUTU_DONGU", if (kdBosluk > 700) "kutu toplanırken atak durdu" else "kutu toplandı, atak sürdü",
+                    "sure_ms=${now - kdBas} atak=$kdAtak adim=$kdAdim hedef_canli_adim=$kdCanli en_uzun_atak_boslugu_ms=$kdBosluk en_uzun_tarama_ms=$kdTarama")
+            kdBas = 0L
+        }
+    }
+
     private fun openHit(now: Long, op: Sablon, pos: IntArray): Hedef {
         collectStreak = 0
         lootPhase = Loot.COLLECT_BEKLE
@@ -8025,6 +8068,7 @@ class MacroService : AccessibilityService() {
         lastOpenY = t.y
         lastOpenAt = now
         collectedSinceOpen = false
+        if (kdBas == 0L) { kdBas = now; kdSon = now; kdAdim = 0; kdAtak = 0; kdCanli = 0; kdBosluk = 0L; kdTarama = 0L }
         return Hedef(t.x, t.y, t.r, fast = true)
     }
 

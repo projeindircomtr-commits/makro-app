@@ -8,6 +8,7 @@ const GORUNTU_DIZIN = GIZLI . '/goruntu';
 const GORUNTU_GUN = 30;          // 30 gün sonra silinir
 const GORUNTU_SAAT_SINIR = 30;   // üye başına saatte en fazla
 const GORUNTU_MAX = 600000;      // tek görüntü en fazla ~600 KB
+const GORUNTU_TOPLAM_MB = 2000;  // hosting dolmasın: toplam bunu aşarsa en eskiler silinir
 
 function goruntu_tablo(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS makro_goruntuler (
@@ -55,6 +56,18 @@ function goruntu_temizle(PDO $pdo): void {
     foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $gid) {
         @unlink(goruntu_yol((int)$gid));
         $pdo->prepare('DELETE FROM makro_goruntuler WHERE id = ?')->execute([(int)$gid]);
+    }
+    // Toplam boyut sınırı: aşılırsa en eskiler (önce çizilmemiş/etiketsiz olanlar) sınırın altına inene kadar silinir
+    $sinir = (int)(GORUNTU_TOPLAM_MB * 1048576);
+    $fazla = (int)$pdo->query('SELECT COALESCE(SUM(boyut), 0) FROM makro_goruntuler')->fetchColumn() - $sinir;
+    if ($fazla > 0) {
+        $q = $pdo->query('SELECT id, boyut FROM makro_goruntuler ORDER BY (etiketler IS NULL) DESC, id ASC LIMIT 2000');
+        foreach ($q->fetchAll() as $r) {
+            if ($fazla <= 0) break;
+            @unlink(goruntu_yol((int)$r['id']));
+            $pdo->prepare('DELETE FROM makro_goruntuler WHERE id = ?')->execute([(int)$r['id']]);
+            $fazla -= (int)$r['boyut'];
+        }
     }
 }
 

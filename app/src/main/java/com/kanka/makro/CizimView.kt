@@ -95,9 +95,11 @@ class CizimView(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (!hareket && e.actionMasked == MotionEvent.ACTION_UP) {
-                    // Tek dokunuş: akıllı yerleştir
-                    kutular[secili] = yerlestir(secili, x.toInt(), y.toInt())
-                    degisti?.invoke()
+                    // Tek dokunuş BOŞ yere: akıllı yerleştir. Karenin/tutamacın üstüne dokunmak kareyi bozmaz.
+                    if (islem == Is.CIZ) {
+                        kutular[secili] = yerlestir(secili, x.toInt(), y.toInt())
+                        degisti?.invoke()
+                    }
                 } else if (islem == Is.CIZ) {
                     val r = cizilen
                     if (r != null && r.width() >= 12 && r.height() >= 4) { kutular[secili] = r; degisti?.invoke() }

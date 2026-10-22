@@ -131,7 +131,7 @@ object TestLog {
     private fun rotaOlayi(tip: String): Boolean =
         tip.startsWith("ROTA_") || tip.startsWith("TOWN_") || tip.startsWith("BANKA") || tip.startsWith("CANTA") ||
             tip.startsWith("ENVANTER") || tip.startsWith("DUGME") || tip.startsWith("YERLESIM") || tip.startsWith("PANEL_") ||
-            tip.startsWith("INN_") || tip == "YURU_BITTI" || tip == "KUTU_ZAMAN_ASIMI"
+            tip.startsWith("INN_") || tip == "YURU_BITTI" || tip == "KUTU_ZAMAN_ASIMI" || tip == "KUTU_DONGU"
 
     /** Olay kaydı: tip, neden, ayrıntı */
     fun olay(tip: String, neden: String = "", detay: String = "") {

@@ -144,9 +144,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($is === 'github_cek') {
             $mesaj = github_cek();
         } elseif ($is === 'github_token') {
-            $t = preg_replace('/[^A-Za-z0-9_]/', '', (string)($_POST['github_token'] ?? ''));
-            ayar_yaz('github_token', $t);
-            $mesaj = $t !== '' ? '✅ GitHub anahtarı kaydedildi (özel depo çekilebilir).' : '✅ GitHub anahtarı silindi.';
+            // Boş bırakılırsa eskisi kalır; silmek için "sil" yazılır
+            $ham = trim((string)($_POST['github_token'] ?? ''));
+            if ($ham === '') {
+                $mesaj = 'GitHub anahtarı değişmedi.';
+            } elseif (strtolower($ham) === 'sil') {
+                ayar_yaz('github_token', '');
+                $mesaj = '✅ GitHub anahtarı silindi.';
+            } else {
+                ayar_yaz('github_token', preg_replace('/[^A-Za-z0-9_]/', '', $ham));
+                $mesaj = '✅ GitHub anahtarı kaydedildi (özel depo çekilebilir).';
+            }
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Silindi.';
@@ -233,7 +241,7 @@ Commit mesajında [yayinla] olan derleme GitHub'da yayınlanır. "GitHub'dan çe
 <?= form('github_cek', 0, "⬇ GitHub'dan yeni sürümü çek", '#2b6cb0') ?>
 <form method="post">
 <input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="is" value="github_token">
-<input class="tam" name="github_token" type="password" autocomplete="off" value="" placeholder="<?= ayar_al('github_token', '') !== '' ? 'GitHub anahtarı kayıtlı ✓ (değiştirmek için yenisini yaz)' : 'GitHub anahtarı (depo özel ise gerekli)' ?>">
+<input class="tam" name="github_token" type="password" autocomplete="off" value="" placeholder="<?= ayar_al('github_token', '') !== '' ? 'GitHub anahtarı kayıtlı ✓ (değiştirmek için yenisini yaz, silmek için: sil)' : 'GitHub anahtarı (depo özel ise gerekli)' ?>">
 <button class="tam" style="background:#2d3846;padding:11px">GitHub anahtarını kaydet</button>
 </form>
 <form method="post">
