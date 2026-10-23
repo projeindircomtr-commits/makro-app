@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([time(), $gun * 86400, $id]);
             $mesaj = "✅ $gun gün eklendi.";
         } elseif ($is === 'cihaz') {
-            $pdo->prepare('UPDATE makro_uyeler SET cihaz = NULL WHERE id = ?')->execute([$id]);
+            $pdo->prepare('UPDATE makro_uyeler SET cihaz = NULL, token = NULL WHERE id = ?')->execute([$id]);
             $mesaj = '✅ Cihaz sıfırlandı, yeni cihazdan giriş yapabilir.';
         } elseif ($is === 'yonetici') {
             $pdo->prepare('UPDATE makro_uyeler SET yonetici = 1 - yonetici WHERE id = ?')->execute([$id]);
@@ -93,7 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mesaj = '✅ Durum değişti.';
         } elseif ($is === 'sifre') {
             $yeniSifre = rastgele_sifre();
-            $pdo->prepare('UPDATE makro_uyeler SET sifre_hash = ? WHERE id = ?')
+            // Yeni şifre: eski oturum anahtarı da geçersiz (telefon tekrar giriş ister)
+            $pdo->prepare('UPDATE makro_uyeler SET sifre_hash = ?, token = NULL WHERE id = ?')
                 ->execute([password_hash($yeniSifre, PASSWORD_DEFAULT), $id]);
             $mesaj = "✅ Yeni şifre: $yeniSifre";
         } elseif ($is === 'mesaj') {
@@ -157,7 +158,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } elseif ($is === 'sil') {
             $pdo->prepare('DELETE FROM makro_uyeler WHERE id = ?')->execute([$id]);
-            $mesaj = '✅ Silindi.';
+            // Üyeye ait her şey de silinir (KVKK silme talebi): raporlar, ekran görüntüleri (dosyalarıyla), özel mesajlar
+            $pdo->prepare('DELETE FROM makro_mesajlar WHERE uye_id = ?')->execute([$id]);
+            try { $pdo->prepare('DELETE FROM makro_raporlar WHERE uye_id = ?')->execute([$id]); } catch (Throwable $e) {}
+            try {
+                $q = $pdo->prepare('SELECT id FROM makro_goruntuler WHERE uye_id = ?');
+                $q->execute([$id]);
+                foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $gid) @unlink(GIZLI . '/goruntu/' . (int)$gid . '.jpg');
+                $pdo->prepare('DELETE FROM makro_goruntuler WHERE uye_id = ?')->execute([$id]);
+            } catch (Throwable $e) {}
+            $mesaj = '✅ Üye ve ona ait raporlar, görüntüler, mesajlar silindi.';
         }
     } catch (PDOException $ex) {
         $mesaj = ($ex->getCode() == 23000) ? 'Bu kullanıcı adı zaten var.' : 'Veritabanı hatası.';

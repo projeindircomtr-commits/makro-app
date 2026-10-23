@@ -18,7 +18,10 @@ $k = trim($_POST['kullanici'] ?? '');
 $s = (string)($_POST['sifre'] ?? '');
 $c = preg_replace('/[^A-F0-9]/', '', strtoupper($_POST['cihaz'] ?? ''));
 $n = preg_replace('/[^a-f0-9]/', '', strtolower($_POST['nonce'] ?? ''));
-if ($k === '' || $s === '' || strlen($c) < 8 || strlen($n) < 16 || strlen($k) > 40) hata('Eksik bilgi');
+// Uygulama artık şifreyi telefonda saklamaz: arka plan yenilemesi oturum anahtarıyla (token) yapılır
+$t = preg_replace('/[^a-f0-9]/', '', strtolower((string)($_POST['token'] ?? '')));
+$tokenIle = $s === '' && strlen($t) >= 32;
+if ($k === '' || ($s === '' && !$tokenIle) || strlen($c) < 8 || strlen($n) < 16 || strlen($k) > 40) hata('Eksik bilgi');
 
 $ip = $_SERVER['REMOTE_ADDR'] ?? '';
 $simdi = time();
@@ -34,7 +37,14 @@ try {
     $q = $pdo->prepare('SELECT * FROM makro_uyeler WHERE kullanici = ?');
     $q->execute([$k]);
     $u = $q->fetch();
-    if (!$u || !password_verify($s, $u['sifre_hash'])) {
+    if ($tokenIle) {
+        // Oturum anahtarı: aynı üye, aynı cihaz ve son verilen anahtar olmalı (şifre değişince / cihaz sıfırlanınca geçersiz)
+        if (!$u || empty($u['token']) || !hash_equals((string)$u['token'], $t) || (string)$u['cihaz'] !== $c) {
+            $pdo->prepare('INSERT INTO makro_denemeler (ip, zaman) VALUES (?, ?)')->execute([$ip, $simdi]);
+            echo json_encode(['ok' => 0, 'mesaj' => 'Oturum kapandı, uygulamadan tekrar giriş yap', 'yeniden_giris' => 1, 'sunucu' => 0], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    } elseif (!$u || !password_verify($s, $u['sifre_hash'])) {
         $pdo->prepare('INSERT INTO makro_denemeler (ip, zaman) VALUES (?, ?)')->execute([$ip, $simdi]);
         hata('Kullanıcı adı veya şifre yanlış');
     }
@@ -73,7 +83,8 @@ try {
     $cevap = [
         'ok' => 1, 'isim' => $isim, 'bitis' => $bitis, 'zaman' => $simdi, 'token' => $token,
         'imza' => base64_encode($imza),
-        'ozellik' => $ozellik, 'imza2' => base64_encode($imza2)
+        'ozellik' => $ozellik, 'imza2' => base64_encode($imza2),
+        'tg' => 1   // bu sunucu oturum anahtarıyla yenilemeyi biliyor: uygulama şifreyi saklamayı bırakabilir
     ];
     if ($yonetici) $cevap['yonetici'] = 1;   // sadece bilgi; guvenilen kaynak imzadir
     echo json_encode($cevap, JSON_UNESCAPED_UNICODE);
