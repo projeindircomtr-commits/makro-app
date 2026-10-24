@@ -117,12 +117,19 @@ class Config {
 
     // Pot ve skill
     var potCd = 1500         // ayni pot icin en az bekleme (ms)
-    var skMin = 250          // skill cooldown'una eklenen rastgele sure (ms)
-    var skMax = 1500
+    var skMin = 0          // skill cooldown'una eklenen rastgele sure (ms)
+    var skMax = 0
 
     // Kutu
     var lootEvery = 150      // ekran tarama araligi (ms)
-    var collectWait = 800   // Open'dan sonra Collect All bekleme (ms)
+    var collectWait = 800
+    var antiAfkDk = 5           // Anti-AFK: kaç dakikada bir hareket (0=kapalı)
+    var otomatikRespawn = true  // Karakter ölünce otomatik respawn dene
+    var mesaiAcik = false       // Mesai modu açık mı
+    var mesaiBasSaat = 8
+    var mesaiBasDk = 0
+    var mesaiBitSaat = 23
+    var mesaiBitDk = 0   // Open'dan sonra Collect All bekleme (ms)
 
     // Kutu toplama acik mi
     var lootOn = true
@@ -208,6 +215,11 @@ class Config {
             .put("tgtMin", tgtMin).put("tgtMax", tgtMax).put("tgtFast", tgtFast)
             .put("potCd", potCd).put("skMin", skMin).put("skMax", skMax)
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
+            .put("antiAfkDk", antiAfkDk)
+            .put("otomatikRespawn", otomatikRespawn)
+            .put("mesaiAcik", mesaiAcik)
+            .put("mesaiBasSaat", mesaiBasSaat).put("mesaiBasDk", mesaiBasDk)
+            .put("mesaiBitSaat", mesaiBitSaat).put("mesaiBitDk", mesaiBitDk)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
             .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
@@ -491,6 +503,13 @@ class Config {
                 c.skMax = o.optInt("skMax", c.skMax)
                 c.lootEvery = o.optInt("lootEvery", c.lootEvery)
                 c.collectWait = o.optInt("collectWait", c.collectWait)
+                c.antiAfkDk = o.optInt("antiAfkDk", c.antiAfkDk)
+                c.otomatikRespawn = o.optBoolean("otomatikRespawn", c.otomatikRespawn)
+                c.mesaiAcik = o.optBoolean("mesaiAcik", c.mesaiAcik)
+                c.mesaiBasSaat = o.optInt("mesaiBasSaat", c.mesaiBasSaat)
+                c.mesaiBasDk = o.optInt("mesaiBasDk", c.mesaiBasDk)
+                c.mesaiBitSaat = o.optInt("mesaiBitSaat", c.mesaiBitSaat)
+                c.mesaiBitDk = o.optInt("mesaiBitDk", c.mesaiBitDk)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
