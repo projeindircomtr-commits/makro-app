@@ -1594,9 +1594,9 @@ class MacroService : AccessibilityService() {
             val b = btn(ad) {
                 kaydet {
                     when (i) {
-                        2 -> { it.minDelay = 50; it.maxDelay = 110; it.pauseChance = 0; it.skMin = 0; it.skMax = 150 }
-                        1 -> { it.minDelay = 120; it.maxDelay = 300; it.pauseChance = 2; it.skMin = 150; it.skMax = 700 }
-                        else -> { it.minDelay = 180; it.maxDelay = 550; it.pauseChance = 3; it.skMin = 250; it.skMax = 1500 }
+                        2 -> { it.minDelay = 50; it.maxDelay = 110; it.pauseChance = 0; it.skMin = 0; it.skMax = 0 }
+                        1 -> { it.minDelay = 120; it.maxDelay = 300; it.pauseChance = 2; it.skMin = 0; it.skMax = 0 }
+                        else -> { it.minDelay = 180; it.maxDelay = 550; it.pauseChance = 3; it.skMin = 0; it.skMax = 0 }
                     }
                 }
                 hizBoya()
