@@ -110,6 +110,8 @@ class MacroService : AccessibilityService() {
     private var hpLowSince = 0L
     private val skillReady = HashMap<Int, Long>()
     private var antiAfkSon = 0L
+    @Volatile private var sonDokunusAt = 0L   // son bot dokunuşu (System.currentTimeMillis)
+    @Volatile private var respawnNesil = 0     // bot yeniden başlarsa bekleyen respawn dokunuşları iptal
     // Takılma algılama
     private var takiKonumX = -1
     private var takiKonumY = -1
@@ -120,7 +122,6 @@ class MacroService : AccessibilityService() {
     private var statBaslangic = 0L
     private var olumTespitAt = 0L
     private var respawnDeneme = 0
-    private var mesaiKontrolSon = 0L
     private val skillLast = HashMap<Int, Long>()
     private var tgtStrip = IntArray(3)
 
@@ -1367,8 +1368,12 @@ class MacroService : AccessibilityService() {
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
                 "👤 Profiller" to { profilMenu() },
-                "⏰ Mesai saatleri" to { mesaiMenu() },
                 "🛡 Anti-AFK" to { antiAfkMenu() },
+                (if (cfg.otomatikRespawn) "💀 Ölünce respawn: AÇIK" else "💀 Ölünce respawn: KAPALI") to {
+                    val c2 = Config.load(this); c2.otomatikRespawn = !c2.otomatikRespawn; c2.save(this)
+                    cfg.otomatikRespawn = c2.otomatikRespawn
+                    toast(if (c2.otomatikRespawn) "Ölünce respawn denenecek" else "Ölünce bot sadece durur")
+                },
                 "❤ HP/MP eşiği" to { hpMpEsikMenu() },
                 "📊 İstatistikler" to { statGoster() },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
@@ -1403,6 +1408,7 @@ class MacroService : AccessibilityService() {
                     val c2 = Config.load(this)
                     c2.antiAfkDk = dk
                     c2.save(this)
+                    cfg.antiAfkDk = dk
                     toast(if (dk == 0) "Anti-AFK kapatıldı" else "Anti-AFK: $dk dk")
                     Unit
                 }
@@ -1411,10 +1417,10 @@ class MacroService : AccessibilityService() {
     }
 
     private fun antiAfkKontrol(now: Long) {
-        val cfg2 = Config.load(this)
-        if (cfg2.antiAfkDk <= 0) return
-        val aralik = cfg2.antiAfkDk * 60_000L
-        if (now - antiAfkSon < aralik) return
+        if (cfg.antiAfkDk <= 0) return
+        val aralik = cfg.antiAfkDk * 60_000L
+        // Bot zaten sürekli dokunuyorsa gereksiz: sadece bu süre boyunca hiç dokunuş olmadıysa
+        if (now - antiAfkSon < aralik || now - sonDokunusAt < aralik) return
         antiAfkSon = now
         val cx = screenW * 0.15f
         val cy = screenH * 0.75f
@@ -1426,71 +1432,27 @@ class MacroService : AccessibilityService() {
     // =========================================================
     // OTOMATIK RESPAWN
     // =========================================================
-    private fun otomatikRespawn() {
-        val cfg2 = Config.load(this)
-        if (!cfg2.otomatikRespawn) {
-            stopMacro("Karakter öldü. Bot durdu")
+    /** Sadece ÖLÜM görülünce çağrılır (uzun süre düşük can = pot bitti; orada sadece durulur) */
+    private fun otomatikRespawn(mesaj: String) {
+        if (!cfg.otomatikRespawn) {
+            stopMacro(mesaj)
             return
         }
-        if (running) stopMacro()
+        stopMacro("$mesaj — respawn deneniyor")
         olumTespitAt = System.currentTimeMillis()
         respawnDeneme = 0
-        toast("💀 Karakter öldü — respawn aranıyor...")
+        val nesil = ++respawnNesil
         h.postDelayed(object : Runnable {
             override fun run() {
+                // Bot yeniden başladıysa, başka respawn başladıysa ya da oyun önde değilse dokunma
+                if (nesil != respawnNesil || running || !oyundaMi()) return
                 respawnDeneme++
                 tap(screenW * 0.5f, screenH * 0.62f, 0f) { }
-                h.postDelayed({ tap(screenW * 0.5f, screenH * 0.67f, 0f) { } }, 400)
+                h.postDelayed({ if (nesil == respawnNesil && !running && oyundaMi()) tap(screenW * 0.5f, screenH * 0.67f, 0f) { } }, 400)
                 if (respawnDeneme < 6) h.postDelayed(this, 2000)
-                else toast("✅ Respawn denendi — botu manuel başlat")
+                else toast("Respawn denendi — karakter dirildiyse botu tekrar başlat")
             }
         }, 1500)
-    }
-
-    // =========================================================
-    // MESAI SAATLERİ
-    // =========================================================
-    private fun mesaiMenu() {
-        val c = Config.load(this)
-        val durumLabel = if (c.mesaiAcik) "AÇIK ✓" else "KAPALI"
-        val items = mutableListOf<Pair<String, () -> Unit>>(
-            "Mesai modu: $durumLabel" to {
-                val c2 = Config.load(this); c2.mesaiAcik = !c2.mesaiAcik; c2.save(this); mesaiMenu()
-            },
-            "Başlangıç: ${c.mesaiBasSaat}:${"%02d".format(c.mesaiBasDk)}" to { mesaiSaatSec(true) },
-            "Bitiş:     ${c.mesaiBitSaat}:${"%02d".format(c.mesaiBitDk)}" to { mesaiSaatSec(false) },
-            "↩ Geri" to { removeOverlay() }
-        )
-        showMenu("⏰ Mesai Saatleri\nSadece bu saatlerde çalışır", items)
-    }
-
-    private fun mesaiSaatSec(bas: Boolean) {
-        val saatler = (0..23).map { s ->
-            "%02d:00".format(s) to {
-                val c = Config.load(this)
-                if (bas) { c.mesaiBasSaat = s; c.mesaiBasDk = 0 }
-                else { c.mesaiBitSaat = s; c.mesaiBitDk = 0 }
-                c.save(this); mesaiMenu()
-            }
-        }
-        showMenu(if (bas) "Başlangıç saati" else "Bitiş saati", saatler)
-    }
-
-    private fun mesaiKontrol(now: Long): Boolean {
-        val cfg2 = Config.load(this)
-        if (!cfg2.mesaiAcik) return true
-        if (now - mesaiKontrolSon < 30_000L) return true
-        mesaiKontrolSon = now
-        val cal = java.util.Calendar.getInstance()
-        val simdi = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
-        val bas = cfg2.mesaiBasSaat * 60 + cfg2.mesaiBasDk
-        val bit = cfg2.mesaiBitSaat * 60 + cfg2.mesaiBitDk
-        val aktif = if (bas <= bit) simdi in bas..bit else simdi >= bas || simdi <= bit
-        if (!aktif && running) {
-            stopMacro("⏰ Mesai saati dışı — bot durdu")
-            return false
-        }
-        return aktif
     }
 
     // =========================================================
@@ -1501,10 +1463,10 @@ class MacroService : AccessibilityService() {
         showMenu(
             "❤ HP/MP Eşiği\nPot bu yüzdede içilir",
             listOf(
-                "HP eşiği: %${c.hpYuzde}  (−5)" to { val c2=Config.load(this); c2.hpYuzde=(c2.hpYuzde-5).coerceIn(10,95); c2.save(this); hpMpEsikMenu() },
-                "HP eşiği: %${c.hpYuzde}  (+5)" to { val c2=Config.load(this); c2.hpYuzde=(c2.hpYuzde+5).coerceIn(10,95); c2.save(this); hpMpEsikMenu() },
-                "MP eşiği: %${c.mpYuzde}  (−5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde-5).coerceIn(5,95); c2.save(this); hpMpEsikMenu() },
-                "MP eşiği: %${c.mpYuzde}  (+5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde+5).coerceIn(5,95); c2.save(this); hpMpEsikMenu() },
+                "HP eşiği: %${c.hpYuzde}  (−5)" to { val c2=Config.load(this); c2.hpYuzde=(c2.hpYuzde-5).coerceIn(10,95); c2.save(this); cfg.hpYuzde=c2.hpYuzde; hpMpEsikMenu() },
+                "HP eşiği: %${c.hpYuzde}  (+5)" to { val c2=Config.load(this); c2.hpYuzde=(c2.hpYuzde+5).coerceIn(10,95); c2.save(this); cfg.hpYuzde=c2.hpYuzde; hpMpEsikMenu() },
+                "MP eşiği: %${c.mpYuzde}  (−5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde-5).coerceIn(5,95); c2.save(this); cfg.mpYuzde=c2.mpYuzde; hpMpEsikMenu() },
+                "MP eşiği: %${c.mpYuzde}  (+5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde+5).coerceIn(5,95); c2.save(this); cfg.mpYuzde=c2.mpYuzde; hpMpEsikMenu() },
                 "↩ Geri" to { removeOverlay() }
             )
         )
@@ -4065,6 +4027,7 @@ class MacroService : AccessibilityService() {
             skillReady.clear()
             skillLast.clear()
             statBaslangic = System.currentTimeMillis(); takiHareket = 0L; takiKonumX = -1; takiIlerleme = -1
+            respawnNesil++   // bekleyen respawn dokunuşları iptal
             nextLootScan = 0L
             lootPhase = Loot.BOS
             phaseUntil = 0L
@@ -7075,7 +7038,7 @@ class MacroService : AccessibilityService() {
             if (c >= 0 && !isRed(c)) {
                 if (hpBosSince == 0L) hpBosSince = now
                 else if (now - hpBosSince > 3000) {
-                    stopMacro("Karakter ölmüş görünüyor. Bot durdu")
+                    otomatikRespawn("Karakter ölmüş görünüyor. Bot durdu")
                     return true
                 }
             } else {
@@ -7093,7 +7056,7 @@ class MacroService : AccessibilityService() {
                     if (koHpSifirSince == 0L) koHpSifirSince = now
                     else if (now - koHpSifirSince > 5000L) {
                         TestLog.olay("OLUM", "can 0 görüldü", "sure_ms=${now - koHpSifirSince}")
-                        otomatikRespawn()
+                        otomatikRespawn("Karakter ölmüş görünüyor (can 0). Bot durdu")
                         return true
                     }
                 } else {
@@ -7103,7 +7066,7 @@ class MacroService : AccessibilityService() {
                     if (koHpDusukSince == 0L) koHpDusukSince = now
                     else if (now - koHpDusukSince > cfg.hpStop * 1000L) {
                         TestLog.olay("CAN_DUSUK", "uzun süre düşük can", "sure_ms=${now - koHpDusukSince}")
-                        otomatikRespawn()
+                        stopMacro("Can ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
                         return true
                     }
                 } else {
@@ -7121,7 +7084,7 @@ class MacroService : AccessibilityService() {
         if (isLow(hp)) {
             if (hpLowSince == 0L) hpLowSince = now
             else if (now - hpLowSince > cfg.hpStop * 1000L) {
-                otomatikRespawn()
+                stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
                 return true
             }
         } else {
@@ -7726,7 +7689,6 @@ class MacroService : AccessibilityService() {
         }
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         antiAfkKontrol(System.currentTimeMillis())
-        mesaiKontrol(System.currentTimeMillis())
         takilmaKontrol(System.currentTimeMillis())
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
         if (now - minorSon < 150) return null
@@ -8451,6 +8413,7 @@ class MacroService : AccessibilityService() {
 
     /** Birden fazla noktaya ayni anda (farkli parmaklarla) dokun */
     private fun tapMulti(list: List<Hedef>, done: () -> Unit) {
+        sonDokunusAt = System.currentTimeMillis()
         // Yon pedleri kullaniliyorsa botun dokunuslari pedlerin akisina eklenir
         if (padKullaniliyor()) { padBotEkle(list, done); return }
         if (list.size == 1) {
@@ -8764,6 +8727,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun tap(x: Float, y: Float, radius: Float, done: () -> Unit) {
+        sonDokunusAt = System.currentTimeMillis()
         val r = radius.coerceAtLeast(0f)
         val maxX = (screenW - 2).toFloat().coerceAtLeast(2f)
         val maxY = (screenH - 2).toFloat().coerceAtLeast(2f)

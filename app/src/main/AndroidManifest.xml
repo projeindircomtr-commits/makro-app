@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Oyunu (MykoMobile) bulup acabilmek icin -->
@@ -17,12 +18,25 @@
     </queries>
 
     <application
-        android:label="Projeindirpedal"
-        android:icon="@drawable/ic_makro"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:label="Projeindir Bot"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- Yazi tanima modelini uygulama kurulurken Google Play Hizmetleri indirsin -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
+        <!-- AdMob uygulama kimliği (Projeindir Bot) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1035543413650045~4360007208" />
+
 
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:launchMode="singleTask"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
@@ -34,7 +48,7 @@
 
         <service
             android:name=".MacroService"
-            android:label="Projeindirpedal"
+            android:label="Projeindir Bot"
             android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

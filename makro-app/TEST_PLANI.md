@@ -1,0 +1,239 @@
+# Projeindir Bot — Test Sunucusu Zorlama Testi Planı
+
+Bu doküman, yönetimin onayladığı **test sunucusu** çalışması içindir. Amaç: botun oyunun normal farm
+akışında neler yapabildiğini, hangi koşullarda nasıl davrandığını ve nerede durduğunu **ölçmek ve raporlamak**.
+
+## 0. Kapsam ve sınırlar
+
+**Kapsamda:** uzun süreli kullanım, farklı basış hızları, eş zamanlı hesaplar, kontrol pencereleri,
+bağlantı kopması/geri gelmesi, duraklama/izin kaybı/servis yeniden başlama, farm akışındaki uç durumlar.
+
+**Kapsam dışı (hiçbir koşulda yapılmaz):**
+- Bot tespitinden gizlenme ya da kaçınma
+- Cihaz/uygulama kimliği taklidi
+- Güvenlik mekanizmalarını aşma
+- Sunucuya yük bindirme, oyun açıklarını istismar etme
+
+Uyarı, kısıtlama ya da atılma görülürse **o seviyede durulur ve kaydedilir**; aşmak için ayar değiştirilmez.
+
+## 1. Kurulum
+
+1. Admin panelinde her test hesabı için **Yeni üye** oluştur (örn. `ugtest1` … `ugtest6`).
+2. Hesabın **Bölümler** kısmında **🌾 Farm** ve **🧪 Test** işaretli olsun, **Bölümleri kaydet**.
+   - 🧪 Test yetkisi **yalnızca bu hesaplarda** test modunu açar. Yönetici olmak yetmez.
+3. Süre ekle (test boyunca yetecek kadar). Test bitince **Süreyi 0 yap** ya da **Hesabı kapat**.
+4. Test hesaplarının listesi yönetime verilir.
+5. Uygulamada giriş yap, tuşları kaydet (Saldırı/Mob seç, HP/MP pot, skiller), gerekirse mobu kilitle.
+6. Oyunda panel ⋯ → **🧪 Test modu** → **Test modu: AÇIK**.
+
+Test modu açıkken: panelde **🧪TEST** yazar, başlangıçta uyarı çıkar, oturum günlüğü kaydedilir.
+
+## 2. Test modu ayarları (⋯ → 🧪 Test modu)
+
+| Ayar | Ne yapar |
+|---|---|
+| Test modu | Açıkken oturum günlüğü ve aşağıdaki ayarlar etkin |
+| Hız | Normal ayar / Basamak 1–4. Basamak 4 = alt sınır **A** |
+| Alt sınır A (ms) | Basış aralığının inebileceği en düşük değer. Hiçbir basamak A'nın altına inmez. Varsayılan 700 |
+| Test süresi | Ayardaki süre ya da 1, 4, 12, 24, 48 saat (normalde üst sınır 10 saat) |
+| İlerleme bekçisi | N dakika hiç mob/kutu/pot ilerlemesi yoksa botu kontrollü durdurur |
+| Bağlantı bekleme | Kopma penceresi görülünce en fazla N sn bekler; pencere kaybolursa devam eder, gelmezse durur |
+| Olay işaretle | Elle tetiklenen durumları (ölüm, şehir, ışınlanma, pop-up…) günlüğe zaman damgasıyla işler |
+| Raporu kopyala / paylaş | Rapor metnini panoya alır ya da paylaşım menüsünü açar |
+| Günlüğü temizle | Yeni test öncesi sıfırlama |
+
+Hız basamakları (ms, minimum/maksimum bekleme): 1 → 350–900, 2 → 250–600, 3 → 180–400, 4 → A–A+120.
+Her basamakta A uygulanır (KO'daki 700 ms kuralı varsayılan A=700 ile aynen korunur).
+
+## 3. Günlük ve rapor
+
+Her satır: `tarih saat | geçen süre | TİP | neden | ayrıntı`.
+
+| Tip | Anlamı |
+|---|---|
+| OTURUM_BASLADI / OTURUM_BITTI | Ayar özeti ve durma nedeni + özet |
+| DAKIKA | Dakika başına basış, atak, pot/destek, kutu, kesilen/toplanan/pot farkı |
+| EYLEM | Dokunuş kategorisi (ilk 150 ve her 100.; hepsi dakika sayacında) |
+| HEDEF_ALINDI / HEDEF_KAYBI | Mob seçimi ve hedef kaybı (süre ms) |
+| KILIT_RED / KILIT_BEKLE | Kilitli olmayan mobun bırakılması, kilitli mob yok bekleme |
+| KUTU_OPEN / KUTU_COLLECT / KUTU_ZAMAN_ASIMI | Kutu akışı ve zaman aşımı |
+| DURAKLAMA / TOPARLANDI | Ekran kapalı, oyun arka planda, görüntü yok ve geri dönüş süresi |
+| BAGLANTI_KOPTU / TOPARLANDI / GELMEDI | Oyun içi kopma penceresi ve toparlanma süresi |
+| AG_KOPTU / AG_GELDI / AG_TURU | Telefon ağ durumu, kopukluk süresi, wifi ↔ mobil |
+| OLUM / CAN_DUSUK | KO'da can 0 ya da uzun süre düşük can |
+| KONTROL_PENCERESI / KONTROL_CEVAPLANDI | MykoMobile bot kontrolü ve pencere süresi |
+| DONMA / IZIN_KAYBI / HATA / HATA_PATLAMASI | Yanıt vermeme, ekran paylaşımı kaybı, hata ve hata yağmuru |
+| ILERLEME_YOK / SURE_BITTI | Bekçi ya da süre ile kontrollü durma |
+| SERVIS_BASLADI / SERVIS_DURDU / SERVIS_KESINTI / ONCEKI_OTURUM_KESILDI | Servis yaşam döngüsü |
+| ISARET | Test uzmanının elle işaretlediği olay |
+
+**Toparlanma süreleri:** DURAKLAMA→TOPARLANDI (`duraklama_ms`), BAGLANTI_KOPTU→BAGLANTI_TOPARLANDI (`sure_ms`),
+AG_KOPTU→AG_GELDI (`kopukluk_ms`), KONTROL_PENCERESI→KONTROL_CEVAPLANDI (`pencere_ms`).
+
+Günlük telefonda uygulamanın özel dizininde tutulur (3 MB üstünde döner). Rapor ⋯ → 🧪 Test modu → **Raporu paylaş**.
+
+## 4. Test matrisi
+
+Her test için kaydedilecekler: başlangıç koşulları, ayarlar, çalışma süresi, dakika başına basış, kontrol/uyarılar,
+atılma/kısıtlama, bağlantı olayları, sona erme nedeni, zaman damgaları, sonuç/gözlem. Hepsi rapordan okunur.
+
+| No | Test | Yöntem | Ölçülen |
+|---|---|---|---|
+| T1 | Uzun süreli kullanım | Hız normal; 1 → 4 → 12 → 24 saat (S'ye kadar) | İlk olay zamanı, ilk saat ile son saat arası basış farkı |
+| T2 | Hız merdiveni | Normal → 1 → 2 → 3 → 4; her basamak 30 dk, 3 tekrar, aynı harita ve mob | Her basamakta uyarı/kısıtlama/atılma var mı |
+| T3 | Süre × hız | Süre: 30 dk, 2, 6, 12 saat × hız: Normal, 2, 4 | Hangi hücrede ilk olay çıktı |
+| T4 | Eş zamanlı hesaplar | N = 1, 2, 4, 6 hesap, 2 saat | Tek hesaba göre fark; ağ ortaklığı notu |
+| T5 | Kontrol pencereleri | T1–T4 sırasında | Çıkış sıklığı, ilk çıkış zamanı, cevap süresi (ort./en uzun) |
+| T6 | Bağlantı | Kontrollü kopma: 10 sn, 60 sn, 5 dk × 5 tekrar (elle işaretle) | Oyunun yeniden bağlanması, botun toparlanma süresi |
+| T7 | Kararlılık | T1 sırasında 5 dk'da bir | Basış/dk trendi, 24. saat ile 1. saat farkı |
+| T8 | Tutarlılık | T2'nin kritik iki basamağı 3 kez, farklı gün ve hesap | Sonuçlar tutarlı mı |
+
+Kural: uyarı/kısıtlama çıkarsa o hücrede durulur; aşılmaz. Yönetimin verdiği A ve S sınırları aşılmaz.
+
+## 5. Ek senaryolar (normal farm akışının uç durumları)
+
+Kodda gözlemlenen boşluklar kapatıldı; her biri bu senaryolarla doğrulanır.
+
+| No | Senaryo | Beklenen davranış / bakılacak olay |
+|---|---|---|
+| F1 | **KO bağlantı kopma penceresi** ("Disconnected from server") | BAGLANTI_KOPTU; test modunda bekleme ve TOPARLANDI, aksi hâlde kontrollü durma |
+| F2 | **KO'da ölüm / uzun düşük can** | OLUM (can 0 → 5 sn) ya da CAN_DUSUK; bot durur |
+| F3 | **Duraklama sonrası** (oyunu arka plana al, ekranı kapat, 2 dk sonra dön) | DURAKLAMA→TOPARLANDI; haksız "can düşük/ölmüş" durması olmamalı |
+| F4 | **Süre sayacı** (ekran kapalı/uykuda) | Gerçek süre = ayarlanan süre (elapsedRealtime) |
+| F5 | **Donma bekçisi** (bildirim çubuğu çek, çağrı al) | Bot 25 sn yanıtsız kalırsa DONMA ile güvenli durur |
+| F6 | **Pop-up'lar** (envanter dolu, ticaret/parti daveti, PM, seviye atlama) | Pop-up algılama yok: ISARET ile işaretle; ilerleme bekçisi ILERLEME_YOK ile durdurur |
+| F7 | **Kutu uç durumları** (Collect All çıkmadı, birden çok kutu, envanter dolu) | KUTU_ZAMAN_ASIMI, toparlanma; kutu akışı BOS'a döner |
+| F8 | **Mob kilidi** (kilitli mob yok, aynı isimli birden çok mob, oyuncu/NPC hedefi) | KILIT_RED, KILIT_BEKLE; kilitli olmayan moba vurulmaz |
+| F9 | **Pot/mana biter** | Basış sayacı ve CAN_DUSUK/ILERLEME_YOK ile durma |
+| F10 | **Yeniden başlatma** (30 kez durdur/başlat; servisi öldür; ekran paylaşımı iznini kapat) | ONCEKI_OTURUM_KESILDI, IZIN_KAYBI (5 sn kör dokunma yok), temiz başlangıç |
+| F11 | **Ağ değişimi** (wifi ↔ mobil, 30+ dk ağsız) | AG_TURU, AG_KOPTU/AG_GELDI; lisans kontrolü ağ yokken botu durdurmaz |
+| F12 | **Harita/durum** (şehir/güvenli bölge, ışınlanma, harita yükleme, gece/hava, kamera açısı) | ISARET + ILERLEME_YOK; isim/bar okuma etkisi gözlenir |
+
+## 6. Botun kendiliğinden durduğu durumlar
+
+| Durum | Olay | Not |
+|---|---|---|
+| Ayarlanan süre doldu | SURE_BITTI | |
+| Üyelik süresi/doğrulama | (toast) | Ağ yokken durmaz |
+| Adım döngüsü 25 sn yanıtsız | DONMA | |
+| Ekran paylaşımı çalışırken 5 sn kapandı | IZIN_KAYBI | Kör dokunma yok |
+| 60 sn içinde 8 hata | HATA_PATLAMASI | |
+| KO can 0 (5 sn) / uzun süre düşük can | OLUM / CAN_DUSUK | Bar hiç okunmadıysa devreye girmez |
+| Kopma penceresi (normal mod) | BAGLANTI_KOPTU | Test modunda bekleme + toparlanma |
+| İlerleme yok (test modu) | ILERLEME_YOK | |
+
+## 7. Bilinen sınırlar (dürüst not)
+
+- Oyunun **sunucu tarafındaki** uyarı/kısıtlamalarını bot göremez; bunlar yönetimin kayıtlarıyla eşleştirilmelidir
+  (günlükteki zaman damgaları bunun için tutulur).
+- Pop-up, harita yükleme ve şehir durumları için ayrı algılama yoktur; **ISARET** ve **İlerleme bekçisi** kullanılır.
+- KO bağlantı penceresi şablonu tek ekran görüntüsünden üretildi; farklı çözünürlükte eşleşme **test edilmelidir** (F1).
+- Bu doküman ve kod, test ortamında doğrulanana kadar "hazır" sayılmaz; her senaryo sonucu rapora işlenir.
+
+## 8. Sonuç tablosu (şablon)
+
+| Test | Hesap | Ayar | Süre | Basış/dk (ort./min/maks.) | Uyarı/kontrol | Atılma/kısıtlama | Bağlantı olayı | Bitiş nedeni | Gözlem |
+|---|---|---|---|---|---|---|---|---|---|
+| | | | | | | | | | |
+
+
+## 9. Çanta rotası projesi (MykoMobile, yalnızca Test yetkili hesap)
+
+Amaç: çanta dolunca botun kendisi Inn Hostes'e gidip eşyaları bankaya bırakması ve slotuna dönmesi.
+**Durum: ilk sürüm yazıldı, telefonda henüz denenmedi.** Her aşama ayrı doğrulanır; doğrulanamayan aşamada bot
+kör basış yapmaz, kontrollü durur ve nedenini günlüğe yazar.
+
+### 9.1 Nasıl çalışır
+1. **Canlı koordinat:** HP/MP barının altındaki X,Y, ekran görüntüsünden ML Kit OCR ile okunur (4 Hz). Ani sıçramalar
+   (okuma hatası) iki kez aynı değer gelmeden kabul edilmez.
+2. **Rota kaydı:** Test menüsünden kayıt başlatılır, slottan Inn Hostes'e elle yürünür, kayıt bitirilir. Bot koordinatları
+   3 birimde bir iz olarak saklar (satır satır "çizgi").
+3. **Yürüme:** Bot oyunun joystick'ini kendisi sürer. İlk adımda kısa bir **kalibrasyon** yapar (ileri, sonra ileri+sağ):
+   sağ itmenin yönü hangi tarafa çevirdiğini ölçer. Sonra izdeki sıradaki noktaya doğru yön hatasına göre direksiyon verir.
+   Takılırsa kısa geri + dönüş dener (3 deneme), süre aşımı 150 sn.
+4. **Inn Hostes:** Open butonunu şablonla bulup basar → sağdaki "Inn Hostes Open" → banka penceresinin gelmesini
+   doğrular (başlık şablonu).
+5. **Boşaltma:** Envanterin ilk N satırında (varsayılan 3; son satır kalır) dolu hücreleri bulur (boş hücre düz koyu),
+   eşyaya **iki kez dokunur**, istiflenebilirde çıkan miktar penceresinde **Confirm**'e basar.
+6. **Kapat ve dön:** X ile kapatır (kapandığını doğrular), giderken izlediği yolu tersten izleyip başlangıç noktasına döner.
+7. **Tetik:** Collect All kapanmazsa (envanter dolu) otomatik; ayrıca menüden elle çalıştırılabilir.
+
+### 9.2 Aşamalı doğrulama (bu sırayla)
+| No | Test | Menü | Beklenen |
+|---|---|---|---|
+| A1 | Koordinat okuma | 📍 Konum testi | Okunan değer ekrandakiyle aynı (günlükte KONUM/KONUM_OKUNAMADI) |
+| A2 | Rota kaydı | 🔴 Rota kaydını başlat → yürü → ⏹ bitir | ROTA_KAYDEDILDI, nokta sayısı ve uzunluk makul |
+| A3 | Yürüme | 🚶 Yürüme testi | KALIBRASYON, YURU_BITTI (hedefe varıldı); izden sapma ve süre not edilir |
+| A4 | Banka | NPC'nin yanında 🎒 Çanta rotasını çalıştır | ROTA_OPEN, ROTA_BANKA_ACIK, ROTA_BOSALTILDI (taşınan sayısı), ROTA_TAMAM |
+| A5 | Otomatik döngü | Otomatik çanta rotası: AÇIK + farm | CANTA_DOLU → CANTA_ROTA_TETIK → ROTA_TAMAM → farma devam |
+
+### 9.3 Olay sözlüğü (ek)
+KONUM, KONUM_OKUNAMADI, KONUM_SUPHELI, ROTA_KAYIT, ROTA_KAYDEDILDI, ROTA_SILINDI, ROTA_BASLADI, KALIBRASYON,
+ROTA_GIDIS, YURU_BITTI, YURU_HATA, YURU_TAKILDI, YURU_TESTI_TAMAM, ROTA_OPEN, ROTA_MENU, ROTA_BANKA_ACIK, ROTA_TEKRAR,
+ROTA_MIKTAR, ROTA_BOSALTILDI, ROTA_KAPAT, ROTA_DONUS, ROTA_TAMAM, ROTA_IPTAL, CANTA_DOLU, CANTA_ROTA_TETIK.
+
+### 9.4 Bilinen riskler (dürüst not)
+- **OCR doğruluğu doğrulanmadı.** Rakam okuma ML Kit'e bırakıldı; sıkıştırılmış videodan şablon tabanlı okuma güvenilir
+  çıkmadığı için bu yol seçildi. A1 başarısızsa günlükteki ham OCR metni ile yeniden ayar yapılır.
+- **Joystick'i botun sürmesi** bu telefonda ilk kez deneniyor. Android, bot jesti sırasında başka dokunuşu iptal edebilir;
+  rota sırasında farm adımları durdurulur. Jest sürekli iptal olursa (6 kez) rota kontrollü durur.
+- Dönüş yönü **kalibrasyonla** ölçülür; denetleyici simülasyonda 0,4–3,5 rad/sn dönüş hızlarında hedefe vardı, gerçek
+  oyunda **sapma ve çarpışma** olabilir (kalabalık, duvar). Takılma kurtarması 3 denemeyle sınırlı.
+- Banka penceresi ve envanter konumları tek ekran çözünürlüğünden (2576×1159) oranlanmıştır; farklı cihazda **A4 ile
+  doğrulanmalıdır**. Miktar penceresi şablonu videodan çıkarıldı.
+- Eşyaya "iki kez dokun = bankaya" bilgisi kullanıcıdan alındı; her eşya için taşınıp taşınmadığı raporda sayılır.
+- Banka dolarsa ya da eşya kilitliyse bot eşyayı geçer, sayıyı raporlar.
+
+## 10. Town merkezli otonom çanta döngüsü (taslak, derlenmedi / telefonda denenmedi)
+
+Akış: her N dk envanter kontrolü → doluysa Town → kayıtlı Town→Inn yolunu yürü → Open → Inn Hostes Open → banka boşaltma → Town → kayıtlı Town→slot yolunu yürü → slot sapması içindeyse farma devam (atak).
+
+Kurulum: ⋯ → Çanta döngüsü: (1) Town'a bas, Town→Inn yolunu kaydet; (2) Town'a bas, Town→slot yolunu kaydet; (3) kontrol süresi + slot sapma payı; (4) otomatik döngü AÇIK.
+
+Testler:
+- B1 Envanter ölçümü: "Döngüyü şimdi dene" → günlükte ENVANTER_OLCUM gerçek duruma uyuyor mu; ENVANTER_ACILMADI çıkmamalı.
+- B2 Town doğrulama: TOWN_VARILDI sapması ≤ 12 birim.
+- B3 Town→Inn yürüme: TOWN_INN_YURU, YURU_BITTI, Open'ın görünmesi; TOWN_INN_TEKRAR sayısı.
+- B4 Banka boşaltma (mevcut akış).
+- B5 Town→slot yürüme: TOWN_TAMAM sapması ≤ slot sapma payı + 2; TOWN_DONUS_TEKRAR / ROTA_IPTAL sayısı.
+- B6 Uzun koşu: 30 dk aralıkla en az 3 tur.
+
+Bilinen riskler: yürüme joystick ile; joystick kamera yönüne göre yürüttüğü için her yürüyüşte yön kalibrasyonu yapılır (simülasyonda 160/160, telefonda denenmedi); envanter açık mı kontrolü ekran farkına dayanır; Town tekrar basış bekleme süresi bilinmiyor.
+
+## v25 – ekrandan ölçülen yerleşim (telefon + tablet)
+- Envanter ilk açıldığında bot panelin gerçek genişliğini ölçer ve cihaz başına kaydeder (rapor olayı: YERLESIM "panel ölçüldü ... KABUL/RED").
+- Beklenen: telefonda u≈1.05 (ekran 2712x1220), tablette ekrana göre farklı bir değer. RED görürsen raporu gönder (eskiTahmin ile karşılaştır).
+- Banka/Inn/miktar konumları tablette hâlâ ölçülmedi: BANKA_GENIS_ARAMA olayı çıkarsa banka başlığı beklenen yerde değildi.
+- Sorun bildir metnini hem telefon hem tabletten al.
+- v26: banka/Inn tablet videosundan doğrulandı (Inn menüsü, banka X'i, banka hücreleri sağa yaslı + dikeyde ortalı; tek başına envanter sağ-alta yaslı). Beklenen: tablette banka açılır, hücreler taşınır, X ile kapanır.
+- v28: hedef can barı sabit yerde bulunamazsa üst ortada aranıp öğrenilir (rapor olayı HEDEF_BAR_OGRENILDI). Tablette: mob seç → saldırı başlamalı. Başlamazsa raporda HEDEF_ALINDI/HEDEF_BAR_OGRENILDI var mı bak.
+
+## v32 – denetim sonrası düzeltmeler (HİÇBİRİ gerçek cihazda denenmedi)
+Kontrol listesi (telefon VE tablet, ikisinde de):
+1. İlk açılış: Adım 1 kartı → EKRANI TANI → uyarılar → Otomatik yerleştir → tuşlar yerinde mi → Bitti → yol kayıtları (Inn, slot) → süre → hazır.
+2. Town döngüsü tam tur (süreyi 10 dk yap): envanter ölç → Town → Inn → Open → banka boşalt → kapat → Town → slot. Raporda TOWN_TAMAM aranır.
+3. Hata kurtarma: tur sırasında bankayı elle kapat / Town'a basma gibi aksat; raporda TOWN_KURTAR sonra TOWN_TAMAM beklenir.
+4. Hız: mob seç → ilk vuruş süresi (önceden ~1 sn). Alan kontrolü 0,3 sn, isim onayı 0,12 sn, boşta adım 0,12 sn, PK kılıç 0,30-0,45 sn, varsayılan basış aralığı 130-400 ms.
+5. Tablette HEDEF_BAR_OGRENILDI / YERLESIM / BANKA_GENIS_ARAMA satırları rapora düşmeli; sorun varsa "Sorun bildir" metni gönderilmeli.
+
+## v33 – kendini sorgulama düzeltmeleri
+- Koordinat okuma bölgesi arayüz ölçeğine göre genişletildi (tablette sağ uç kesiliyordu olabilir). Beklenen: tablette rapor KONUM satırları ve doğru koordinat. KONUM_OKUNAMADI / KONUM_SUPHELI çoksa bildir.
+- Kayıtta 8 sn koordinat okunmazsa "⚠ Koordinat okunamıyor" uyarısı (KONUM_YOK_UYARI).
+- ENVANTER_OLCUM satırında panel_koyu ve u değerleri (açıkken ~0,6+ beklenir; tablet videosunda 0,66-0,68).
+- Yürüme başlangıç noktası: kayıtlı "joy" tuşu varsa oradan.
+
+## v34 – cihaz profili (bir kez öğren, kalıcı kullan)
+- Hedef barı: öğrenilince (HEDEF_BAR_OGRENILDI) 1,5 sn canlı kalırsa TGT_PROFIL_KAYDEDILDI; sonraki açılışta TGT_PROFIL_YUKLENDI. Kayıtlıyken arama 3 sn'de bir.
+- Alt çubuk Town/Inventory konumları: doğrulanınca kaydedilir, sonraki turda OCR'sız kullanılır.
+- Panel ölçeği (u) cihaz başına kayıtlı.
+- Menü → 🧹 Ekran öğrenmesini sıfırla: hepsini siler. "Sorun bildir" metninde "profil:" satırı.
+
+## v43 — RevengerOnline (YENİ, hiç denenmedi)
+Oyun seçimi: Uygulama → Oyun kartı → RevengerOnline. Görseller 2576x1159 ekran görüntülerinden hazırlandı.
+1. EKRANI TANI: "Ekran tanındı" çıkıyor mu? (rev_m.png = MENU + P.U.S düğmeleri). Çıkmazsa rapor: tanima, son_fark.
+2. Farm: HP/MP pot eşiği doğru mu (HP y=72, MP y=102 referans), mob çubuğu algılanıyor mu, mob kilidi ismi okuyor mu.
+3. Kutu: Open basılıyor mu (rev_open.png), Collect All basılıyor mu (rev_collect*.png), KUTU_COLLECT satırında "pencere"/"buton" yazıyor mu.
+4. Koordinat (beyaz yazı, Exp çubuğunun altı): KONUM satırları geliyor mu.
+5. Çanta boşaltma: Inn → Warehouse Open (ilk satır) → depo başlığı (rev_bank_baslik.png) → boşaltma. Miktar penceresi (yığın eşya) Myko görseliyle denendi mi? DENENMEDİ.
+6. Envanter kapatma X: (2341,138) birim. Denenmedi.
+Bilinen: depo 8 sayfa, bot sadece 1. sayfayı kullanır. Pazar ve MykoMobile bot-kontrol özelliği RevengerOnline'da KAPALI.

@@ -1,0 +1,68 @@
+PROJEINDIR BOT - SIFIR BİLGİYLE KURULUM (telefon ve tablet aynı)
+
+ÖNCE BUNLAR (bir kere):
+1) Uygulamayı kur, üye girişini yap. Erişilebilirlik iznini ver (Ayarlar → Erişilebilirlik → Projeindir Bot → Aç).
+2) Oyunu aç, 'Start'a bas, KARAKTERİNLE oyunun içine gir. Karakter ekranda koşabilir durumda olsun.
+
+ADIM ADIM:
+Adım 1  Panelde sadece "🔍 EKRANI TANI" görünür. Ona bas. İlk seferde ekran kaydı izni çıkar: İZİN VER.
+        "✅ Ekran tanındı" çıkar, düğme kaybolur.
+Adım 2  Uyarı kartı çıkar, oku, "Okudum, devam"a bas.
+Adım 3  "Otomatik yerleştir"e bas. Ekranda renkli yuvarlaklar çıkar. Her yuvarlak oyundaki bir tuşun TAM ÜSTÜNE gelmeli
+        (kılıç, mob seç, HP pot, MP pot, skiller). Gelmemişse yuvarlağı parmağınla sürükle. Bitince "Bitti".
+Adım 4  (MykoMobile) Çanta boşaltma yollarını kaydet: Town→Inn ve Town→slot yürüyüşleri. Ekrandaki yönlendirmeyi uygula.
+Son     "HAZIRSIN" kartı çıkar. ▶ BAŞLAT'a bas. Bot kendiliğinden başlamaz. Durdurmak için ⏸ DURDUR.
+
+DİKKAT (en sık hata sebepleri):
+- Sol üstteki HP/MP çubuklarının ve üst ortadaki mob can çubuğunun ÜSTÜNE hiçbir şey koyma: başka uygulamanın balonu, mesaj balonu, bot paneli...
+  Bot ekranı fotoğraf gibi okur; çubuk kapanırsa mobu "yok" sanır ve saldırmaz.
+- Bot panelini oyun tuşlarının olmadığı köşeye çek. Yer kaplarsa 🔽 Küçült'e bas.
+- Ekran rengi filtresi, gece modu, renk/parlaklık uygulaması açma. Oyunu yatay tut. Ekranı kapatma. Bildirim çubuğunu aşağı çekme.
+- Oyunda envanter, harita, sohbet gibi pencereleri açık bırakma.
+- Oyundan çıkıp dönersen EKRANI TANI'ya yeniden bas.
+- Bot, ekranında öğrendiği yerleri (mob can çubuğu, alt çubuk düğmeleri, pencere ölçüsü) bu cihaza kaydeder; her açılışta yeniden aramaz. Ekran ayarını/oyun arayüz boyutunu değiştirdiysen veya bir şey yanlış öğrenildiyse: ☰ Menü → 🧹 Ekran öğrenmesini sıfırla.
+- Adımları yeniden görmek için: ☰ Menü → 📋 Kurulum adımları → 🧭 Adım adım kurulumu başlat.
+- Sorun olursa: ☰ Menü → 🩺 Sorun bildir (bilgiyi kopyala) → yapıştırıp yönetime gönder.
+
+----------------------------------------------------------------------
+
+OTOMATIK ÇANTA BOŞALTMA - 5 ADIMDA KURULUM (MykoMobile)
+
+Gerekenler: geçerli üyelik. (Artık ayrı bir Test izni gerekmez.)
+
+0) Oyunu aç, karakteri farm yapacağın yere (slota) götür.
+   Botu bir kere "▶ BAŞLAT" ile başlat, 3 saniye sonra "⏸ DURDUR" ile durdur (ekran izni için, sadece ilk sefer).
+
+1) ☰ Menü → "🏙 Otomatik çanta boşaltma" → "▶ 1) Inn yolunu kaydet" → "Hazırım".
+   Oyunda TOWN'a bas, doğunca joystick ile Inn Hostes'in önüne yürü ve dur.
+   Bot kendisi anlar, "kaydedildi" der.
+
+2) Menü otomatik açılır → "▶ 2) Slot yolunu kaydet" → "Hazırım".
+   Oyunda TOWN'a bas, doğunca farm slotuna yürü ve dur. Bot kendisi bitirir.
+
+3) Menü açılır → "▶ 3) Süreyi seç ve AÇ" → 30 dk (önerilen).
+
+4) Karakter slotta, "▶ BAŞLAT" ile botu başlat. Gerisini bot yapar:
+   her 30 dk çantaya bakar; doluysa Town → Inn → eşyaları bankaya atar → Town → slota döner → farma devam.
+
+Üst çubuk: "🏙12dk" = bir sonraki çanta kontrolüne 12 dk var; "🏙boşaltma" = şu an boşaltma turunda.
+
+Sorun olursa: botu durdur → ⋯ → Otomatik çanta boşaltma → "⚙ Gelişmiş ayarlar" → "Raporu kopyala" → yönetime gönder.
+Yolları yeniden kaydetmek için: menüde "🔄 Yolları baştan kaydet".
+Kapatmak için: menüde "⏹ Otomatik boşaltmayı KAPAT".
+
+PANEL YAZILARI
+"● BOT BAŞLADI / ÇALIŞIYOR" (yeşil) = bot çalışıyor. "■ BOT DURDU" (kırmızı) = durdu.
+Panel bot başlayınca küçülmez. "🔍 oyun ekranı aranıyor" = bot oyun ekranını bulamadı.
+"Oyun ekranı tanınmadı" uyarısı çıkarsa: MykoMobile açılış ekranındaysan Start'a bas, karakter seçimindeysen karakterle oyuna gir.
+Menüde "❓ Kısa kılavuz" ve "⏻ Botu tamamen kapat" vardır.
+
+KURULUM SIRASI (panel seni yönlendirir)
+1) Oyunu aç, karakterinle oyunun içine gir. Panelde sadece "🔍 EKRANI TANI" görünür, ona bas.
+   İlk seferde ekran kaydı izni sorulur, izin ver.
+2) "✅ Ekran tanındı" yazısı çıkınca "EKRANI TANI" kaybolur, "▶ BAŞLAT" gelir.
+3) İstersen hemen ▶ BAŞLAT'a bas, istersen önce ☰ Menü → "📋 Kurulum adımları"ndan tuşlarını ve (yetkin varsa) çanta boşaltma yollarını ayarla.
+Oyundan çıkıp dönersen ekran yeniden tanıtılır.
+
+
+REVENGERONLINE: Uygulamada Oyun kartından RevengerOnline'ı seç. Yeni eklendi, test aşamasında. Sorun olursa Sorun bildir metnini at.

@@ -125,11 +125,6 @@ class Config {
     var collectWait = 800
     var antiAfkDk = 5           // Anti-AFK: kaç dakikada bir hareket (0=kapalı)
     var otomatikRespawn = true  // Karakter ölünce otomatik respawn dene
-    var mesaiAcik = false       // Mesai modu açık mı
-    var mesaiBasSaat = 8
-    var mesaiBasDk = 0
-    var mesaiBitSaat = 23
-    var mesaiBitDk = 0
     var aktifProfil = ""        // Son yüklenen profil adı
 
     // Kutu toplama acik mi
@@ -218,9 +213,7 @@ class Config {
             .put("lootEvery", lootEvery).put("collectWait", collectWait)
             .put("antiAfkDk", antiAfkDk)
             .put("otomatikRespawn", otomatikRespawn)
-            .put("mesaiAcik", mesaiAcik)
-            .put("mesaiBasSaat", mesaiBasSaat).put("mesaiBasDk", mesaiBasDk)
-            .put("mesaiBitSaat", mesaiBitSaat).put("mesaiBitDk", mesaiBitDk).put("aktifProfil", aktifProfil)
+            .put("aktifProfil", aktifProfil)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
             .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
@@ -506,11 +499,6 @@ class Config {
                 c.collectWait = o.optInt("collectWait", c.collectWait)
                 c.antiAfkDk = o.optInt("antiAfkDk", c.antiAfkDk)
                 c.otomatikRespawn = o.optBoolean("otomatikRespawn", c.otomatikRespawn)
-                c.mesaiAcik = o.optBoolean("mesaiAcik", c.mesaiAcik)
-                c.mesaiBasSaat = o.optInt("mesaiBasSaat", c.mesaiBasSaat)
-                c.mesaiBasDk = o.optInt("mesaiBasDk", c.mesaiBasDk)
-                c.mesaiBitSaat = o.optInt("mesaiBitSaat", c.mesaiBitSaat)
-                c.mesaiBitDk = o.optInt("mesaiBitDk", c.mesaiBitDk)
                 c.aktifProfil = o.optString("aktifProfil", c.aktifProfil)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
                 c.lootOn = o.optBoolean("lootOn", true)

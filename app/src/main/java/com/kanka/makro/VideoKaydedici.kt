@@ -107,7 +107,7 @@ object VideoKaydedici {
         codec = enc
         inputSurface = surface
 
-        val ad = "Projeindirpedal_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(java.util.Date()) + ".mp4"
+        val ad = "ProjeindirBot_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(java.util.Date()) + ".mp4"
         val (mx, uri, dosya, pf) = muxerOlustur(ctx, ad)
         muxer = mx
         cikanUri = uri
@@ -129,13 +129,13 @@ object VideoKaydedici {
         this.h.post(drainGorevi)
     }
 
-    /** API 29+: MediaStore uzerinden dogrudan Movies/Projeindirpedal klasorune (Galeri'de gorunur) */
+    /** API 29+: MediaStore uzerinden dogrudan Movies/ProjeindirBot klasorune (Galeri'de gorunur) */
     private fun muxerOlustur(ctx: Context, ad: String): DortluResult {
         if (Build.VERSION.SDK_INT >= 29) {
             val cv = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, ad)
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Projeindirpedal")
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/ProjeindirBot")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
             val uri = ctx.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv)
@@ -145,7 +145,7 @@ object VideoKaydedici {
             val mx = MediaMuxer(pf.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             return DortluResult(mx, uri, null, pf)
         } else {
-            val klasor = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Projeindirpedal")
+            val klasor = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "ProjeindirBot")
             if (!klasor.exists()) klasor.mkdirs()
             val dosya = File(klasor, ad)
             val mx = MediaMuxer(dosya.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
