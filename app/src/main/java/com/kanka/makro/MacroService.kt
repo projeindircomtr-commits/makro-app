@@ -8022,7 +8022,7 @@ class MacroService : AccessibilityService() {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + (if (collectKesin || Lisans.foldHesabi()) rand(15, 30) else rand(60, 100))
+                    nextLootScan = now + (if (collectKesin || Lisans.foldHesabi()) rand(15, 30) else rand(15, 25))
                 }
                 return null
             }
@@ -8036,7 +8036,7 @@ class MacroService : AccessibilityService() {
                     lootPhase = Loot.BOS
                     nextLootScan = now + scanGap()
                 } else {
-                    nextLootScan = now + (if (collectKesin) rand(20, 40) else rand(60, 110))
+                    nextLootScan = now + (if (collectKesin) rand(20, 40) else rand(15, 25))
                 }
                 return null
             }

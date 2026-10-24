@@ -122,7 +122,7 @@ class Config {
 
     // Kutu
     var lootEvery = 150      // ekran tarama araligi (ms)
-    var collectWait = 3000   // Open'dan sonra Collect All bekleme (ms)
+    var collectWait = 800   // Open'dan sonra Collect All bekleme (ms)
 
     // Kutu toplama acik mi
     var lootOn = true
