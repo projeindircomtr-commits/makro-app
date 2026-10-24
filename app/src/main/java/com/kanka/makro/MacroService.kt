@@ -1354,6 +1354,7 @@ class MacroService : AccessibilityService() {
                     c.save(this)
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
+                "⚔️ Skill cooldown düzenle" to { skillCdMenu() },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
                 "🧹 Ekran öğrenmesini sıfırla" to { profilSifirla() },
                 "⚙ Uygulamayı aç" to {
@@ -1367,6 +1368,30 @@ class MacroService : AccessibilityService() {
                 "⏻ Botu tamamen kapat" to { tamKapatSor() }
             )
         )
+    }
+
+
+    // ================= Skill cooldown duzenle =================
+    private fun skillCdMenu() {
+        val c = Config.load(this)
+        val skiller = c.points.filter { it.type == "skill" || it.type == "heal" || it.type == "buff" }
+        if (skiller.isEmpty()) {
+            toast("Henüz skill tuşu atanmamış. Tuşları düzenle'den ekle.")
+            return
+        }
+        val items = skiller.mapIndexed { idx, p ->
+            val i = c.points.indexOf(p)
+            "${p.name} — şu an: ${if (p.cd > 0f) "%.1fsn".format(p.cd) else "sınırsız hızlı"}" to {
+                cdMenu(p.cd) { yeniCd ->
+                    val c2 = Config.load(this)
+                    c2.points[i].cd = yeniCd
+                    c2.save(this)
+                    toast("${p.name}: ${if (yeniCd > 0f) "%.1f sn".format(yeniCd) else "sınırsız"}")
+                    skillCdMenu()
+                }
+            }
+        } + listOf("↩ Geri" to { showOverlay() })
+        showMenu("⚔️ Skill Cooldown\nDokun → süreyi değiştir", items)
     }
 
     // ================= Oyun icinde ayarlar (uygulamaya gecmeden) =================
