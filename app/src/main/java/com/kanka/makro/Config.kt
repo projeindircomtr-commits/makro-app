@@ -130,7 +130,7 @@ class Config {
     var mesaiBasDk = 0
     var mesaiBitSaat = 23
     var mesaiBitDk = 0
-    var aktifProfil = ""   // Open'dan sonra Collect All bekleme (ms)
+    var aktifProfil = ""        // Son yüklenen profil adı
 
     // Kutu toplama acik mi
     var lootOn = true

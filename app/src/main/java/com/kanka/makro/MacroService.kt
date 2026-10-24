@@ -115,9 +115,8 @@ class MacroService : AccessibilityService() {
     private var takiKonumY = -1
     private var takiSon = 0L
     private var takiHareket = 0L
-    // Stat sayacı
-    private var statMobOldu = 0
-    private var statKutuToplandi = 0
+    private var takiIlerleme = -1
+    // Stat: çalışma süresi (mob/kutu/pot sayaçları zaten var: kesilen/toplanan/basilanPot)
     private var statBaslangic = 0L
     private var olumTespitAt = 0L
     private var respawnDeneme = 0
@@ -1405,6 +1404,7 @@ class MacroService : AccessibilityService() {
                     c2.antiAfkDk = dk
                     c2.save(this)
                     toast(if (dk == 0) "Anti-AFK kapatıldı" else "Anti-AFK: $dk dk")
+                    Unit
                 }
             }
         )
@@ -1420,7 +1420,7 @@ class MacroService : AccessibilityService() {
         val cy = screenH * 0.75f
         val dx = ((-15)..(15)).random().toFloat()
         val dy = ((-15)..(15)).random().toFloat()
-        tap(cx + dx, cy + dy)
+        tap(cx + dx, cy + dy, 0f) { }
     }
 
     // =========================================================
@@ -1439,8 +1439,8 @@ class MacroService : AccessibilityService() {
         h.postDelayed(object : Runnable {
             override fun run() {
                 respawnDeneme++
-                tap(screenW * 0.5f, screenH * 0.62f)
-                h.postDelayed({ tap(screenW * 0.5f, screenH * 0.67f) }, 400)
+                tap(screenW * 0.5f, screenH * 0.62f, 0f) { }
+                h.postDelayed({ tap(screenW * 0.5f, screenH * 0.67f, 0f) { } }, 400)
                 if (respawnDeneme < 6) h.postDelayed(this, 2000)
                 else toast("✅ Respawn denendi — botu manuel başlat")
             }
@@ -1530,6 +1530,7 @@ class MacroService : AccessibilityService() {
                     c2.save(this)
                     cfg = Config.load(this)
                     toast("✅ Profil yüklendi: $p")
+                    Unit
                 })
             }
             items.add("🗑 Profil sil" to { profilSilMenu() })
@@ -1549,6 +1550,7 @@ class MacroService : AccessibilityService() {
                     c2.aktifProfil = isim
                     c2.save(this)
                     toast("✅ Kaydedildi: $isim")
+                    Unit
                 }
             } + listOf("↩ Geri" to { profilMenu() })
         )
@@ -1573,22 +1575,22 @@ class MacroService : AccessibilityService() {
     private fun takilmaKontrol(now: Long) {
         if (!running) return
         val x = konumX; val y = konumY
-        if (x < 0) return
+        if (x < 0 || now - konumAt > 10_000L) return   // koordinat okunmuyorsa karar verme
+        val ilerleme = kesilen + toplanan + basilanPot
         val fark = Math.abs(x - takiKonumX) + Math.abs(y - takiKonumY)
-        if (fark > 15) {
+        // Hareket varsa ya da mob/kutu/pot ilerliyorsa takılma yok (yerinde mob kesmek normal)
+        if (fark > 15 || ilerleme != takiIlerleme || takiHareket == 0L) {
             takiKonumX = x; takiKonumY = y
+            takiIlerleme = ilerleme
             takiHareket = now
             return
         }
-        if (takiHareket == 0L) { takiHareket = now; return }
         if (now - takiHareket > 30_000L && now - takiSon > 35_000L) {
             takiSon = now
             takiHareket = now
-            takiKonumX = -1
-            toast("⚠ Takıldı — joystick sıfırlanıyor")
-            tap(screenW * 0.15f, screenH * 0.75f)
-            h.postDelayed({ tap(screenW * 0.15f + 30f, screenH * 0.75f - 20f) }, 300)
-            h.postDelayed({ tap(screenW * 0.15f, screenH * 0.75f) }, 700)
+            TestLog.olay("TAKILMA", "30 sn konum ve ilerleme yok", "x=$x y=$y")
+            toast("⚠ 30 sn ilerleme yok: yeni hedef seçiliyor")
+            nextTarget = 0L
         }
     }
 
@@ -1603,8 +1605,9 @@ class MacroService : AccessibilityService() {
         showMenu(
             "📊 İstatistikler",
             listOf(
-                "⚔ Öldürülen mob: $statMobOldu" to {},
-                "📦 Toplanan kutu: $statKutuToplandi" to {},
+                "🗡 Kesilen mob: $kesilen" to {},
+                "📦 Toplanan kutu: $toplanan" to {},
+                "🧪 Basılan pot: $basilanPot" to {},
                 "⏱ Çalışma süresi: $sure" to {},
                 "↩ Geri" to { removeOverlay() }
             )
@@ -4061,7 +4064,7 @@ class MacroService : AccessibilityService() {
             hpLowSince = 0L
             skillReady.clear()
             skillLast.clear()
-            statMobOldu = 0; statKutuToplandi = 0; statBaslangic = System.currentTimeMillis()
+            statBaslangic = System.currentTimeMillis(); takiHareket = 0L; takiKonumX = -1; takiIlerleme = -1
             nextLootScan = 0L
             lootPhase = Loot.BOS
             phaseUntil = 0L
@@ -7801,7 +7804,6 @@ class MacroService : AccessibilityService() {
                 }
             }
             if (oncekiCanli && !alive) {
-                statMobOldu++
             TestLog.olay("HEDEF_KAYBI", if (now - iptalAt > 2500) "hedef öldü/kayboldu" else "hedef X ile bırakıldı", "sure_ms=${now - hedefBaslangic}")
                 if (now - iptalAt > 2500) kesilen++   // X ile birakilan mob kesildi sayilmaz
                 if (now >= menzilBekleUntil) nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
@@ -8126,7 +8128,6 @@ class MacroService : AccessibilityService() {
                 collectOgren(pos)
                 // Tutan boyu hatirla: sonraki kutularda hizli yakin arama bununla yapilir
                 if (dugme) cfg.collectT2 = t else cfg.collectT = t
-                statKutuToplandi++
                 TestLog.olay("COLLECT_GENIS_BULDU", "Collect All geniş aramada bulundu", "grid=${pos[0]},${pos[1]} beklenen=$collectAnkorGX,$collectAnkorGY w=${t.w} ekran ${screenW}x$screenH")
                 return t to pos
             }
