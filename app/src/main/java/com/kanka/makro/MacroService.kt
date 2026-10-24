@@ -1390,7 +1390,7 @@ class MacroService : AccessibilityService() {
                     skillCdMenu()
                 }
             }
-        } + listOf("↩ Geri" to { showOverlay() })
+        } + listOf("↩ Geri" to { removeOverlay() })
         showMenu("⚔️ Skill Cooldown\nDokun → süreyi değiştir", items)
     }
 
