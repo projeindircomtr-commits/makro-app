@@ -110,6 +110,15 @@ class MacroService : AccessibilityService() {
     private var hpLowSince = 0L
     private val skillReady = HashMap<Int, Long>()
     private var antiAfkSon = 0L
+    // Takılma algılama
+    private var takiKonumX = -1
+    private var takiKonumY = -1
+    private var takiSon = 0L
+    private var takiHareket = 0L
+    // Stat sayacı
+    private var statMobOldu = 0
+    private var statKutuToplandi = 0
+    private var statBaslangic = 0L
     private var olumTespitAt = 0L
     private var respawnDeneme = 0
     private var mesaiKontrolSon = 0L
@@ -1358,9 +1367,11 @@ class MacroService : AccessibilityService() {
                     c.save(this)
                     toast("Kilitler kaldırıldı, her moba vurulacak")
                 },
+                "👤 Profiller" to { profilMenu() },
                 "⏰ Mesai saatleri" to { mesaiMenu() },
                 "🛡 Anti-AFK" to { antiAfkMenu() },
                 "❤ HP/MP eşiği" to { hpMpEsikMenu() },
+                "📊 İstatistikler" to { statGoster() },
                 "❓ Kısa kılavuz" to { kilavuzGoster() },
                 "🧹 Ekran öğrenmesini sıfırla" to { profilSifirla() },
                 "⚙ Uygulamayı aç" to {
@@ -1494,6 +1505,107 @@ class MacroService : AccessibilityService() {
                 "HP eşiği: %${c.hpYuzde}  (+5)" to { val c2=Config.load(this); c2.hpYuzde=(c2.hpYuzde+5).coerceIn(10,95); c2.save(this); hpMpEsikMenu() },
                 "MP eşiği: %${c.mpYuzde}  (−5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde-5).coerceIn(5,95); c2.save(this); hpMpEsikMenu() },
                 "MP eşiği: %${c.mpYuzde}  (+5)" to { val c2=Config.load(this); c2.mpYuzde=(c2.mpYuzde+5).coerceIn(5,95); c2.save(this); hpMpEsikMenu() },
+                "↩ Geri" to { removeOverlay() }
+            )
+        )
+    }
+
+    // =========================================================
+    // PROFİL SİSTEMİ
+    // =========================================================
+    private fun profilMenu() {
+        val profiller = Config.profiles(this)
+        val aktif = Config.load(this).aktifProfil
+        val items = mutableListOf<Pair<String, () -> Unit>>()
+        items.add("➕ Şu anki ayarları kaydet" to { profilKaydetDialog() })
+        if (profiller.isEmpty()) {
+            items.add("(Henüz kayıtlı profil yok)" to {})
+        } else {
+            for (p in profiller) {
+                val label = if (p == aktif) "★ $p (aktif)" else p
+                items.add(label to {
+                    Config.loadProfile(this, p)
+                    val c2 = Config.load(this)
+                    c2.aktifProfil = p
+                    c2.save(this)
+                    cfg = Config.load(this)
+                    toast("✅ Profil yüklendi: $p")
+                })
+            }
+            items.add("🗑 Profil sil" to { profilSilMenu() })
+        }
+        items.add("↩ Geri" to { removeOverlay() })
+        showMenu("👤 Profiller — build'leri kaydet/yükle", items)
+    }
+
+    private fun profilKaydetDialog() {
+        val isimler = listOf("Mage", "Warrior", "Asas", "Okcu", "Str Priest", "Priest")
+        showMenu("💾 Profil adı seç",
+            isimler.map { isim ->
+                isim to {
+                    val c = Config.load(this)
+                    Config.saveProfile(this, isim, c)
+                    val c2 = Config.load(this)
+                    c2.aktifProfil = isim
+                    c2.save(this)
+                    toast("✅ Kaydedildi: $isim")
+                }
+            } + listOf("↩ Geri" to { profilMenu() })
+        )
+    }
+
+    private fun profilSilMenu() {
+        val profiller = Config.profiles(this)
+        showMenu("🗑 Hangi profili sil?",
+            profiller.map { p ->
+                p to {
+                    Config.deleteProfile(this, p)
+                    toast("🗑 Silindi: $p")
+                    profilMenu()
+                }
+            } + listOf("↩ Geri" to { profilMenu() })
+        )
+    }
+
+    // =========================================================
+    // TAKILMA ALGILAMA
+    // =========================================================
+    private fun takilmaKontrol(now: Long) {
+        if (!running) return
+        val x = konumX; val y = konumY
+        if (x < 0) return
+        val fark = Math.abs(x - takiKonumX) + Math.abs(y - takiKonumY)
+        if (fark > 15) {
+            takiKonumX = x; takiKonumY = y
+            takiHareket = now
+            return
+        }
+        if (takiHareket == 0L) { takiHareket = now; return }
+        if (now - takiHareket > 30_000L && now - takiSon > 35_000L) {
+            takiSon = now
+            takiHareket = now
+            takiKonumX = -1
+            toast("⚠ Takıldı — joystick sıfırlanıyor")
+            tap(screenW * 0.15f, screenH * 0.75f)
+            h.postDelayed({ tap(screenW * 0.15f + 30f, screenH * 0.75f - 20f) }, 300)
+            h.postDelayed({ tap(screenW * 0.15f, screenH * 0.75f) }, 700)
+        }
+    }
+
+    // =========================================================
+    // STAT SAYACI
+    // =========================================================
+    private fun statGoster() {
+        val sure = if (statBaslangic > 0L) {
+            val dk = (System.currentTimeMillis() - statBaslangic) / 60_000L
+            "${dk / 60}s ${dk % 60}dk"
+        } else "—"
+        showMenu(
+            "📊 İstatistikler",
+            listOf(
+                "⚔ Öldürülen mob: $statMobOldu" to {},
+                "📦 Toplanan kutu: $statKutuToplandi" to {},
+                "⏱ Çalışma süresi: $sure" to {},
                 "↩ Geri" to { removeOverlay() }
             )
         )
@@ -3949,6 +4061,7 @@ class MacroService : AccessibilityService() {
             hpLowSince = 0L
             skillReady.clear()
             skillLast.clear()
+            statMobOldu = 0; statKutuToplandi = 0; statBaslangic = System.currentTimeMillis()
             nextLootScan = 0L
             lootPhase = Loot.BOS
             phaseUntil = 0L
@@ -7611,6 +7724,7 @@ class MacroService : AccessibilityService() {
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         antiAfkKontrol(System.currentTimeMillis())
         mesaiKontrol(System.currentTimeMillis())
+        takilmaKontrol(System.currentTimeMillis())
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
         if (now - minorSon < 150) return null
         val hp = barDoluluk(hpBar, true)
@@ -7687,7 +7801,8 @@ class MacroService : AccessibilityService() {
                 }
             }
             if (oncekiCanli && !alive) {
-                TestLog.olay("HEDEF_KAYBI", if (now - iptalAt > 2500) "hedef öldü/kayboldu" else "hedef X ile bırakıldı", "sure_ms=${now - hedefBaslangic}")
+                statMobOldu++
+            TestLog.olay("HEDEF_KAYBI", if (now - iptalAt > 2500) "hedef öldü/kayboldu" else "hedef X ile bırakıldı", "sure_ms=${now - hedefBaslangic}")
                 if (now - iptalAt > 2500) kesilen++   // X ile birakilan mob kesildi sayilmaz
                 if (now >= menzilBekleUntil) nextTarget = 0L   // mob oldu: yeni hedefi hemen sec (kutu paralel toplanir)
             }
@@ -8011,6 +8126,7 @@ class MacroService : AccessibilityService() {
                 collectOgren(pos)
                 // Tutan boyu hatirla: sonraki kutularda hizli yakin arama bununla yapilir
                 if (dugme) cfg.collectT2 = t else cfg.collectT = t
+                statKutuToplandi++
                 TestLog.olay("COLLECT_GENIS_BULDU", "Collect All geniş aramada bulundu", "grid=${pos[0]},${pos[1]} beklenen=$collectAnkorGX,$collectAnkorGY w=${t.w} ekran ${screenW}x$screenH")
                 return t to pos
             }

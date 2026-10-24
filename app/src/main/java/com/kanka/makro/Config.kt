@@ -129,7 +129,8 @@ class Config {
     var mesaiBasSaat = 8
     var mesaiBasDk = 0
     var mesaiBitSaat = 23
-    var mesaiBitDk = 0   // Open'dan sonra Collect All bekleme (ms)
+    var mesaiBitDk = 0
+    var aktifProfil = ""   // Open'dan sonra Collect All bekleme (ms)
 
     // Kutu toplama acik mi
     var lootOn = true
@@ -219,7 +220,7 @@ class Config {
             .put("otomatikRespawn", otomatikRespawn)
             .put("mesaiAcik", mesaiAcik)
             .put("mesaiBasSaat", mesaiBasSaat).put("mesaiBasDk", mesaiBasDk)
-            .put("mesaiBitSaat", mesaiBitSaat).put("mesaiBitDk", mesaiBitDk)
+            .put("mesaiBitSaat", mesaiBitSaat).put("mesaiBitDk", mesaiBitDk).put("aktifProfil", aktifProfil)
             .put("hpStop", hpStop).put("lootOn", lootOn).put("otoArayuz", otoArayuz).put("tuslarOto", tuslarOto)
             .put("hpYuzde", hpYuzde).put("mpYuzde", mpYuzde).put("menzilSn", menzilSn).put("menzilAktif", menzilAktif).put("minorYuzde", minorYuzde).put("skillAraMs", skillAraMs).put("mpOncelik", mpOncelik).put("oncelik", oncelik).put("padSkillDurur", padSkillDurur).put("padKamera", padKamera).put("padAcik", padAcik).put("pkOkuma", pkOkuma)
             .put("testModu", testModu).put("testBasamak", testBasamak).put("testAltMs", testAltMs)
@@ -510,6 +511,7 @@ class Config {
                 c.mesaiBasDk = o.optInt("mesaiBasDk", c.mesaiBasDk)
                 c.mesaiBitSaat = o.optInt("mesaiBitSaat", c.mesaiBitSaat)
                 c.mesaiBitDk = o.optInt("mesaiBitDk", c.mesaiBitDk)
+                c.aktifProfil = o.optString("aktifProfil", c.aktifProfil)
                 c.hpStop = o.optInt("hpStop", c.hpStop)
                 c.lootOn = o.optBoolean("lootOn", true)
                 c.otoArayuz = o.optBoolean("otoArayuz", true)
