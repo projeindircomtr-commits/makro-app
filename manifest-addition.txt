@@ -1,0 +1,15 @@
+AndroidManifest.xml içine ekle (</application> kapanış tag'inden önce):
+
+    <!-- PacketInterceptVpn için -->
+    <service
+        android:name=".PacketInterceptVpn"
+        android:permission="android.permission.BIND_VPN_SERVICE"
+        android:exported="false">
+        <intent-filter>
+            <action android:name="android.net.VpnService" />
+        </intent-filter>
+    </service>
+
+Ve <uses-permission> bölümüne:
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
