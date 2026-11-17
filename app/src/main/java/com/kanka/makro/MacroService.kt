@@ -4026,6 +4026,7 @@ class MacroService : AccessibilityService() {
             hpLowSince = 0L
             skillReady.clear()
             skillLast.clear()
+            skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear()
             statBaslangic = System.currentTimeMillis(); takiHareket = 0L; takiKonumX = -1; takiIlerleme = -1
             respawnNesil++   // bekleyen respawn dokunuşları iptal
             nextLootScan = 0L
@@ -7974,7 +7975,7 @@ class MacroService : AccessibilityService() {
         for (i in pts.indices) {
             val p = pts[i]
             if (p.type != "skill" || !p.on) continue
-            if (now < (skillReady[i] ?: 0L)) continue
+            if (!skillHazir(i, p, now)) continue
             val last = skillLast[i] ?: 0L
             if (last < bestLast) {
                 bestLast = last
@@ -7984,6 +7985,7 @@ class MacroService : AccessibilityService() {
         if (best >= 0) {
             val p = pts[best]
             skillLast[best] = now
+            if ((skillGorsel[best] ?: 0) == 0 && skillRef[best] != null) skillOlc[best] = now   // basıldı: ikon kararıyor mu bakılacak
             skillReady[best] = now + if (p.cd > 0f) {
                 (p.cd * 1000).toLong() + rand(cfg.skMin, cfg.skMax)
             } else 0L
@@ -7992,6 +7994,60 @@ class MacroService : AccessibilityService() {
 
         // Capraz kilic (saldiri) tusu kullanilmaz: mob secimi + skiller yeterli
         return null
+    }
+
+    // ---------- Skill: ikon parlaklığından "hazır mı" öğrenme ----------
+    // Bot başlarken her skill ikonunun HAZIR halini (parlaklığını) kaydeder. Basınca ikon kararıyorsa
+    // o skill "görsel" moda geçer: süre beklemeden, ikon tekrar parlayınca basılır. Kararmıyorsa eski süre ayarı kullanılır.
+    private val skillRef = HashMap<Int, Float>()         // hazır ikon parlaklığı
+    private val skillGorsel = HashMap<Int, Int>()        // 0 bilinmiyor, 1 ikon kararıyor (görsel mod), -1 kararmıyor (süre modu)
+    private val skillOlc = HashMap<Int, Long>()          // basıldıktan sonra kararma ölçümü bekleniyor
+    private val skillKararmadi = HashMap<Int, Int>()
+
+    /** Skill ikonunun ortalama parlaklığı (ikonun ortasında 3x3 nokta). Okunamazsa null */
+    private fun ikonParlak(p: Nokta): Float? {
+        val d = (screenH * 0.018f).toInt().coerceAtLeast(3)
+        var top = 0f
+        for (dy in -1..1) for (dx in -1..1) {
+            val c = ScreenSampler.readPixel(p.x + dx * d, p.y + dy * d)
+            if (c < 0) return null
+            top += 0.30f * ((c shr 16) and 0xff) + 0.59f * ((c shr 8) and 0xff) + 0.11f * (c and 0xff)
+        }
+        return top / 9f
+    }
+
+    private fun skillHazir(i: Int, p: Nokta, now: Long): Boolean {
+        val sure = now >= (skillReady[i] ?: 0L)
+        val ref = skillRef[i]
+        if ((skillGorsel[i] ?: 0) != 1) {
+            // Hazır hali: hiç basılmamışken (bot başında) kaydedilir
+            if (ref == null && sure && skillLast[i] == null) ikonParlak(p)?.let { if (it > 25f) skillRef[i] = it }
+            val olc = skillOlc[i]
+            if (ref != null && olc != null && now - olc >= 500L) {
+                skillOlc.remove(i)
+                val b = ikonParlak(p)
+                if (b != null && b < ref * 0.75f) {
+                    skillGorsel[i] = 1
+                    TestLog.olay("SKILL_GORSEL", "${p.name}: ikon kararıyor, hazır olunca basılacak", "hazir=${ref.toInt()} basinca=${b.toInt()}")
+                } else if (b != null) {
+                    val n = (skillKararmadi[i] ?: 0) + 1
+                    skillKararmadi[i] = n
+                    if (n >= 3) {
+                        skillGorsel[i] = -1
+                        TestLog.olay("SKILL_SURE", "${p.name}: ikon kararmıyor, süre ayarı kullanılacak", "hazir=${ref.toInt()} basinca=${b.toInt()}")
+                    }
+                }
+            }
+            return sure
+        }
+        // Görsel mod
+        val r = ref ?: return sure
+        val son = skillLast[i] ?: 0L
+        if (now - son < 400L) return false                  // basış ikona yansısın
+        val b = ikonParlak(p) ?: return sure
+        if (b >= r * 0.9f) return true
+        // Güvenlik: ikon uzun süre hazır görünmezse (ekran değişti vb.) süre ayarının 2 katı / en az 30 sn sonra yine bas
+        return now - son > maxOf((p.cd * 2000).toLong(), 30_000L)
     }
 
     // ---------- Kutu ----------
