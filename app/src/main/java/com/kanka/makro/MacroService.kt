@@ -2204,6 +2204,8 @@ class MacroService : AccessibilityService() {
                 "Kapat" to { }))
             return
         }
+        // Kurulum sırasında koordinat okunsun: NPC'ler arasında yürürken yol haritaya öğretilir (banka yolundaki gibi)
+        rh.post { konumBaslat() }
         val sp = upgPref()
         fun var_(k: String) = sp.contains(k + "_x")
         val hazir = var_("charon") && var_("tyroon") && var_("anvil") && sp.contains("kagit_dx") && sp.contains("elbise_dx")
@@ -2212,6 +2214,7 @@ class MacroService : AccessibilityService() {
             (if (var_("charon") && sp.contains("kagit_dx")) "✅" else "⬜") + " 1) Charon + kağıt seçildi\n" +
             (if (var_("tyroon") && sp.contains("elbise_dx")) "✅" else "⬜") + " 2) Tyroon + elbise seçildi\n" +
             (if (var_("anvil")) "✅" else "⬜") + " 3) Anvil yeri\n\n" +
+            "Yolu öğretmek için: Town'a bas → Charon'a yürü, 1'e bas → Tyroon'a yürü, 2'ye bas → Anvil'e yürü, 3'e bas. Bot aradaki yolları öğrenir.\n\n" +
             "Döngü: Charon'dan kağıt → Tyroon'dan $adet elbise → Anvil'de hepsi +2, +3 … +7, sonra +8. Hepsi yanarsa yeniden alır. İlk +8'de durur.", listOf(
             (if (hazir) "▶ Başlat (al + bas)" else "▶ Başlat (önce 1-2-3'ü kaydet)") to { if (hazir) upgBaslat(true) else toast("Önce Charon, Tyroon ve Anvil'i kaydet") },
             "📍 1) Charon'u kaydet (yanında dur)" to { upgNpcKaydet("charon") },
@@ -2228,6 +2231,7 @@ class MacroService : AccessibilityService() {
     // ---------- Upgrade Bot: NPC kaydı, yürüme, satın alma ----------
     // Dükkan penceresi ölçüsü: "Multiple Selling" yazısına göre (1159 px yüksek ekran görüntüsünden doğrulandı)
     private var upgTam = false                 // satın alma + yürüme dahil tam döngü
+    private var upgTownAtildi = false
     private var dkAnkor: FloatArray? = null
     private fun upgPref() = getSharedPreferences("upgrade_bot_" + Config.oyun(this), MODE_PRIVATE)
     private fun dkNokta(dx: Float, dy: Float): FloatArray { val a = dkAnkor!!; return floatArrayOf(a[0] + dx * upgU(), a[1] + dy * upgU()) }
@@ -2322,6 +2326,18 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    /** Dükkanı aç; açılmazsa kayıtlı noktanın tam üstüne bir kez daha yürü ve tekrar dene */
+    private fun upgDukkanAcYaklas(tur: String, sonra: (Boolean) -> Unit) {
+        upgDukkanAc(0) { ok ->
+            if (ok || !upgCalisiyor) { sonra(ok); return@upgDukkanAc }
+            TestLog.olay("UPG_YAKLAS", "$tur penceresi açılmadı, kayıtlı noktaya tekrar yaklaşılıyor", "konum=$konumX,$konumY")
+            val sp = upgPref()
+            val p = haritaYolu(intArrayOf(sp.getInt(tur + "_x", 0), sp.getInt(tur + "_y", 0)), emptyList())
+            if (p == null) { sonra(false); return@upgDukkanAc }
+            yuruBaslat(p.first, 0.6, 15_000L, p.second) { _, _ -> rh.postDelayed({ if (upgCalisiyor) upgDukkanAc(0, sonra) }, 600) }
+        }
+    }
+
     private fun upgSayfayaGit(sayfa: Int, sonra: () -> Unit) {
         if (sayfa <= 1) { sonra(); return }
         val o = dkNokta(254f, -81f)
@@ -2342,13 +2358,26 @@ class MacroService : AccessibilityService() {
         upgKonumBekle { k ->
             if (!upgCalisiyor) return@upgKonumBekle
             if (k == null) { upgBitir("Koordinat okunamadı"); return@upgKonumBekle }
-            if (Math.hypot((k[0] - hx).toDouble(), (k[1] - hy).toDouble()) <= 2.0) { sonra(); return@upgKonumBekle }
+            val uzak = Math.hypot((k[0] - hx).toDouble(), (k[1] - hy).toDouble())
+            if (uzak <= 1.5) { sonra(); return@upgKonumBekle }
+            if (uzak > 60.0 && !upgTownAtildi) {
+                // Farm alanındaysa önce Town (kasabaya ışınlan), sonra öğrenilen yoldan yürü
+                val town = altDugmeKonum[1] ?: profOku("alt1_${ekranAnahtar()}")?.split(",")?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 2 }?.toFloatArray()
+                if (town != null) {
+                    upgTownAtildi = true
+                    TestLog.olay("UPG_TOWN", "NPC'ler uzakta (${uzak.toInt()}), önce Town", "")
+                    tap(town[0], town[1], 0f) { rh.postDelayed({ upgYuru(tur, sonra) }, 6000) }
+                    return@upgKonumBekle
+                }
+            }
             val p = haritaYolu(intArrayOf(hx, hy), emptyList())
             if (p == null) { upgBitir("$tur için yol bulunamadı"); return@upgKonumBekle }
             TestLog.olay("UPG_YURU", "$tur yerine yürünüyor", "${k[0]},${k[1]} → $hx,$hy")
-            yuruBaslat(p.first, 1.5, 60_000L, p.second) { ok, neden ->
+            yuruBaslat(p.first, 1.0, 60_000L, p.second) { ok, neden ->
                 rh.post {
                     if (!upgCalisiyor) return@post
+                    upgTownAtildi = false
+                    TestLog.olay("UPG_VARILDI", "$tur yerine " + (if (ok) "varıldı" else "varılamadı: $neden"), "konum=$konumX,$konumY")
                     if (ok) rh.postDelayed({ sonra() }, 600) else upgBitir("$tur yerine yürünemedi: $neden")
                 }
             }
@@ -2391,14 +2420,14 @@ class MacroService : AccessibilityService() {
         val sp = upgPref()
         val adet = sp.getInt("adet", 20)
         upgYuru("charon") {
-            upgDukkanAc(0) { ok ->
-                if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAc }
+            upgDukkanAcYaklas("charon") { ok ->
+                if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAcYaklas }
                 upgSayfayaGit(sp.getInt("kagit_sayfa", 1)) {
                     upgSatinAl("kagit", adet) { _ ->
                         upgDukkanKapat {
                             upgYuru("tyroon") {
-                                upgDukkanAc(0) { ok2 ->
-                                    if (!ok2) { upgBitir("Tyroon penceresi açılmadı"); return@upgDukkanAc }
+                                upgDukkanAcYaklas("tyroon") { ok2 ->
+                                    if (!ok2) { upgBitir("Tyroon penceresi açılmadı"); return@upgDukkanAcYaklas }
                                     upgSayfayaGit(sp.getInt("elbise_sayfa", 1)) {
                                         upgSatinAl("elbise", adet) { n ->
                                             upgDukkanKapat {
@@ -2425,8 +2454,8 @@ class MacroService : AccessibilityService() {
         tap(x[0], x[1], 0f) {
             rh.postDelayed({
                 upgYuru("charon") {
-                    upgDukkanAc(0) { ok ->
-                        if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAc }
+                    upgDukkanAcYaklas("charon") { ok ->
+                        if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAcYaklas }
                         upgSayfayaGit(upgPref().getInt("kagit_sayfa", 1)) {
                             upgSatinAl("kagit", kalan) { _ ->
                                 upgDukkanKapat {
@@ -2449,6 +2478,7 @@ class MacroService : AccessibilityService() {
         if (cfg.openT == null) { toast("Önce 🔍 EKRANI TANI"); return }
         upgCalisiyor = true
         upgTam = tam
+        upgTownAtildi = false
         upgHaritaKoru = false
         upgAnkor = null
         upgSeviye.fill(-1)
