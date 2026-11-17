@@ -497,6 +497,20 @@ class MacroService : AccessibilityService() {
         showMenu("$durum\nBot bu alanın dışına çıkarsa mobu bırakıp merkeze döner.", liste)
     }
 
+    /** Farma başlanan yeri slot olarak kaydet: çanta boşaltınca bot buraya döner (yol kaydı gerekmez) */
+    private fun slotOtoKaydet() {
+        if (!running || rotaCalisiyor) return
+        val kx = konumX
+        val ky = konumY
+        if (kx < 0 || SystemClock.uptimeMillis() - konumAt > 2500L) {
+            TestLog.olay("SLOT_OTO", "koordinat okunamadı, slot kaydedilmedi", "")
+            return
+        }
+        val k = Config.load(this); k.slotKx = kx; k.slotKy = ky; k.save(this)
+        cfg.slotKx = kx; cfg.slotKy = ky
+        TestLog.olay("SLOT_OTO", "farma başlanan yer slot olarak kaydedildi", "slot=$kx,$ky")
+    }
+
     private fun slotMerkezKaydet() {
         if (!ScreenSampler.running) { toast("Önce 🔍 EKRANI TANI'ya bas"); return }
         toast("📍 Koordinat okunuyor...")
@@ -2168,7 +2182,7 @@ class MacroService : AccessibilityService() {
                     kartKapat(); slotMerkezKaydet(); sihirbazAdim = 6; ui.postDelayed({ if (sihirbaz) kurulumSonrakiAdim() }, 2600); Unit
                 })))
             6 -> if (bankaAdimiVar()) kartGoster("Adım 6/$n  ·  ÇANTA DOLUNCA BANKA (isteğe bağlı)",
-                "Çanta dolunca bot Town'a gidip eşyaları bankaya atabilir, sonra slota döner. Bunun için iki yürüyüşü bir kere kaydetmen lazım.\n\nŞimdi istemezsen 'Sonra yaparım'a bas; istediğin zaman ☰ Menü → Otomatik çanta boşaltma'dan kaydedebilirsin.", listOf(
+                "Çanta dolunca bot Town'a gidip eşyaları bankaya atabilir, sonra slota döner. Bunun için Inn Hostes'e giden yolu bir kere kaydetmen yeterli; slota dönüşü bot kendisi bulur.\n\nŞimdi istemezsen 'Sonra yaparım'a bas; istediğin zaman ☰ Menü → Otomatik çanta boşaltma'dan kaydedebilirsin.", listOf(
                 "Sonra yaparım" to { kartKapat(); sihirbazAdim = 7; kurulumSonrakiAdim() },
                 "Yolları kaydet" to { kartKapat(); sihirbaz = false; townSihirbaz() }))
             else { sihirbazAdim = 7; kurulumSonrakiAdim() }
@@ -4060,6 +4074,8 @@ class MacroService : AccessibilityService() {
             slotYukle()
             konumBaslat()
             townSonKontrol = SystemClock.elapsedRealtime()
+            // Slot = farma başlanan yer (slot kilidi kullanan kendi merkezini seçmiştir, ona dokunma)
+            if (!cfg.slotKilit) rh.postDelayed({ slotOtoKaydet() }, 2000)
             if (cfg.townAcik) rh.postDelayed({
                 if (running && cfg.townAcik && !townHazirMi()) toast("⚠ Otomatik boşaltma açık ama yollar kayıtlı değil: ⋯ → Otomatik çanta boşaltma")
             }, 1500)
@@ -5818,7 +5834,7 @@ class MacroService : AccessibilityService() {
         if (rotaIz.size < 2) rotaYukle()
         YolHaritasi.yukle(this)
         if (slotHedef() == null || innHedef() == null) {
-            toast("Önce slot merkezini seç ve Inn yolunu bir kez kaydet: ☰ Menü → 🏙 Otomatik çanta boşaltma")
+            toast("Önce Inn yolunu bir kez kaydet: ☰ Menü → 🏙 Otomatik çanta boşaltma")
             return
         }
         if (!running) cfg = Config.load(this)
@@ -6368,8 +6384,8 @@ class MacroService : AccessibilityService() {
     /** Inn Hostes: Open'ın görüldüğü öğrenilmiş yer, yoksa kayıtlı yolun sonu */
     private fun innHedef(): IntArray? = YolHaritasi.inn ?: rotaIz.lastOrNull()
 
-    /** Slot: kayıtlı yolun sonu, yoksa kurulumdaki slot merkezi */
-    private fun slotHedef(): IntArray? = slotIz.lastOrNull() ?: if (cfg.slotKx >= 0) intArrayOf(cfg.slotKx, cfg.slotKy) else null
+    /** Slot: farma başlanan yer / slot kilidi merkezi (eski kayıtlı slot yolu sadece yedek) */
+    private fun slotHedef(): IntArray? = if (cfg.slotKx >= 0) intArrayOf(cfg.slotKx, cfg.slotKy) else slotIz.lastOrNull()
 
     /** Öğrenen haritadan yol; olmazsa kayıtlı yol. second = haritadan mı */
     private fun haritaYolu(hedef: IntArray, kayitli: List<IntArray>): Pair<List<IntArray>, Boolean>? {
@@ -6459,16 +6475,15 @@ class MacroService : AccessibilityService() {
     // ---------------- kolay kurulum sihirbazı ----------------
     private fun townSihirbaz() {
         val c = Config.load(this)
-        val innOk = rotaIz.size >= 2
-        val slotOk = slotIz.size >= 2
-        val acik = c.townAcik && innOk && slotOk
+        YolHaritasi.yukle(this)
+        val innOk = innHedef() != null
+        val acik = c.townAcik && innOk
         val baslik = "🏙 Otomatik çanta boşaltma\n" +
-            (if (innOk) "✅ 1) Inn yolu kayıtlı" else "⬜ 1) Inn yolu") + "\n" +
-            (if (slotOk) "✅ 2) Slot yolu kayıtlı" else "⬜ 2) Slot yolu") + "\n" +
+            (if (innOk) "✅ 1) Inn yolu biliniyor" else "⬜ 1) Inn yolu") + "\n" +
+            "✅ 2) Slot: farma başladığın yer (bot kendisi kaydeder)\n" +
             (if (acik) "✅ 3) AÇIK: her ${c.townDk} dk çanta kontrolü" else "⬜ 3) Açık değil")
         val maddeler = ArrayList<Pair<String, () -> Unit>>()
         if (!innOk) maddeler.add("▶ 1) Inn yolunu kaydet" to { townRehber(0) })
-        else if (!slotOk) maddeler.add("▶ 2) Slot yolunu kaydet" to { townRehber(1) })
         else if (!acik) maddeler.add("▶ 3) Süreyi seç ve AÇ" to { townSureSec() })
         else {
             maddeler.add("⏹ Otomatik boşaltmayı KAPAT" to {
@@ -6480,7 +6495,7 @@ class MacroService : AccessibilityService() {
             maddeler.add("🔁 Şimdi bir tur dene" to { townBaslat(false) })
             maddeler.add("⏱ Süreyi değiştir" to { townSureSec() })
         }
-        maddeler.add("🔄 Yolları baştan kaydet" to {
+        maddeler.add("🔄 Inn yolunu baştan kaydet" to {
             rh.post {
                 rotaIz.clear(); rotaKaydet()
                 slotIz.clear(); slotKaydet()
@@ -6492,10 +6507,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun townRehber(hedef: Int) {
-        val metin = if (hedef == 0)
-            "ADIM 1/3 • Inn yolu\n\n1) Karakter slotta dursun\n2) Aşağıdaki tuşa bas\n3) Oyunda TOWN'a bas\n4) Doğunca joystick ile Inn Hostes'in önüne yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir."
-        else
-            "ADIM 2/3 • Slot yolu\n\n1) Aşağıdaki tuşa bas\n2) Oyunda TOWN'a bas\n3) Doğunca joystick ile farm yaptığın SLOTA yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir."
+        val metin = "ADIM 1/2 • Inn yolu (sadece bir kere)\n\n1) Karakter slotta dursun\n2) Aşağıdaki tuşa bas\n3) Oyunda TOWN'a bas\n4) Doğunca joystick ile Inn Hostes'in önüne yürü ve dur\n\nBot kendisi anlar ve kaydı bitirir. Dönüş yolunu kendisi bulur."
         showMenu(metin, listOf(
             "✅ Hazırım, kaydı başlat" to {
                 if (!ScreenSampler.running) toast("Önce 🔍 EKRANI TANI'ya bas (ekran izni verilsin), sonra tekrar dene")
@@ -6517,7 +6529,7 @@ class MacroService : AccessibilityService() {
                 toast("✅ Hazır! Karakter slotta farm yapsın, ▶ ile başlat. Her $dk dk çantayı bot kontrol eder.")
             })
         }
-        showMenu("ADIM 3/3 • Çanta ne sıklıkla kontrol edilsin?", maddeler)
+        showMenu("ADIM 2/2 • Çanta ne sıklıkla kontrol edilsin?", maddeler)
     }
 
     private fun townMenu() {
@@ -6539,11 +6551,6 @@ class MacroService : AccessibilityService() {
                 if (rotaKayit) rotaKayitBitir() else rotaKayitBasla(0)
                 removeOverlay()
             },
-            (if (rotaKayit && kayitHedef == 1) "⏹ 2) Yolu kaydet (bitir) — slota vardın mı?" else "🔴 2) Town→slot yolunu kaydet (${slotIz.size} nokta)") to {
-                if (rotaKayit) rotaKayitBitir() else rotaKayitBasla(1)
-                removeOverlay()
-            },
-            "🗑 Town→slot yolunu sil" to { slotSil() },
             "⏱ 3) Envanter kontrolü: her ${c.townDk} dk" to { ayar { it.townDk = sonraki(dkListe, it.townDk) } },
             "🎯 Slot sapma payı: ${c.slotSapma} birim" to { ayar { it.slotSapma = sonraki(sapmaListe, it.slotSapma) } },
             "🎒 Boşaltılacak satır: ${c.rotaSatir}" to { ayar { it.rotaSatir = (it.rotaSatir % 4) + 1 } },
@@ -6553,15 +6560,6 @@ class MacroService : AccessibilityService() {
             "⬅ Kolay kurulum" to { townSihirbaz() }
         )
         showMenu("🏙 Çanta döngüsü", maddeler)
-    }
-
-    private fun slotSil() {
-        rh.post {
-            slotIz.clear()
-            slotKaydet()
-            TestLog.olay("SLOT_YOLU_SILINDI", "kayıtlı Town→slot yolu silindi", "")
-            toast("🗑 Town→slot yolu silindi")
-        }
     }
 
     private fun stopMacro(reason: String? = null) {
