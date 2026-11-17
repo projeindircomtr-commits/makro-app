@@ -4565,6 +4565,7 @@ class MacroService : AccessibilityService() {
     // ---- yürüme durumu ----
     private var yuruAktif = false
     private var yuruYol: List<IntArray> = emptyList()
+    private var yuruPlanli = false                       // yol öğrenen haritadan hesaplandı (takılınca yeniden hesaplanır)
     private var yuruIdx = 0
     private var yuruMod = 0                              // 0 = kalibre-1 (ileri), 1 = kalibre-2 (ileri+sağ), 2 = izle
     private var yuruBas = 0L
@@ -4644,6 +4645,7 @@ class MacroService : AccessibilityService() {
         if (konumDonguAktif) return
         konumDonguAktif = true
         konumHataSay = 0
+        YolHaritasi.yukle(this)
         rh.post(konumDongusu)
     }
 
@@ -4792,6 +4794,8 @@ class MacroService : AccessibilityService() {
     }
 
     private fun konumKabul(x: Int, y: Int, simdi: Long) {
+        // Öğrenen harita: ardışık iki okuma arası yürünebilir
+        if (konumX >= 0 && simdi - konumAt < 3000L) YolHaritasi.yurundu(konumX, konumY, x, y)
         konumX = x
         konumY = y
         konumAt = simdi
@@ -5113,8 +5117,9 @@ class MacroService : AccessibilityService() {
         }
     }
 
-    private fun yuruBaslat(yol: List<IntArray>, tol: Double, zamanAsimi: Long, sonuc: (Boolean, String) -> Unit) {
+    private fun yuruBaslat(yol: List<IntArray>, tol: Double, zamanAsimi: Long, planli: Boolean = false, sonuc: (Boolean, String) -> Unit) {
         yuruYol = yol
+        yuruPlanli = planli
         yuruIdx = 0
         yuruTol = tol
         yuruBas = SystemClock.uptimeMillis()
@@ -5138,6 +5143,7 @@ class MacroService : AccessibilityService() {
         if (!yuruAktif) return
         yuruAktif = false
         jBirak()
+        YolHaritasi.kaydet(this)
         TestLog.olay(if (basari) "YURU_BITTI" else "YURU_HATA", neden, "konum=$konumX,$konumY")
         val cb = yuruSonuc
         yuruSonuc = null
@@ -5250,7 +5256,15 @@ class MacroService : AccessibilityService() {
                 yuruKurtarma++
                 yuruGeriBitis = now + 1300L
                 TestLog.olay("YURU_TAKILDI", "ilerleme yok, kurtarma $yuruKurtarma", "konum=$kx,$ky kalan=${dSon.toInt()}")
-                if (yuruKurtarma > 3) {
+                // Öğren: önü duvar. Haritayla yürünüyorsa duvarı dolanan yeni yol hesapla
+                YolHaritasi.takildi(kx, ky, Math.atan2((ty - ky).toDouble(), (tx - kx).toDouble()))
+                val yeni = if (yuruPlanli) YolHaritasi.yolBul(kx, ky, son[0], son[1]) else null
+                if (yeni != null && yeni.size >= 2) {
+                    yuruYol = yeni
+                    yuruIdx = 0
+                    TestLog.olay("HARITA_YENI_YOL", "duvar öğrenildi, yeni yol", "nokta=${yeni.size}")
+                }
+                if (yuruKurtarma > (if (yuruPlanli) 8 else 3)) {
                     yuruBitir(false, "yürürken takıldı (3 kurtarma denemesi)")
                     return
                 }
@@ -5414,6 +5428,7 @@ class MacroService : AccessibilityService() {
             if (b != null) {
                 val t = sablonHedef(b.first, b.second)
                 TestLog.olay("ROTA_OPEN", "Open görüldü, basılıyor", "deneme=$deneme")
+                if (konumX >= 0 && SystemClock.uptimeMillis() - konumAt < 2500L) YolHaritasi.innKaydet(konumX, konumY)
                 tap(t.x, t.y, t.r) { rh.postDelayed({ rotaMenuAc() }, 1200) }
                 return
             }
@@ -5768,7 +5783,7 @@ class MacroService : AccessibilityService() {
         getSharedPreferences("rota", MODE_PRIVATE).edit().putString("slotiz", sb.toString()).apply()
     }
 
-    private fun townHazirMi(): Boolean = slotIz.size >= 2 && rotaIz.size >= 2 && !Config.koMu(this) && ScreenSampler.running
+    private fun townHazirMi(): Boolean = slotHedef() != null && innHedef() != null && !Config.koMu(this) && ScreenSampler.running
 
     private fun townDurum(): String {
         if (!testCalisiyor || !cfg.townAcik) return ""
@@ -5792,8 +5807,9 @@ class MacroService : AccessibilityService() {
         }
         if (slotIz.size < 2) slotYukle()
         if (rotaIz.size < 2) rotaYukle()
-        if (slotIz.size < 2 || rotaIz.size < 2) {
-            toast("Önce iki yolu kaydet (Town→Inn ve Town→slot): ☰ Menü → 🏙 Otomatik çanta boşaltma")
+        YolHaritasi.yukle(this)
+        if (slotHedef() == null || innHedef() == null) {
+            toast("Önce slot merkezini seç ve Inn yolunu bir kez kaydet: ☰ Menü → 🏙 Otomatik çanta boşaltma")
             return
         }
         if (!running) cfg = Config.load(this)
@@ -5822,7 +5838,7 @@ class MacroService : AccessibilityService() {
                 ?.takeIf { it.size == 2 && it[0] in 0f..screenW.toFloat() && it[1] in 0f..screenH.toFloat() }?.toFloatArray()
         }
         rotaAsama = 11
-        TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti → önce envanter sayılacak" else "periyodik envanter kontrolü", "slot=${slotIz.last()[0]},${slotIz.last()[1]} sapma=${cfg.slotSapma}")
+        TestLog.olay("TOWN_BASLADI", if (cantaBiliniyor) "çanta dolu işareti → önce envanter sayılacak" else "periyodik envanter kontrolü", "slot=${slotHedef()?.joinToString(",")} inn=${innHedef()?.joinToString(",")} sapma=${cfg.slotSapma}")
         konumBaslat()
         // Her durumda önce envanteri aç ve say: 'çanta dolu' işareti yanlış olabilir, gereksiz Town gezisi yapılmasın
         rh.postDelayed({ townEnvanterAc() }, 700)
@@ -6340,12 +6356,34 @@ class MacroService : AccessibilityService() {
     }
 
     // ---------------- Town noktasından Inn hostess'e yürüyüş (kayıtlı koordinat yolu) ----------------
+    /** Inn Hostes: Open'ın görüldüğü öğrenilmiş yer, yoksa kayıtlı yolun sonu */
+    private fun innHedef(): IntArray? = YolHaritasi.inn ?: rotaIz.lastOrNull()
+
+    /** Slot: kayıtlı yolun sonu, yoksa kurulumdaki slot merkezi */
+    private fun slotHedef(): IntArray? = slotIz.lastOrNull() ?: if (cfg.slotKx >= 0) intArrayOf(cfg.slotKx, cfg.slotKy) else null
+
+    /** Öğrenen haritadan yol; olmazsa kayıtlı yol. second = haritadan mı */
+    private fun haritaYolu(hedef: IntArray, kayitli: List<IntArray>): Pair<List<IntArray>, Boolean>? {
+        YolHaritasi.yukle(this)
+        for (i in 1 until kayitli.size) YolHaritasi.yurundu(kayitli[i - 1][0], kayitli[i - 1][1], kayitli[i][0], kayitli[i][1])
+        val kx = konumX
+        val ky = konumY
+        if (kx >= 0 && SystemClock.uptimeMillis() - konumAt < 2500L) {
+            val y = YolHaritasi.yolBul(kx, ky, hedef[0], hedef[1])
+            if (y != null && y.size >= 2) return y to true
+        }
+        return if (kayitli.size >= 2) ArrayList(kayitli) to false else null
+    }
+
     private fun townInneYuru() {
         if (!rotaCalisiyor) return
         rotaAsama = 13
-        val yol = ArrayList<IntArray>(rotaIz)
-        TestLog.olay("TOWN_INN_YURU", "Town→Inn yolu yürünüyor", "nokta=${yol.size} konum=$konumX,$konumY")
-        yuruBaslat(yol, 4.0, 150_000L) { ok, neden ->
+        val hedef = innHedef()
+        val p = hedef?.let { haritaYolu(it, rotaIz) }
+        if (p == null) { rotaIptal("Inn Hostes konumu bilinmiyor"); return }
+        val yol = p.first
+        TestLog.olay("TOWN_INN_YURU", "Town→Inn yürünüyor (${if (p.second) "öğrenilen harita" else "kayıtlı yol"})", "nokta=${yol.size} konum=$konumX,$konumY harita=${YolHaritasi.hucreSayisi()}")
+        yuruBaslat(yol, 4.0, 150_000L, p.second) { ok, neden ->
             rh.post {
                 if (!rotaCalisiyor) return@post
                 if (ok) {
@@ -6366,10 +6404,13 @@ class MacroService : AccessibilityService() {
     private fun townSlotaYuru() {
         if (!rotaCalisiyor) return
         rotaAsama = 15
-        val yol = ArrayList<IntArray>(slotIz)
+        val hedef = slotHedef()
+        val p = hedef?.let { haritaYolu(it, slotIz) }
+        if (p == null) { townDonusHata("slot konumu bilinmiyor"); return }
+        val yol = p.first
         val tol = cfg.slotSapma.coerceIn(2, 20).toDouble()
-        TestLog.olay("TOWN_SLOTA_YURU", "Town→slot yolu yürünüyor", "nokta=${yol.size} sapma=$tol")
-        yuruBaslat(yol, tol, 150_000L) { ok, neden ->
+        TestLog.olay("TOWN_SLOTA_YURU", "Town→slot yürünüyor (${if (p.second) "öğrenilen harita" else "kayıtlı yol"})", "nokta=${yol.size} sapma=$tol")
+        yuruBaslat(yol, tol, 150_000L, p.second) { ok, neden ->
             rh.post {
                 if (!rotaCalisiyor) return@post
                 if (ok) townSlotDogrula() else townDonusHata(neden)
@@ -6379,7 +6420,7 @@ class MacroService : AccessibilityService() {
 
     private fun townSlotDogrula() {
         if (!rotaCalisiyor) return
-        val s = slotIz.last()
+        val s = slotHedef() ?: run { townDonusHata("slot konumu bilinmiyor"); return }
         val sapma = cfg.slotSapma.coerceIn(2, 20) + 2.0
         val taze = konumX >= 0 && SystemClock.uptimeMillis() - konumAt < 2500L
         val d = if (taze) Math.hypot((konumX - s[0]).toDouble(), (konumY - s[1]).toDouble()) else 1e9
