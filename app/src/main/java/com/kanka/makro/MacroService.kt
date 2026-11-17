@@ -4168,7 +4168,7 @@ class MacroService : AccessibilityService() {
             skillReady.clear()
             skillLast.clear()
             skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear(); skillOlcCanli.clear(); skillImza.clear(); skillBeklemeFark.clear()
-            statBaslangic = System.currentTimeMillis(); bekciAt = 0L; bekciAsama = 0; bekciSayac = -1
+            statBaslangic = System.currentTimeMillis(); tgtUyarildi = false; bekciAt = 0L; bekciAsama = 0; bekciSayac = -1
             respawnNesil++   // bekleyen respawn dokunuşları iptal
             nextLootScan = 0L
             lootPhase = Loot.BOS
@@ -8296,7 +8296,9 @@ class MacroService : AccessibilityService() {
         // Tum ekran taramasi AGIR: sadece (1) Open'a basildiktan sonra pencere bekleniyorsa ve
         // (2) cihaz tablet gibi (kare'ye yakin ekran) ise yapilir. Telefonlarda hic calismaz,
         // bot hizi etkilenmez. Bulunca yerini ogrenir, sonraki seferler yine hizli olur.
-        if (!genis) return null
+        // Yeri bu cihazda öğrenildiyse pencere hep orada açılır: ağır tam ekran taramasına gerek yok.
+        // (Rapor: karakter kutuya yürürken bu tarama 3 sn sürüp atağı durduruyordu.)
+        if (!genis || collectKesin) return null
         // Telefonlarda da çalışır: pencere her ekran oranında aynı yerde açılmıyor (arkadaş telefonlarında bulunamıyordu).
         // Yalnızca Open'dan sonra pencere beklenirken ve en sık 600 ms'de bir; bulunca yer öğrenilir, sonrası hızlı.
         val simdi = System.currentTimeMillis()
@@ -8460,6 +8462,7 @@ class MacroService : AccessibilityService() {
     }
 
     // ---- Teşhis: kutu toplanırken atak gerçekten sürüyor mu? (her raporda KUTU_DONGU satırı) ----
+    private var tgtUyarildi = false
     private var kdBas = 0L; private var kdSon = 0L; private var kdBosluk = 0L; private var kdTarama = 0L
     private var kdAdim = 0; private var kdAtak = 0; private var kdCanli = 0; private var kdSay = 0
 
@@ -8480,6 +8483,12 @@ class MacroService : AccessibilityService() {
             kdBosluk = maxOf(kdBosluk, now - kdSon)
             kdSay++
             // Her 20 kutuda bir, ya da atak 0,7 sn'den uzun durduysa raporda görünür
+            // Kutular düşüyor (mob ölüyor) ama hedef barı hiç canlı görünmedi: bot mobu göremiyor, skiller basılmaz
+            if (kdCanli == 0 && kdSay >= 3 && !tgtUyarildi) {
+                tgtUyarildi = true
+                TestLog.olay("HEDEF_BARI_YOK", "kutu düşüyor ama mob can çubuğu hiç görülmedi", "")
+                ui.post { toast("⚠ Mob can çubuğu görülmüyor: ⋯ menü → ✏ Ekranı çizerek işaretle → Mob can çubuğu (mob seçiliyken dokun)") }
+            }
             if (kdBosluk > 700 || kdSay % 20 == 1)
                 TestLog.olay("KUTU_DONGU", if (kdBosluk > 700) "kutu toplanırken atak durdu" else "kutu toplandı, atak sürdü",
                     "sure_ms=${now - kdBas} atak=$kdAtak adim=$kdAdim hedef_canli_adim=$kdCanli en_uzun_atak_boslugu_ms=$kdBosluk en_uzun_tarama_ms=$kdTarama")
