@@ -2132,6 +2132,92 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ================= Tuş sihirbazı: tuşları bot gösterir, oyuncu Evet/Hayır der =================
+    private var tusAday: List<Nokta> = emptyList()
+    private val tusSecilen = ArrayList<Nokta>()
+    private var tusHalka: View? = null
+
+    private fun turAd(type: String) = when (type) {
+        "hp_pot" -> "HP pot"; "mp_pot" -> "MP pot"; "hedef" -> "Mob seç (Z)"; "saldiri" -> "Atak (R)"; else -> "Skill"
+    }
+
+    private fun tusSihirbaziBaslat() {
+        val o = olcek
+        if (o == null) { toast("Önce 🔍 EKRANI TANI'ya bas"); return }
+        tusAday = Preset.otoTuslar(o, emptyList())
+        tusSecilen.clear()
+        tusSor(0)
+    }
+
+    private fun halkaGoster(x: Int, y: Int) {
+        halkaKaldir()
+        val r = dp(34)
+        val boya = android.graphics.Paint().apply {
+            style = android.graphics.Paint.Style.STROKE; strokeWidth = dp(4).toFloat(); color = 0xFFFFD400.toInt(); isAntiAlias = true
+        }
+        val v = object : View(this) {
+            override fun onDraw(c: android.graphics.Canvas) { c.drawCircle(r.toFloat(), r.toFloat(), r - dp(3).toFloat(), boya) }
+        }
+        try {
+            wm.addView(v, lp(r * 2, r * 2).apply {
+                this.x = x - r; this.y = y - r
+                flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            })
+            tusHalka = v
+            // Yanıp sönsün: göze çarpsın
+            val anim = android.animation.ObjectAnimator.ofFloat(v, "alpha", 1f, 0.2f)
+            anim.duration = 450; anim.repeatCount = android.animation.ValueAnimator.INFINITE; anim.repeatMode = android.animation.ValueAnimator.REVERSE
+            anim.start()
+        } catch (e: Exception) { }
+    }
+
+    private fun halkaKaldir() {
+        tusHalka?.let { safeRemove(it) }
+        tusHalka = null
+    }
+
+    private fun tusSor(i: Int) {
+        if (i >= tusAday.size) { tusBitir(); return }
+        val n = tusAday[i]
+        halkaGoster(n.x, n.y)
+        fun sec(type: String?) {
+            halkaKaldir(); removeOverlay()
+            if (type != null) {
+                val ad = if (type == "skill") "Skill ${tusSecilen.count { it.type == "skill" } + 1}" else if (type == "saldiri") "Atak (R)" else turAd(type)
+                // R (normal atak) da skill gibi sırayla basılır; skill süresi 0 = bot ikondan öğrenir
+                tusSecilen.add(Nokta(ad, if (type == "saldiri") "skill" else type, n.x, n.y, 0f, true))
+            }
+            tusSor(i + 1)
+        }
+        val tahmin = n.type
+        val secenekler = ArrayList<Pair<String, () -> Unit>>()
+        secenekler.add("✅ Evet, ${turAd(tahmin)}" to { sec(tahmin) })
+        for ((t, ikon) in listOf("skill" to "⚔", "hedef" to "🎯", "saldiri" to "🗡", "hp_pot" to "❤", "mp_pot" to "🔵")) {
+            if (t != tahmin) secenekler.add("$ikon Hayır, bu ${turAd(t)}" to { sec(t) })
+        }
+        secenekler.add("✖ Boş / kullanma" to { sec(null) })
+        secenekler.add("⏹ Bitir" to { halkaKaldir(); removeOverlay(); tusBitir() })
+        showMenu("Tuş ${i + 1}/${tusAday.size}\nSarı halkadaki düğme ${turAd(tahmin)} mi?", secenekler)
+    }
+
+    private fun tusBitir() {
+        halkaKaldir()
+        if (tusSecilen.none { it.type == "hedef" }) toast("⚠ Mob seç (Z) tuşu seçilmedi: bot mob seçemez. 'Elle ayarla' ile ekleyebilirsin")
+        val k = Config.load(this)
+        k.points.clear()
+        k.points.addAll(tusSecilen)
+        k.save(this)
+        if (!running) cfg = Config.load(this)
+        skillReady.clear(); skillLast.clear()
+        skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear(); skillOlcCanli.clear(); skillImza.clear(); skillBeklemeFark.clear()
+        TestLog.olay("TUS_SIHIRBAZI", "tuşlar Evet/Hayır ile seçildi", tusSecilen.joinToString(" ") { "${it.type}@${it.x},${it.y}" })
+        toast("✅ ${tusSecilen.size} tuş kaydedildi")
+        if (sihirbaz && sihirbazAdim == 4 && !running) {
+            sihirbazAdim = 5
+            ui.postDelayed({ if (oyundaMi() && sihirbaz && !running) kurulumSonrakiAdim() }, 500)
+        }
+    }
+
     // ================= Oyun icinde tus duzenleme =================
 
     private fun closeEditor() {
@@ -2186,12 +2272,14 @@ class MacroService : AccessibilityService() {
                 sonra,
                 "Vardım" to { kartKapat(); sihirbazAdim = 4; kurulumSonrakiAdim() }))
             4 -> kartGoster("Adım 4/$n  ·  TUŞLARINI KAYDET",
-                "Bot, oyunda senin seçtiğin tuşlara basar. Hiçbiri zorunlu değil, istediğin kadar ekle.\n\n" +
+                "🪄 'Tuşları bul'a bas: bot oyundaki tuşları tek tek halkayla gösterir, sen sadece 'Evet, bu HP pot' / 'Bu skill' / 'Kullanma' dersin. Skill sürelerini girmene gerek yok, bot kendisi öğrenir.\n\n" +
+                "Halka yanlış yerdeyse ya da tuşun listede yoksa 'Elle ayarla':\n" +
                 "1) 'Tuşları ayarla'ya bas.\n" +
                 "2) Kullanmak istediğin oyun tuşunun üstüne dokun, ne olduğunu seç (mob seç, skill, HP/MP pot...). Yuvarlağı sürükleyip tuşun TAM ÜSTÜNE getir.\n" +
                 "3) Bitince üstteki 'Bitti'ye bas.\n\nKutuları (Open / Collect All) bot kendisi bulur, onlar için tuş eklemene gerek yok.", listOf(
                 sonra,
-                "Tuşları ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() }), kurulumResmi(2))
+                "Elle ayarla" to { kartKapat(); tusAdimiYapildi = true; openEditor() },
+                "🪄 Tuşları bul" to { kartKapat(); tusSihirbaziBaslat() }), kurulumResmi(2))
             5 -> kartGoster("Adım 5/$n  ·  MOB VE SLOT KİLİDİ (isteğe bağlı)",
                 "• Sadece bir mob türüne vurmak istersen: oyunda o moba dokunup seç, sonra 'Mobu kilitle'ye bas.\n" +
                 (if (Config.koMu(this)) "" else "• Yanındaki slottaki aynı mobların üstüne gitmesin istersen: slotunun ortasında dur, 'Slotu kilitle'ye bas. Bot bu alanın dışına çıkarsa mobu bırakıp geri döner.\n") +
@@ -4079,7 +4167,7 @@ class MacroService : AccessibilityService() {
             hpLowSince = 0L
             skillReady.clear()
             skillLast.clear()
-            skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear()
+            skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear(); skillOlcCanli.clear(); skillImza.clear(); skillBeklemeFark.clear()
             statBaslangic = System.currentTimeMillis(); bekciAt = 0L; bekciAsama = 0; bekciSayac = -1
             respawnNesil++   // bekleyen respawn dokunuşları iptal
             nextLootScan = 0L
@@ -8006,7 +8094,7 @@ class MacroService : AccessibilityService() {
         if (best >= 0) {
             val p = pts[best]
             skillLast[best] = now
-            if ((skillGorsel[best] ?: 0) == 0 && skillRef[best] != null) skillOlc[best] = now   // basıldı: ikon kararıyor mu bakılacak
+            if ((skillGorsel[best] ?: 0) == 0 && skillRef[best] != null) { skillOlc[best] = now; skillOlcCanli[best] = oncekiCanli }   // basıldı: ikonda bekleme görünüyor mu bakılacak
             skillReady[best] = now + if (p.cd > 0f) {
                 (p.cd * 1000).toLong() + rand(cfg.skMin, cfg.skMax)
             } else 0L
@@ -8024,17 +8112,27 @@ class MacroService : AccessibilityService() {
     private val skillGorsel = HashMap<Int, Int>()        // 0 bilinmiyor, 1 ikon kararıyor (görsel mod), -1 kararmıyor (süre modu)
     private val skillOlc = HashMap<Int, Long>()          // basıldıktan sonra kararma ölçümü bekleniyor
     private val skillKararmadi = HashMap<Int, Int>()
+    private val skillOlcCanli = HashMap<Int, Boolean>()   // basıldığında hedef canlı mıydı (hedefsiz skill bekleme süresine girmez)
+    private val skillImza = HashMap<Int, FloatArray>()    // hazır ikonun 5x5 parlaklık deseni
+    private val skillBeklemeFark = HashMap<Int, Float>()  // basınca ikonun ne kadar değiştiği
 
-    /** Skill ikonunun ortalama parlaklığı (ikonun ortasında 3x3 nokta). Okunamazsa null */
-    private fun ikonParlak(p: Nokta): Float? {
-        val d = (screenH * 0.018f).toInt().coerceAtLeast(3)
-        var top = 0f
-        for (dy in -1..1) for (dx in -1..1) {
+    /** Skill ikonunun 5x5 parlaklık deseni (bekleme süresi kararma, dönen gölge ya da sayı olarak görünür). Okunamazsa null */
+    private fun ikonDesen(p: Nokta): FloatArray? {
+        val d = (screenH * 0.014f).toInt().coerceAtLeast(3)
+        val out = FloatArray(25)
+        var k = 0
+        for (dy in -2..2) for (dx in -2..2) {
             val c = ScreenSampler.readPixel(p.x + dx * d, p.y + dy * d)
             if (c < 0) return null
-            top += 0.30f * ((c shr 16) and 0xff) + 0.59f * ((c shr 8) and 0xff) + 0.11f * (c and 0xff)
+            out[k++] = 0.30f * ((c shr 16) and 0xff) + 0.59f * ((c shr 8) and 0xff) + 0.11f * (c and 0xff)
         }
-        return top / 9f
+        return out
+    }
+
+    private fun desenFark(a: FloatArray, b: FloatArray): Float {
+        var t = 0f
+        for (i in a.indices) t += Math.abs(a[i] - b[i])
+        return t / a.size
     }
 
     private fun skillHazir(i: Int, p: Nokta, now: Long): Boolean {
@@ -8042,31 +8140,35 @@ class MacroService : AccessibilityService() {
         val ref = skillRef[i]
         if ((skillGorsel[i] ?: 0) != 1) {
             // Hazır hali: hiç basılmamışken (bot başında) kaydedilir
-            if (ref == null && sure && skillLast[i] == null) ikonParlak(p)?.let { if (it > 25f) skillRef[i] = it }
+            if (ref == null && sure && skillLast[i] == null) ikonDesen(p)?.let { d -> if (d.average() > 25f) { skillImza[i] = d; skillRef[i] = d.average().toFloat() } }
             val olc = skillOlc[i]
-            if (ref != null && olc != null && now - olc >= 500L) {
+            val imza = skillImza[i]
+            if (ref != null && imza != null && olc != null && now - olc >= 500L) {
                 skillOlc.remove(i)
-                val b = ikonParlak(p)
-                if (b != null && b < ref * 0.75f) {
+                val d = ikonDesen(p)
+                val fark = if (d != null) desenFark(d, imza) else -1f
+                if (d != null && fark > 18f) {
                     skillGorsel[i] = 1
-                    TestLog.olay("SKILL_GORSEL", "${p.name}: ikon kararıyor, hazır olunca basılacak", "hazir=${ref.toInt()} basinca=${b.toInt()}")
-                } else if (b != null) {
+                    skillBeklemeFark[i] = fark
+                    TestLog.olay("SKILL_GORSEL", "${p.name}: bekleme süresi ikonda görünüyor, hazır olunca basılacak", "fark=${fark.toInt()}")
+                } else if (d != null && skillOlcCanli[i] == true) {   // hedef yokken basılan skill süreye girmez: sayma
                     val n = (skillKararmadi[i] ?: 0) + 1
                     skillKararmadi[i] = n
                     if (n >= 3) {
                         skillGorsel[i] = -1
-                        TestLog.olay("SKILL_SURE", "${p.name}: ikon kararmıyor, süre ayarı kullanılacak", "hazir=${ref.toInt()} basinca=${b.toInt()}")
+                        TestLog.olay("SKILL_SURE", "${p.name}: ikonda bekleme görünmüyor, süre ayarı kullanılacak", "fark=${fark.toInt()}")
                     }
                 }
             }
             return sure
         }
-        // Görsel mod
-        val r = ref ?: return sure
+        // Görsel mod: ikon hazır desenine döndüyse bas
+        val imza = skillImza[i] ?: return sure
         val son = skillLast[i] ?: 0L
         if (now - son < 400L) return false                  // basış ikona yansısın
-        val b = ikonParlak(p) ?: return sure
-        if (b >= r * 0.9f) return true
+        val d = ikonDesen(p) ?: return sure
+        // Hazır sayılma eşiği: beklemedeki farkın %40'ı (ikon hafif parlıyor/oynuyorsa da hazır sayılsın), en az 10
+        if (desenFark(d, imza) < maxOf(10f, (skillBeklemeFark[i] ?: 25f) * 0.4f)) return true
         // Güvenlik: ikon uzun süre hazır görünmezse (ekran değişti vb.) süre ayarının 2 katı / en az 30 sn sonra yine bas
         return now - son > maxOf((p.cd * 2000).toLong(), 30_000L)
     }
