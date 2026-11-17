@@ -2174,10 +2174,18 @@ class MacroService : AccessibilityService() {
             else { sihirbazAdim = 7; kurulumSonrakiAdim() }
             else -> {
                 sihirbaz = false
-                kartGoster("✅ Adım ${no(7)}/$n  ·  HAZIRSIN",
-                    "Paneldeki ▶ BAŞLAT'a bas, bot çalışmaya başlar. Durdurmak istediğinde aynı yerdeki ⏸ DURDUR'a bas.\n\n" +
-                    "Bot kendiliğinden başlamaz. Kurulumu tekrar görmek için: ☰ Menü → 📋 Kurulum adımları.", listOf(
-                    "Tamam" to { kartKapat() }))
+                val tusSay = cfg.points.size.coerceAtLeast(Config.load(this).points.size)
+                YolHaritasi.yukle(this)
+                kartGoster("✅ Adım ${no(7)}/$n  ·  KARAKTER FARMA HAZIR",
+                    "Tüm ayarlar yapıldı:\n" +
+                    "✅ Ekran tanındı\n" +
+                    (if (tusSay > 0) "✅ Tuşlar kayıtlı ($tusSay)\n" else "⚠ Tuş kaydedilmedi\n") +
+                    (if (cfg.slotKx >= 0) "✅ Slot seçili\n" else "") +
+                    (if (bankaAdimiVar()) (if (innHedef() != null) "✅ Inn Hostes yolu biliniyor\n" else "⬜ Inn yolu: ilk bankaya gidişte öğrenilir\n") else "") +
+                    "\nBot ilk dakikalarda kendini ayarlar: skillerin ne zaman hazır olduğunu ikonlardan, yolları yürüdükçe öğrenir.\n\n" +
+                    "Durdurmak için paneldeki ⏸ DURDUR.", listOf(
+                    "Sonra" to { kartKapat() },
+                    "▶ Farma başla" to { kartKapat(); if (!running) toggle() }))
             }
         }
     }
@@ -7298,14 +7306,6 @@ class MacroService : AccessibilityService() {
         val m2 = if (nw) Preset.solUst(o, 468, 114) else Preset.solUst(o, 407, if (rv) 102 else 70)
         mpBar = intArrayOf(m1[0], m2[0], m1[1])
         isimRect = isimAlani(o)
-        // Tuslar oyuncudan: kaydettigi yerlere asla dokunma (eski "hazir tuslari tasima" kapali)
-        if (false && cfg.tuslarOto) {
-            val yeni = Preset.otoTuslar(o, cfg.points)
-            cfg.points.clear()
-            cfg.points.addAll(yeni)
-            skillReady.clear()
-            skillLast.clear()
-        }
         cizimUygula()   // kullanıcı ekranı çizerek işaretlediyse o yerler hazır ayarların önüne geçer
         if (yedek) {
             toast("Ekran tanınamadı, varsayılan ayarla devam. ⋯ → 🧪 Ekran testi ile kontrol edebilirsin")
@@ -7840,28 +7840,11 @@ class MacroService : AccessibilityService() {
             if (alive) {
                 // Takili hedef: 12 sn boyunca cani azalmiyorsa birak, yenisini sec
                 val y = hedefYuzde()
-                val o0 = olcek
                 if (y < sonYuzde - 0.02f) {
                     sonYuzde = y
                     ilerlemeAt = now
                     ilkVurus = true
                     menzilArdArda = 0
-                } else if (false && !ilkVurus && cfg.menzilAktif && (o0 != null || koAktif) &&
-                    now - hedefBaslangic > cfg.menzilSn * 1000L
-                ) {
-                    // Mesafe siniri: bu surede vurulmaya baslanmadi -> mob uzakta, birak
-                    // Kapali: skiller mesafe gozetmeksizin basilir (kullanici istegi)
-                    hedefBaslangic = now
-                    ilkVurus = true
-                    // Ayni uzak moba tekrar kosmamak icin bekle; ust uste olursa bekleme uzar
-                    menzilArdArda++
-                    val bekleSn = minOf(cfg.menzilBekleSn * menzilArdArda, 20)
-                    menzilBekleUntil = now + bekleSn * 1000L
-                    menzilXAt = now
-                    iptalAt = now
-                    nextTarget = menzilBekleUntil
-                    val x = if (o0 != null) iptalNoktasi(o0) else koIptal()
-                    return Nokta("İptal", "iptal", x[0], x[1])
                 } else if (now - ilerlemeAt > (if (y <= 0.2f) 20_000 else 12_000)) {   // canı çok azalmış mobu bitirmeye daha uzun şans ver
                     ilerlemeAt = now
                     sonYuzde = 1f
