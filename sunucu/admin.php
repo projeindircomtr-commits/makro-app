@@ -221,7 +221,7 @@ details summary{cursor:pointer;color:#9aa4b2;font-size:14px;padding:6px 0}
 .sekme.secili{background:#e0b04a;color:#12161c;border-color:#e0b04a}
 .sekme.secili b{color:#12161c}
 </style></head><body>
-<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a> <a href="raporlar.php" style="font-size:14px;float:right;margin-right:14px">📋 Raporlar</a> <a href="goruntuler.php" style="font-size:14px;float:right;margin-right:14px">📸 Görüntüler</a></h2>
+<h2 style="margin:6px 0">Makro Panel <a href="?cikis=1" style="font-size:14px;float:right">Çıkış</a> <a href="kontrol.php" style="font-size:14px;float:right;margin-right:14px">🎮 Kontrol</a> <a href="raporlar.php" style="font-size:14px;float:right;margin-right:14px">📋 Raporlar</a> <a href="goruntuler.php" style="font-size:14px;float:right;margin-right:14px">📸 Görüntüler</a></h2>
 <?php if ($mesaj): ?><div class="m"><?= e($mesaj) ?></div><?php endif; ?>
 
 <div class="k"><b>📢 Mesaj gönder</b>

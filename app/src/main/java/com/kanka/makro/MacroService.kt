@@ -113,11 +113,6 @@ class MacroService : AccessibilityService() {
     @Volatile private var sonDokunusAt = 0L   // son bot dokunuşu (System.currentTimeMillis)
     @Volatile private var respawnNesil = 0     // bot yeniden başlarsa bekleyen respawn dokunuşları iptal
     // Takılma algılama
-    private var takiKonumX = -1
-    private var takiKonumY = -1
-    private var takiSon = 0L
-    private var takiHareket = 0L
-    private var takiIlerleme = -1
     // Stat: çalışma süresi (mob/kutu/pot sayaçları zaten var: kesilen/toplanan/basilanPot)
     private var statBaslangic = 0L
     private var olumTespitAt = 0L
@@ -1548,25 +1543,50 @@ class MacroService : AccessibilityService() {
     // =========================================================
     // TAKILMA ALGILAMA
     // =========================================================
+    // Bekçi: mob kesilmiyor / kutu toplanmıyorsa adım adım kendini kurtarır (now = uptimeMillis)
+    //  3 dk: hedefi bırak, yeni mob ara · 6 dk: slota geri yürü · 10 dk: botu durdur ve haber ver
+    private var bekciSayac = -1
+    private var bekciAt = 0L
+    private var bekciAsama = 0
+
     private fun takilmaKontrol(now: Long) {
-        if (!running) return
-        val x = konumX; val y = konumY
-        if (x < 0 || now - konumAt > 10_000L) return   // koordinat okunmuyorsa karar verme
-        val ilerleme = kesilen + toplanan + basilanPot
-        val fark = Math.abs(x - takiKonumX) + Math.abs(y - takiKonumY)
-        // Hareket varsa ya da mob/kutu/pot ilerliyorsa takılma yok (yerinde mob kesmek normal)
-        if (fark > 15 || ilerleme != takiIlerleme || takiHareket == 0L) {
-            takiKonumX = x; takiKonumY = y
-            takiIlerleme = ilerleme
-            takiHareket = now
+        if (!running || pkAktif || rotaCalisiyor || rotaMesgul || kontrolde || slotDonuyor || yuruAktif) { bekciAt = now; return }
+        val ilerleme = kesilen + toplanan
+        if (ilerleme != bekciSayac || bekciAt == 0L) {
+            if (bekciAsama > 0) {
+                TestLog.olay("BEKCI_TAMAM", "bot yeniden ilerliyor", "")
+                if (!konumGerekliMi()) konumDurdur()   // bekçinin açtığı koordinat okuma gereksizse kapansın
+            }
+            bekciSayac = ilerleme; bekciAt = now; bekciAsama = 0
             return
         }
-        if (now - takiHareket > 30_000L && now - takiSon > 35_000L) {
-            takiSon = now
-            takiHareket = now
-            TestLog.olay("TAKILMA", "30 sn konum ve ilerleme yok", "x=$x y=$y")
-            toast("⚠ 30 sn ilerleme yok: yeni hedef seçiliyor")
+        val gecen = now - bekciAt
+        if (bekciAsama == 0 && gecen > 3 * 60_000L) {
+            bekciAsama = 1
+            TestLog.olay("BEKCI_1", "3 dk ilerleme yok: hedef bırakılıp yeni mob aranıyor", "")
+            olcek?.let { o -> val x = iptalNoktasi(o); tap(x[0].toFloat(), x[1].toFloat(), 0f) { } }
+            oncekiCanli = false
             nextTarget = 0L
+            konumBaslat()   // sonraki aşamada slota yürüyebilmek için koordinat okunsun
+        } else if (bekciAsama == 1 && gecen > 6 * 60_000L) {
+            bekciAsama = 2
+            val s = slotHedef()
+            val taze = konumX >= 0 && now - konumAt < 2500L
+            val d = if (s != null && taze) Math.hypot((konumX - s[0]).toDouble(), (konumY - s[1]).toDouble()) else -1.0
+            TestLog.olay("BEKCI_2", "6 dk ilerleme yok: slota dönülüyor", "konum=$konumX,$konumY slot=${s?.joinToString(",")} uzaklik=${d.toInt()}")
+            if (s != null && d > 5.0) {
+                val p = haritaYolu(s, emptyList())
+                if (p != null) {
+                    slotDonuyor = true
+                    slotDonusBas = now
+                    yuruBaslat(p.first, 3.0, 25_000L, p.second) { ok, neden ->
+                        rh.post { slotDonuyor = false; TestLog.olay("BEKCI_2", if (ok) "slota dönüldü" else "slota dönülemedi: $neden", "") }
+                    }
+                }
+            }
+        } else if (bekciAsama == 2 && gecen > 10 * 60_000L) {
+            bekciAsama = 3
+            ui.post { stopMacro("10 dk boyunca hiç mob kesilemedi. Bot durdu (slotta mob yok ya da karakter takıldı)") }
         }
     }
 
@@ -2725,7 +2745,7 @@ class MacroService : AccessibilityService() {
                 mesajKontrol()
             } catch (e: Exception) {
             }
-            ah.postDelayed(this, 60_000)
+            ah.postDelayed(this, 30_000)   // panelden başlat/durdur en geç 30 sn'de gelsin
         }
     }
 
@@ -2737,8 +2757,10 @@ class MacroService : AccessibilityService() {
         val son = pr.getInt("son", 0)
         val hp = getSharedPreferences("hata", MODE_PRIVATE)
         val hataMetni = if (!hp.getBoolean("gonderildi", true)) hp.getString("son", "") ?: "" else ""
+        val durum = if (running) "▶ Çalışıyor • mob $kesilen • kutu $toplanan" + (if (bekleNeden.isNotEmpty()) " • bekliyor" else "") else "⏸ Durdu"
         val tam = url + "?token=" + URLEncoder.encode(token, "UTF-8") +
             "&son=" + son + "&surum=" + Lisans.surumKodu(this) +
+            "&durum=" + URLEncoder.encode(durum, "UTF-8") +
             (if (hataMetni.isNotEmpty()) "&hata=" + URLEncoder.encode(hataMetni, "UTF-8") +
                 "&hz=" + hp.getLong("zaman", 0L) else "")
         val bag = URL(tam).openConnection() as HttpURLConnection
@@ -2765,6 +2787,15 @@ class MacroService : AccessibilityService() {
         // Uyelik kapatildi/bitti
         if (!j.optBoolean("aktif", true)) {
             ui.post { if (running) stopMacro("Üyelik aktif değil. Bot durdu") }
+        }
+        // Panelden uzaktan komut: başlat / durdur
+        when (j.optString("komut")) {
+            "dur" -> ui.post { if (running) stopMacro("Panelden durduruldu") }
+            "basla" -> ui.post {
+                if (running) return@post
+                if (!oyundaMi()) bildirim(999_997, "Projeindir Bot", "Panelden başlat geldi ama oyun açık değil")
+                else { TestLog.olay("PANEL_BASLAT", "panelden başlatıldı", ""); startMacro() }
+            }
         }
         // Yeni mesajlar
         val m = j.optJSONArray("mesajlar") ?: return
@@ -4049,7 +4080,7 @@ class MacroService : AccessibilityService() {
             skillReady.clear()
             skillLast.clear()
             skillRef.clear(); skillGorsel.clear(); skillOlc.clear(); skillKararmadi.clear()
-            statBaslangic = System.currentTimeMillis(); takiHareket = 0L; takiKonumX = -1; takiIlerleme = -1
+            statBaslangic = System.currentTimeMillis(); bekciAt = 0L; bekciAsama = 0; bekciSayac = -1
             respawnNesil++   // bekleyen respawn dokunuşları iptal
             nextLootScan = 0L
             lootPhase = Loot.BOS
@@ -6615,6 +6646,7 @@ class MacroService : AccessibilityService() {
         if (reason != null) {
             toast(reason)
             vibrate()
+            if (calisiyordu) bildirim(999_998, "⏹ Projeindir Bot durdu", reason)
         }
     }
 
@@ -6751,6 +6783,7 @@ class MacroService : AccessibilityService() {
         }
         // Slot kilidi: sınır dışına çıkıldıysa hedefi bırak, merkeze yürü (bu sırada atak durur)
         if (slotSinirDisi(now)) { stepPlanla(300); return }
+        takilmaKontrol(now)
 
         // Pot, kutu (Open/Collect) ve skill/saldiri BIRLIKTE, ayni anda basilir (iki el gibi):
         // biri digerini bekletmez, digeri de onu bekletmez.
@@ -7132,7 +7165,15 @@ class MacroService : AccessibilityService() {
         if (isLow(hp)) {
             if (hpLowSince == 0L) hpLowSince = now
             else if (now - hpLowSince > cfg.hpStop * 1000L) {
-                stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
+                // Ölmeden güvene: bu cihazda daha önce doğrulanmış Town düğmesi varsa önce Town at
+                val town = profOku("alt1_${ekranAnahtar()}")?.split(",")?.mapNotNull { it.toFloatOrNull() }
+                if (town != null && town.size == 2 && oyundaMi()) {
+                    tap(town[0], town[1], 0f) { }
+                    TestLog.olay("POT_BITTI_TOWN", "HP düşük kaldı, güvenli yere Town atıldı", "")
+                    stopMacro("HP ${cfg.hpStop} sn düşük kaldı (pot bitmiş olabilir): Town atıldı, bot durdu")
+                } else {
+                    stopMacro("HP ${cfg.hpStop} sn boyunca düşük kaldı: pot bitmiş ya da ölmüş olabilirsin. Bot durdu")
+                }
                 return true
             }
         } else {
@@ -7729,7 +7770,6 @@ class MacroService : AccessibilityService() {
         }
         if (olcek == null || hpBar[1] <= hpBar[0]) return null
         antiAfkKontrol(System.currentTimeMillis())
-        takilmaKontrol(System.currentTimeMillis())
         // Minor aninda tepki veriyor; sadece ayni ekran karesine iki kez basmamak icin kisa bekleme
         if (now - minorSon < 150) return null
         val hp = barDoluluk(hpBar, true)

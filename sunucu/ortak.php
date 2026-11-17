@@ -53,7 +53,7 @@ function kalan_yazi(int $bitis): string {
 
 /** Mesaj ve surum ozelligi icin gereken tablo/sutunlari bir kere ekler */
 function sema_guncelle(): void {
-    $kilit = GIZLI . '/sema6.lock';
+    $kilit = GIZLI . '/sema7.lock';
     if (file_exists($kilit)) return;
     $pdo = db();
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN token VARCHAR(64) NULL"); } catch (Throwable $e) {}
@@ -62,6 +62,10 @@ function sema_guncelle(): void {
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN son_hata_zaman INT NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN yonetici TINYINT NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN ozellik VARCHAR(40) NULL"); } catch (Throwable $e) {}
+    // Uzaktan kontrol: panelden başlat/durdur komutu ve botun son durumu
+    try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN komut VARCHAR(10) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN durum VARCHAR(200) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE makro_uyeler ADD COLUMN durum_zaman INT NULL"); } catch (Throwable $e) {}
     $pdo->exec("CREATE TABLE IF NOT EXISTS makro_mesajlar (
         id INT AUTO_INCREMENT PRIMARY KEY,
         uye_id INT NULL,

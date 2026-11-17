@@ -12,7 +12,7 @@ try {
     $token = preg_replace('/[^a-f0-9]/', '', $_GET['token'] ?? '');
     if (strlen($token) < 32) cik(['ok' => 0]);
     $pdo = db();
-    $q = $pdo->prepare('SELECT id, aktif, bitis FROM makro_uyeler WHERE token = ?');
+    $q = $pdo->prepare('SELECT id, aktif, bitis, komut FROM makro_uyeler WHERE token = ?');
     $q->execute([$token]);
     $u = $q->fetch();
     if (!$u) cik(['ok' => 0]);
@@ -24,6 +24,14 @@ try {
         $pdo->prepare('UPDATE makro_uyeler SET son_hata = ?, son_hata_zaman = ? WHERE id = ?')
             ->execute([$hata, $hz > 0 ? $hz : time(), $u['id']]);
     }
+
+    // Botun son durumu (kontrol.php'de görünür) ve bekleyen komut (bir kere teslim edilir)
+    $durum = trim(mb_substr($_GET['durum'] ?? '', 0, 200));
+    if ($durum !== '') {
+        $pdo->prepare('UPDATE makro_uyeler SET durum = ?, durum_zaman = ? WHERE id = ?')->execute([$durum, time(), $u['id']]);
+    }
+    $komut = in_array($u['komut'], ['basla', 'dur'], true) ? $u['komut'] : '';
+    if ($u['komut'] !== null) $pdo->prepare('UPDATE makro_uyeler SET komut = NULL WHERE id = ?')->execute([$u['id']]);
 
     $surum = (int)($_GET['surum'] ?? 0);
     $pdo->prepare('UPDATE makro_uyeler SET surum = ? WHERE id = ?')->execute([$surum, $u['id']]);
@@ -43,6 +51,7 @@ try {
             return ['id' => (int)$r['id'], 'metin' => $r['metin'], 'zaman' => (int)$r['zaman']];
         }, $m),
         'guncelle' => $engel,
+        'komut' => $komut,
     ]);
 } catch (Throwable $e) {
     cik(['ok' => 0]);
