@@ -1344,7 +1344,7 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Config.koMu(this)) emptyList() else
-            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() })
+            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }, "⚒ Upgrade Bot" to { upgradeMenu() })
         // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
         val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
         showMenu(
@@ -2129,6 +2129,476 @@ class MacroService : AccessibilityService() {
             } finally {
                 kare.recycle()
             }
+        }
+    }
+
+    // ================= Upgrade Bot: Farm'dan bağımsız, Anvil'de seviye seviye basar =================
+    // Aşama 1: oyuncu Anvil'in yanında durur; kağıtlar envanterin İLK hücresinde, itemler diğer hücrelerde.
+    // Bot tüm itemleri önce +2, sonra hepsini +3 ... +7 yapar, sonra +8 dener; ilk +8'de durur.
+    // Seviye yazıyla okunmaz: her başarılı basışta bot o hücrenin seviyesini kendisi artırır,
+    // item geri gelmezse yandı sayılır. Yerleşim ölçüsü: 1159 px yüksek ekran görüntüsü, UPGRADE düğmesine göre.
+    @Volatile private var upgCalisiyor = false
+    private var upgAnkor: FloatArray? = null                 // UPGRADE düğmesinin ekran konumu
+    private val upgSeviye = IntArray(28) { -1 }              // hücre -> seviye (-1 boş/yanmış, 0 kağıt)
+    private var upgHedef = 1                                 // şu an basılan seviye (bu seviyedekiler +1 olacak)
+    private var upgGecen = 0; private var upgYanan = 0
+    private var upgDeneme = 0
+
+    private fun upgU() = screenH / 1159f
+    private fun upgNokta(dx: Float, dy: Float): FloatArray {
+        val a = upgAnkor!!
+        return floatArrayOf(a[0] + dx * upgU(), a[1] + dy * upgU())
+    }
+    private fun upgHucre(i: Int) = upgNokta(-96f + (i % 7) * 99.7f, 198f + (i / 7) * 96.3f)
+    private fun upgItemYeri() = upgNokta(-46f, -257f)
+    private fun upgKagitYeri() = upgNokta(109f, -340f)
+    private fun upgOkYeri() = upgNokta(118f, 226f)
+    private fun upgSonucYeri() = upgNokta(452f, -257f)   // geçen item önce burada görünür, sonra hücresine döner
+    private fun upgKapatYeri() = upgNokta(512f, -485f)
+
+    /** Hücre dolu mu: içteki piksellerin parlaklık dağılımı (boş hücre düz koyu, item desenli) */
+    private fun upgDolu(p: FloatArray): Boolean {
+        val r = (26 * upgU()).toInt().coerceAtLeast(4)
+        val b = ScreenSampler.bolge(p[0].toInt() - r, p[1].toInt() - r, p[0].toInt() + r, p[1].toInt() + r) ?: return false
+        val px = b.third
+        if (px.isEmpty()) return false
+        var t = 0.0; var t2 = 0.0
+        for (c in px) {
+            val l = 0.30 * ((c shr 16) and 0xff) + 0.59 * ((c shr 8) and 0xff) + 0.11 * (c and 0xff)
+            t += l; t2 += l * l
+        }
+        val ort = t / px.size
+        val std = Math.sqrt(maxOf(0.0, t2 / px.size - ort * ort))
+        return std > 16.0 || ort > 70.0
+    }
+
+    /** Ekranın verilen bölgesinde (oran) yazıyı OCR ile bul; ekran koordinatı döner */
+    private fun upgYaziBul(adlar: List<String>, x0f: Float, y0f: Float, x1f: Float, y1f: Float, sonuc: (FloatArray?) -> Unit) {
+        val bm = try { ScreenSampler.tamKare() } catch (e: Exception) { null }
+        if (bm == null) { sonuc(null); return }
+        val x0 = (bm.width * x0f).toInt().coerceIn(0, bm.width - 2)
+        val y0 = (bm.height * y0f).toInt().coerceIn(0, bm.height - 2)
+        val w = ((bm.width * x1f).toInt() - x0).coerceIn(2, bm.width - x0)
+        val hh = ((bm.height * y1f).toInt() - y0).coerceIn(2, bm.height - y0)
+        val kes = try { Bitmap.createScaledBitmap(Bitmap.createBitmap(bm, x0, y0, w, hh), w * 2, hh * 2, true) } catch (e: Exception) { null }
+        if (kes == null) { sonuc(null); return }
+        BotKontrol.satirlar(kes) { liste ->
+            rh.post {
+                var bul: FloatArray? = null
+                if (liste != null) for ((txt, r) in liste) {
+                    val t = txt.trim().lowercase().replace(Regex("\\s+"), " ")
+                    if (adlar.any { t == it }) {
+                        bul = floatArrayOf((r.exactCenterX() / 2f + x0) / ScreenSampler.SCALE, (r.exactCenterY() / 2f + y0) / ScreenSampler.SCALE)
+                        break
+                    }
+                }
+                sonuc(bul)
+            }
+        }
+    }
+
+    private fun upgradeMenu() {
+        if (upgCalisiyor) {
+            showMenu("⚒ Upgrade Bot çalışıyor\nGeçen: $upgGecen • Yanan: $upgYanan • Şu an: +$upgHedef → +${upgHedef + 1}", listOf(
+                "⏹ Durdur" to { upgBitir("Durduruldu") },
+                "Kapat" to { }))
+            return
+        }
+        val sp = upgPref()
+        fun var_(k: String) = sp.contains(k + "_x")
+        val hazir = var_("charon") && var_("tyroon") && var_("anvil") && sp.contains("kagit_dx") && sp.contains("elbise_dx")
+        val adet = sp.getInt("adet", 20)
+        showMenu("⚒ Upgrade Bot (Farm'dan ayrı)\n" +
+            (if (var_("charon") && sp.contains("kagit_dx")) "✅" else "⬜") + " 1) Charon + kağıt seçildi\n" +
+            (if (var_("tyroon") && sp.contains("elbise_dx")) "✅" else "⬜") + " 2) Tyroon + elbise seçildi\n" +
+            (if (var_("anvil")) "✅" else "⬜") + " 3) Anvil yeri\n\n" +
+            "Döngü: Charon'dan kağıt → Tyroon'dan $adet elbise → Anvil'de hepsi +2, +3 … +7, sonra +8. Hepsi yanarsa yeniden alır. İlk +8'de durur.", listOf(
+            (if (hazir) "▶ Başlat (al + bas)" else "▶ Başlat (önce 1-2-3'ü kaydet)") to { if (hazir) upgBaslat(true) else toast("Önce Charon, Tyroon ve Anvil'i kaydet") },
+            "📍 1) Charon'u kaydet (yanında dur)" to { upgNpcKaydet("charon") },
+            "📍 2) Tyroon'u kaydet (yanında dur)" to { upgNpcKaydet("tyroon") },
+            "📍 3) Anvil'i kaydet (Open görünürken)" to { upgNpcKaydet("anvil") },
+            "🔢 Elbise sayısı: $adet (değiştir)" to {
+                val yeni = when (adet) { 5 -> 10; 10 -> 15; 15 -> 20; 20 -> 26; else -> 5 }
+                sp.edit().putInt("adet", yeni).apply(); toast("Elbise sayısı: $yeni"); upgradeMenu()
+            },
+            "▶ Sadece bas (envanter hazır, Anvil'deyim)" to { upgBaslat(false) },
+            "Kapat" to { }))
+    }
+
+    // ---------- Upgrade Bot: NPC kaydı, yürüme, satın alma ----------
+    // Dükkan penceresi ölçüsü: "Multiple Selling" yazısına göre (1159 px yüksek ekran görüntüsünden doğrulandı)
+    private var upgTam = false                 // satın alma + yürüme dahil tam döngü
+    private var dkAnkor: FloatArray? = null
+    private fun upgPref() = getSharedPreferences("upgrade_bot_" + Config.oyun(this), MODE_PRIVATE)
+    private fun dkNokta(dx: Float, dy: Float): FloatArray { val a = dkAnkor!!; return floatArrayOf(a[0] + dx * upgU(), a[1] + dy * upgU()) }
+    private fun dkEnvanter(i: Int) = dkNokta(-121f + (i % 7) * 89.5f, 162f + (i / 7) * 88.3f)
+    private fun dkDoluSay() = (0 until 28).count { upgDolu(dkEnvanter(it)) }
+
+    /** Konum okunana kadar bekle (en çok ~5 sn) */
+    private fun upgKonumBekle(n: Int = 0, sonra: (IntArray?) -> Unit) {
+        konumBaslat()
+        if (konumX >= 0 && SystemClock.uptimeMillis() - konumAt < 2000L) { sonra(intArrayOf(konumX, konumY)); return }
+        if (n > 20) { sonra(null); return }
+        rh.postDelayed({ upgKonumBekle(n + 1, sonra) }, 250)
+    }
+
+    private fun upgNpcKaydet(tur: String) {
+        if (running || upgCalisiyor) { toast("Önce botu durdur"); return }
+        if (!ScreenSampler.running) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver"); return }
+        toast("Konum okunuyor…")
+        rh.post {
+            upgKonumBekle { k ->
+                if (k == null) { ui.post { toast("Koordinat okunamadı") }; return@upgKonumBekle }
+                upgPref().edit().putInt(tur + "_x", k[0]).putInt(tur + "_y", k[1]).apply()
+                TestLog.olay("UPG_NPC_KAYIT", "$tur yeri kaydedildi", "${k[0]},${k[1]}")
+                if (tur == "anvil") { ui.post { toast("✅ Anvil yeri: ${k[0]},${k[1]}") }; return@upgKonumBekle }
+                // Dükkanı aç, sayfayı ve alınacak eşyayı oyuncuya seçtir
+                upgDukkanAc(0) { ok ->
+                    if (!ok) { ui.post { toast("NPC penceresi açılmadı: NPC'ye biraz daha yaklaş, Open görünsün") }; return@upgDukkanAc }
+                    ui.post {
+                        showMenu("Almak istediğin ${if (tur == "charon") "kağıt" else "elbise"} kaçıncı sayfada?", (1..3).map { sayfa ->
+                            "Sayfa $sayfa" to {
+                                rh.post {
+                                    upgSayfayaGit(sayfa) {
+                                        ui.post {
+                                            dokunusYakala("👆 Almak istediğin ${if (tur == "charon") "KAĞIDA" else "ELBİSEYE"} dokun") { x, y ->
+                                                val a = dkAnkor ?: return@dokunusYakala
+                                                val dx = (x - a[0]) / upgU(); val dy = (y - a[1]) / upgU()
+                                                val ad = if (tur == "charon") "kagit" else "elbise"
+                                                upgPref().edit().putFloat(ad + "_dx", dx).putFloat(ad + "_dy", dy).putInt(ad + "_sayfa", sayfa).apply()
+                                                TestLog.olay("UPG_ESYA_SECILDI", "$ad seçildi", "sayfa=$sayfa dx=${dx.toInt()} dy=${dy.toInt()}")
+                                                toast("✅ ${if (tur == "charon") "Kağıt" else "Elbise"} seçildi (sayfa $sayfa)")
+                                                rh.postDelayed({ upgDukkanKapat { } }, 300)
+                                            }
+                                        }
+                                    }
+                                }
+                                Unit
+                            }
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    /** Ekrana tek dokunuşu yakalar (oyuna geçmez), sonra kendini kaldırır */
+    private fun dokunusYakala(mesaj: String, sonuc: (Float, Float) -> Unit) {
+        val v = TextView(this).apply {
+            text = mesaj; textSize = 18f; setTextColor(0xFFFFFFFF.toInt()); setBackgroundColor(0x33000000)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; setPadding(0, dp(30), 0, 0)
+        }
+        v.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                val x = e.rawX; val y = e.rawY
+                safeRemove(v)
+                sonuc(x, y)
+            }
+            true
+        }
+        try { wm.addView(v, lp(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)) } catch (e: Exception) { hataKaydet("dokunusYakala", e) }
+    }
+
+    /** Yakındaki NPC'nin Open'ına bas, dükkan penceresini ("Multiple Selling") bul */
+    private fun upgDukkanAc(n: Int, sonra: (Boolean) -> Unit) {
+        val f = ScreenSampler.grab()
+        val op = cfg.openT
+        val pos = if (f != null && op != null) findOpen(f, op) else null
+        if (pos == null) {
+            if (n > 6) { sonra(false); return }
+            rh.postDelayed({ upgDukkanAc(n + 1, sonra) }, 600)
+            return
+        }
+        val t = sablonHedef(op!!, pos)
+        tap(t.x, t.y, 0f) {
+            rh.postDelayed({
+                upgYaziBul(listOf("multiple selling"), 0.55f, 0.45f, 1f, 0.65f) { p ->
+                    if (p == null) { if (n > 3) sonra(false) else upgDukkanAc(n + 2, sonra); return@upgYaziBul }
+                    dkAnkor = p
+                    TestLog.olay("UPG_DUKKAN", "dükkan penceresi açıldı", "ankor=${p[0].toInt()},${p[1].toInt()}")
+                    sonra(true)
+                }
+            }, 1300)
+        }
+    }
+
+    private fun upgSayfayaGit(sayfa: Int, sonra: () -> Unit) {
+        if (sayfa <= 1) { sonra(); return }
+        val o = dkNokta(254f, -81f)
+        tap(o[0], o[1], 0f) { rh.postDelayed({ upgSayfayaGit(sayfa - 1, sonra) }, 600) }
+    }
+
+    private fun upgDukkanKapat(sonra: () -> Unit) {
+        val x = dkNokta(442f, -525f)
+        tap(x[0], x[1], 0f) { rh.postDelayed({ sonra() }, 700) }
+    }
+
+    /** Kayıtlı NPC yerine yürü (öğrenen harita ile) */
+    private fun upgYuru(tur: String, sonra: () -> Unit) {
+        if (!upgCalisiyor) return
+        val sp = upgPref()
+        val hx = sp.getInt(tur + "_x", -1); val hy = sp.getInt(tur + "_y", -1)
+        if (hx < 0) { upgBitir("$tur yeri kayıtlı değil"); return }
+        upgKonumBekle { k ->
+            if (!upgCalisiyor) return@upgKonumBekle
+            if (k == null) { upgBitir("Koordinat okunamadı"); return@upgKonumBekle }
+            if (Math.hypot((k[0] - hx).toDouble(), (k[1] - hy).toDouble()) <= 2.0) { sonra(); return@upgKonumBekle }
+            val p = haritaYolu(intArrayOf(hx, hy), emptyList())
+            if (p == null) { upgBitir("$tur için yol bulunamadı"); return@upgKonumBekle }
+            TestLog.olay("UPG_YURU", "$tur yerine yürünüyor", "${k[0]},${k[1]} → $hx,$hy")
+            yuruBaslat(p.first, 1.5, 60_000L, p.second) { ok, neden ->
+                rh.post {
+                    if (!upgCalisiyor) return@post
+                    if (ok) rh.postDelayed({ sonra() }, 600) else upgBitir("$tur yerine yürünemedi: $neden")
+                }
+            }
+        }
+    }
+
+    /** Seçili eşyayı dükkandan adet kez al (her alış: eşyaya dokun + Confirm). Kaç tane alındığını döner */
+    private fun upgSatinAl(ad: String, adet: Int, sonra: (Int) -> Unit) {
+        val sp = upgPref()
+        val dx = sp.getFloat(ad + "_dx", 0f); val dy = sp.getFloat(ad + "_dy", 0f)
+        val once = dkDoluSay()
+        var alinan = 0; var bos = 0
+        fun bir() {
+            if (!upgCalisiyor) return
+            if (alinan >= adet || bos >= 2) {
+                TestLog.olay("UPG_ALINDI", "$ad alındı: $alinan/$adet", "envanter ${once} → ${dkDoluSay()}")
+                sonra(alinan); return
+            }
+            val e = dkNokta(dx, dy)
+            val oncekiDolu = dkDoluSay()
+            tap(e[0], e[1], 0f) {
+                rh.postDelayed({
+                    val c = dkNokta(47f, 44f)
+                    tap(c[0], c[1], 0f) {
+                        rh.postDelayed({
+                            // Elbise her alışta yeni hücre kaplar; kağıt üst üste biner (sayı değişmeyebilir)
+                            if (ad == "elbise" && dkDoluSay() <= oncekiDolu) bos++ else { alinan++; bos = 0 }
+                            bir()
+                        }, 700)
+                    }
+                }, 700)
+            }
+        }
+        bir()
+    }
+
+    /** Tam döngü: Charon (kağıt) → Tyroon (elbise) → Anvil */
+    private fun upgTurBasla() {
+        if (!upgCalisiyor) return
+        val sp = upgPref()
+        val adet = sp.getInt("adet", 20)
+        upgYuru("charon") {
+            upgDukkanAc(0) { ok ->
+                if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAc }
+                upgSayfayaGit(sp.getInt("kagit_sayfa", 1)) {
+                    upgSatinAl("kagit", adet) { _ ->
+                        upgDukkanKapat {
+                            upgYuru("tyroon") {
+                                upgDukkanAc(0) { ok2 ->
+                                    if (!ok2) { upgBitir("Tyroon penceresi açılmadı"); return@upgDukkanAc }
+                                    upgSayfayaGit(sp.getInt("elbise_sayfa", 1)) {
+                                        upgSatinAl("elbise", adet) { n ->
+                                            upgDukkanKapat {
+                                                if (n == 0) { upgBitir("Elbise alınamadı (para bitti ya da envanter dolu)"); return@upgDukkanKapat }
+                                                upgAnkor = null; upgDeneme = 0; upgHaritaKoru = false
+                                                upgYuru("anvil") { upgAnvilAc() }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Anvil'de kağıt bitti: pencereyi kapat, Charon'dan kalan item sayısı kadar kağıt al, geri dön (seviyeler korunur) */
+    private fun upgKagitTazele() {
+        val kalan = upgSeviye.count { it >= 1 }
+        TestLog.olay("UPG_KAGIT_BITTI", "kağıt bitti, Charon'dan $kalan kağıt alınacak", "")
+        val x = upgKapatYeri()
+        tap(x[0], x[1], 0f) {
+            rh.postDelayed({
+                upgYuru("charon") {
+                    upgDukkanAc(0) { ok ->
+                        if (!ok) { upgBitir("Charon penceresi açılmadı"); return@upgDukkanAc }
+                        upgSayfayaGit(upgPref().getInt("kagit_sayfa", 1)) {
+                            upgSatinAl("kagit", kalan) { _ ->
+                                upgDukkanKapat {
+                                    upgAnkor = null; upgDeneme = 0; upgHaritaKoru = true
+                                    upgYuru("anvil") { upgAnvilAc() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }, 700)
+        }
+    }
+
+    private var upgHaritaKoru = false           // Anvil yeniden açılınca hücre seviyelerini koru
+
+    private fun upgBaslat(tam: Boolean) {
+        if (running) { toast("Önce farmı durdur"); return }
+        if (!ScreenSampler.running) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver, sonra durdur"); return }
+        if (cfg.openT == null) { toast("Önce 🔍 EKRANI TANI"); return }
+        upgCalisiyor = true
+        upgTam = tam
+        upgHaritaKoru = false
+        upgAnkor = null
+        upgSeviye.fill(-1)
+        upgHedef = 1; upgGecen = 0; upgYanan = 0; upgDeneme = 0
+        TestLog.oturumBasla(this, "mod=upgrade ekran=${screenW}x$screenH")
+        TestLog.olay("UPG_BASLADI", "Upgrade Bot başladı", "ekran ${screenW}x$screenH")
+        toast("⚒ Upgrade Bot başladı")
+        rh.post { if (tam) upgTurBasla() else upgAnvilAc() }
+    }
+
+    private fun upgAnvilAc() {
+        if (!upgCalisiyor) return
+        val f = ScreenSampler.grab()
+        val op = cfg.openT
+        val pos = if (f != null && op != null) findOpen(f, op) else null
+        if (pos == null) {
+            if (++upgDeneme > 6) { upgBitir("Anvil'in Open düğmesi görülmedi: karakteri Anvil'in yanına götür"); return }
+            rh.postDelayed({ upgAnvilAc() }, 700)
+            return
+        }
+        val t = sablonHedef(op!!, pos)
+        TestLog.olay("UPG_OPEN", "Anvil Open basıldı", "")
+        tap(t.x, t.y, 0f) {
+            rh.postDelayed({
+                upgYaziBul(listOf("item upgrade"), 0.7f, 0.1f, 1f, 0.7f) { p ->
+                    if (!upgCalisiyor) return@upgYaziBul
+                    if (p == null) { if (++upgDeneme > 6) upgBitir("Select Upgrade menüsü görülmedi (Charon penceresi açılmış olabilir: Anvil'i kendi Open'ı görünürken kaydet)") else upgAnvilAc(); return@upgYaziBul }
+                    TestLog.olay("UPG_MENU", "Item Upgrade seçildi", "x=${p[0].toInt()} y=${p[1].toInt()}")
+                    tap(p[0], p[1], 0f) { rh.postDelayed({ upgPencereBul() }, 1300) }
+                }
+            }, 1300)
+        }
+    }
+
+    private fun upgPencereBul() {
+        if (!upgCalisiyor) return
+        upgYaziBul(listOf("upgrade"), 0.55f, 0.35f, 0.95f, 0.65f) { p ->
+            if (!upgCalisiyor) return@upgYaziBul
+            if (p == null) { if (++upgDeneme > 6) upgBitir("ITEM UPGRADE penceresi bulunamadı") else rh.postDelayed({ upgPencereBul() }, 800); return@upgYaziBul }
+            upgAnkor = p
+            // Envanteri tara: ilk hücre kağıt, diğer dolu hücreler +1 item
+            val dolu = (0 until 28).map { upgDolu(upgHucre(it)) }
+            if (!dolu[0]) { upgBitir("Envanterin ilk hücresinde kağıt yok"); return@upgYaziBul }
+            upgSeviye[0] = 0
+            if (upgHaritaKoru) {
+                // Kağıt almaya gidip dönüldü: bilinen seviyeler kalır, sadece kaybolan hücreler düşer
+                for (i in 1 until 28) if (!dolu[i]) upgSeviye[i] = -1
+            } else {
+                upgHedef = 1
+                for (i in 1 until 28) upgSeviye[i] = if (dolu[i]) 1 else -1
+            }
+            val n = upgSeviye.count { it >= 1 }
+            TestLog.olay("UPG_ENVANTER", "pencere bulundu, $n item", "ankor=${p[0].toInt()},${p[1].toInt()} dolu=" + dolu.joinToString("") { if (it) "1" else "0" })
+            if (n == 0) { upgBitir("Envanterde basılacak item yok"); return@upgYaziBul }
+            upgSonraki()
+        }
+    }
+
+    /** Sıradaki item: önce hedef seviyedekilerin hepsi, bitince seviye +1 */
+    private fun upgSonraki() {
+        if (!upgCalisiyor) return
+        val i = (1 until 28).firstOrNull { upgSeviye[it] == upgHedef }
+        if (i == null) {
+            if (upgSeviye.none { it >= 1 }) {
+                if (upgTam) {
+                    TestLog.olay("UPG_YENI_TUR", "tüm itemler yandı, yeniden kağıt + elbise alınıyor", "gecen=$upgGecen yanan=$upgYanan")
+                    val x = upgKapatYeri()
+                    tap(x[0], x[1], 0f) { rh.postDelayed({ upgTurBasla() }, 800) }
+                } else upgBitir("Tüm itemler yandı")
+                return
+            }
+            if (upgHedef >= 7) { upgBitir("+8 denemeleri bitti, +8 çıkmadı"); return }
+            upgHedef++
+            TestLog.olay("UPG_SEVIYE", "tüm itemler +$upgHedef'e geçti ya da yandı, sıradaki tur +$upgHedef → +${upgHedef + 1}", "kalan=${upgSeviye.count { it >= 1 }}")
+            rh.postDelayed({ upgSonraki() }, 300)
+            return
+        }
+        upgBas(i)
+    }
+
+    private fun upgBas(i: Int, bekle: Int = 0) {
+        // Önceki geçen item sonuç kutusundan hücresine dönmeden sıradakine geçme (yanlış "geçti" sayılmasın)
+        if (upgDolu(upgSonucYeri()) && bekle < 8) { rh.postDelayed({ if (upgCalisiyor) upgBas(i, bekle + 1) }, 500); return }
+        if (!upgDolu(upgHucre(0))) {
+            if (upgTam) upgKagitTazele() else upgBitir("Kağıt bitti")
+            return
+        }
+        val h = upgHucre(i)
+        tap(h[0], h[1], 0f) {
+            rh.postDelayed({
+                if (!upgCalisiyor) return@postDelayed
+                if (!upgDolu(upgItemYeri())) { upgBitir("Item basma yerine gitmedi (hücre ${i + 1})"); return@postDelayed }
+                val k = upgHucre(0)
+                tap(k[0], k[1], 0f) {
+                    rh.postDelayed({
+                        if (!upgCalisiyor) return@postDelayed
+                        if (!upgDolu(upgKagitYeri())) { upgBitir("Kağıt bitti ya da yerine gitmedi"); return@postDelayed }
+                        val u = upgAnkor!!
+                        tap(u[0], u[1], 0f) {
+                            rh.postDelayed({
+                                if (!upgCalisiyor) return@postDelayed
+                                val ok = upgOkYeri()
+                                tap(ok[0], ok[1], 0f) { rh.postDelayed({ upgSonuc(i, 0) }, 2500) }
+                            }, 900)
+                        }
+                    }, 700)
+                }
+            }, 700)
+        }
+    }
+
+    /** Item geri geldiyse geçti, 3 kontrolde (≈4,5 sn) gelmediyse yandı */
+    private fun upgSonuc(i: Int, n: Int) {
+        if (!upgCalisiyor) return
+        if (upgDolu(upgHucre(i)) || upgDolu(upgSonucYeri())) {
+            upgSeviye[i]++
+            upgGecen++
+            TestLog.olay("UPG_GECTI", "hücre ${i + 1}: +${upgSeviye[i]}", "gecen=$upgGecen yanan=$upgYanan")
+            if (upgSeviye[i] >= 8) {
+                bildirim(999_996, "⚒ +8 çıktı!", "Envanterde ${i / 7 + 1}. satır ${i % 7 + 1}. hücre")
+                upgBitir("🎉 +8 çıktı! Envanterde ${i / 7 + 1}. satır ${i % 7 + 1}. hücre")
+                return
+            }
+            rh.postDelayed({ upgSonraki() }, 400)
+        } else if (n < 2) {
+            rh.postDelayed({ upgSonuc(i, n + 1) }, 1000)
+        } else {
+            // Basma hiç olmadıysa item hâlâ basma yerindedir: güvenli dur
+            if (upgDolu(upgItemYeri())) { upgBitir("UPGRADE/OK basılamadı, item basma yerinde kaldı"); return }
+            upgSeviye[i] = -1
+            upgYanan++
+            TestLog.olay("UPG_YANDI", "hücre ${i + 1} yandı (+${upgHedef} → +${upgHedef + 1})", "gecen=$upgGecen yanan=$upgYanan")
+            rh.postDelayed({ upgSonraki() }, 400)
+        }
+    }
+
+    private fun upgBitir(neden: String) {
+        if (!upgCalisiyor) return
+        upgCalisiyor = false
+        if (yuruAktif) yuruBitir(false, "upgrade durdu")
+        if (!running && !konumGerekliMi()) konumDurdur()
+        val ozet = (2..8).mapNotNull { sv -> val c = upgSeviye.count { it == sv }; if (c > 0) "+$sv: $c" else null }.joinToString(" • ")
+        TestLog.olay("UPG_BITTI", neden, "gecen=$upgGecen yanan=$upgYanan elde=$ozet")
+        TestLog.oturumBitir(neden)
+        raporGonder("upgrade", neden)
+        bildirim(999_995, "⚒ Upgrade Bot durdu", neden)
+        ui.post {
+            kartGoster("⚒ Upgrade Bot durdu", "$neden\n\nGeçen basış: $upgGecen\nYanan: $upgYanan\nElde: ${ozet.ifEmpty { "-" }}", listOf(
+                "Tamam" to { kartKapat() },
+                "▶ Farm'a geç" to { kartKapat(); if (!running) toggle() }))
         }
     }
 
@@ -3920,6 +4390,7 @@ class MacroService : AccessibilityService() {
 
     private fun toggle() {
         when {
+            upgCalisiyor -> upgBitir("Durduruldu")   // Upgrade Bot çalışırken panel düğmesi onu durdurur, farmı başlatmaz
             pazarCalisiyor -> pazarDurdur()
             running -> stopMacro()
             pendingStart -> {
