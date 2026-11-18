@@ -261,3 +261,23 @@ if _os.path.exists(_gi):
     else:
         print("  = zaten var: .gitignore | *.keystore"); sayac["atlandi"]+=1
 print("== SON OZET ==", sayac)
+
+# ====== (seri) coken 'Seri' hiz secenegini kaldir + eski seri ayarini Hizli'ya cek ======
+degis(MS,
+'''        fun hizMod(cc: Config) = when {
+            cc.maxDelay <= 150 -> 2
+            cc.maxDelay <= 320 -> 1
+            else -> 0
+        }''',
+'''        fun hizMod(cc: Config) = when {   // seri kaldirildi
+            cc.maxDelay <= 320 -> 1
+            else -> 0
+        }''',
+      "// seri kaldirildi")
+degis(MS,
+'''        listOf("Normal", "Hızlı", "Seri").forEachIndexed { i, ad ->''',
+'''        // Eski 'Seri' ayari botu cokertiyordu: acilista Hizli'ya cek, secenegi gizle
+        if (Config.load(this).maxDelay <= 150) kaydet { it.minDelay = 120; it.maxDelay = 300; it.pauseChance = 2; it.skMin = 150; it.skMax = 700 }
+        listOf("Normal", "Hızlı").forEachIndexed { i, ad ->''',
+      'listOf("Normal", "Hızlı").forEachIndexed')
+print("== SERI OZET ==", sayac)

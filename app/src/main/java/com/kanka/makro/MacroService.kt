@@ -1796,8 +1796,7 @@ class MacroService : AccessibilityService() {
             textSize = 14f
         }, LinearLayout.LayoutParams(dp(150), LinearLayout.LayoutParams.WRAP_CONTENT))
         val hizlar = ArrayList<TextView>()
-        fun hizMod(cc: Config) = when {
-            cc.maxDelay <= 150 -> 2
+        fun hizMod(cc: Config) = when {   // seri kaldirildi
             cc.maxDelay <= 320 -> 1
             else -> 0
         }
@@ -1807,7 +1806,9 @@ class MacroService : AccessibilityService() {
                 b.background = rounded(if (i == m) 0xFFE0B04A.toInt() else 0xFF3A3A3A.toInt())
             }
         }
-        listOf("Normal", "Hızlı", "Seri").forEachIndexed { i, ad ->
+        // Eski 'Seri' ayari botu cokertiyordu: acilista Hizli'ya cek, secenegi gizle
+        if (Config.load(this).maxDelay <= 150) kaydet { it.minDelay = 120; it.maxDelay = 300; it.pauseChance = 2; it.skMin = 150; it.skMax = 700 }
+        listOf("Normal", "Hızlı").forEachIndexed { i, ad ->
             val b = btn(ad) {
                 kaydet {
                     when (i) {
