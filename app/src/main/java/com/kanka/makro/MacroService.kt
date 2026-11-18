@@ -550,6 +550,14 @@ class MacroService : AccessibilityService() {
         val secili = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else "myko"
         if (on == secili || p == yanlisOyunUyarilan) return
         yanlisOyunUyarilan = p
+        // Otomatik oyun tanima: bot duruyorsa ve pazar modu degilse, ondeki desteklenen oyuna kendi gec
+        if (!running && !Config.pazarMi(this)) {
+            Config.oyunSec(this, on)
+            oyunDegisti()
+            toast("🎮 ${oyunAdiKod(on)} oyununa baglanildi")
+            TestLog.olay("OYUN_OTO_GECIS", "ondeki oyuna otomatik gecildi: ${oyunAdiKod(on)}", "paket=$p")
+            return
+        }
         toast("🎮 Açık oyun ${oyunAdiKod(on)}, uygulamada ${Config.oyunAd(this)} seçili. Projeindir Bot'u aç → Oyun seç → ${oyunAdiKod(on)} → Bağlan.")
         TestLog.olay("YANLIS_OYUN", "öndeki oyun ${oyunAdiKod(on)}, seçili ${Config.oyunAd(this)}", "paket=$p")
     }
