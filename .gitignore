@@ -9,3 +9,5 @@ local.properties
 
 # Sunucu sifreleri repoya girmesin
 sunucu/config.php
+*.keystore
+*.jks

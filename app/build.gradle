@@ -20,23 +20,31 @@ android {
     }
 
     // Sabit imza: yeni APK eskisinin ustune kurulur, ayarlar silinmez
+    // Imza anahtari artik repoda sifreyle durmuyor; GitHub Secrets'ten gelir.
+    def ksDosya = file('makro.keystore')
+    def ksSifre = System.getenv('KEYSTORE_PASS')
+    def ksAd    = System.getenv('KEY_ALIAS')
+    def ksAnahtarSifre = System.getenv('KEY_PASS')
+    def imzaVar = ksDosya.exists() && ksSifre?.trim() && ksAd?.trim() && ksAnahtarSifre?.trim()
     signingConfigs {
         sabit {
-            storeFile file('makro.keystore')
-            storePassword 'makro123'
-            keyAlias 'makro'
-            keyPassword 'makro123'
+            if (imzaVar) {
+                storeFile ksDosya
+                storePassword ksSifre
+                keyAlias ksAd
+                keyPassword ksAnahtarSifre
+            }
         }
     }
 
     buildTypes {
-        debug { signingConfig signingConfigs.sabit }
+        debug { if (imzaVar) signingConfig signingConfigs.sabit }
         release {
             // Kodu karistir/kucult: APK'yi sokup lisansi atlatmayi zorlastirir
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
-            signingConfig signingConfigs.sabit
+            signingConfig imzaVar ? signingConfigs.sabit : signingConfigs.debug
         }
     }
 

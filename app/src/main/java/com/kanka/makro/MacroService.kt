@@ -278,6 +278,7 @@ class MacroService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
         ui.postDelayed(sistemIzle, 30_000)
+        ui.postDelayed(bantGuncelle, 3000)
         // Ilk asama koruma: mod onceden PK/Pazar'da kalmissa Farm'a zorla dondur
         if (yetkisizModdaMi()) {
             Config.modDegistir(this, false)
@@ -2132,6 +2133,102 @@ class MacroService : AccessibilityService() {
         }
     }
 
+    // ================= İzin penceresiz ekran okuma (Android 11+) =================
+    @Volatile private var erisimEkran = false
+    private val erisimYurutucu by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
+
+    private fun erisimEkranBaslat(): Boolean {
+        if (Build.VERSION.SDK_INT < 30) return false
+        if (ScreenSampler.running) return true
+        if (erisimEkran) return true
+        erisimEkran = true
+        ScreenSampler.running = true
+        TestLog.olay("ERISIM_EKRAN", "izin penceresiz ekran okuma basladi (yedek, saniyede ~3 kare)", "")
+        ui.post { erisimKareAl() }
+        return true
+    }
+
+    private fun erisimEkranDurdur() {
+        if (!erisimEkran) return
+        erisimEkran = false
+        if (CaptureService.instance == null) { ScreenSampler.running = false; ScreenSampler.clear() }
+        TestLog.olay("ERISIM_EKRAN_DUR", "izin penceresiz ekran okuma durdu", "")
+    }
+
+    @android.annotation.TargetApi(30)
+    private fun erisimKareAl() {
+        if (!erisimEkran) return
+        if (CaptureService.instance != null) { erisimEkran = false; return }
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, erisimYurutucu, object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(s: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
+                    try {
+                        val hw = Bitmap.wrapHardwareBuffer(s.hardwareBuffer, s.colorSpace)
+                        if (hw != null) {
+                            val yazilim = hw.copy(Bitmap.Config.ARGB_8888, false)
+                            hw.recycle()
+                            val w = (yazilim.width * ScreenSampler.SCALE).toInt().coerceAtLeast(1)
+                            val h = (yazilim.height * ScreenSampler.SCALE).toInt().coerceAtLeast(1)
+                            val kucuk = Bitmap.createScaledBitmap(yazilim, w, h, true)
+                            if (kucuk !== yazilim) yazilim.recycle()
+                            if (erisimEkran) ScreenSampler.offerBitmap(kucuk) else kucuk.recycle()
+                        }
+                    } catch (e: Exception) {
+                    } finally {
+                        try { s.hardwareBuffer.close() } catch (_: Exception) { }
+                    }
+                    ui.postDelayed({ erisimKareAl() }, 340)
+                }
+                override fun onFailure(code: Int) { ui.postDelayed({ erisimKareAl() }, 700) }
+            })
+        } catch (e: Exception) {
+            ui.postDelayed({ erisimKareAl() }, 1000)
+        }
+    }
+
+    // ================= Ekran üstü durum bandı (dokunuşu engellemez) =================
+    private var durumBandi: TextView? = null
+    private val bantGuncelle: Runnable = object : Runnable {
+        override fun run() {
+            try { bantYenile() } catch (_: Exception) { }
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun bantYenile() {
+        val kaynak = if (erisimEkran) " • 📷 yedek" else ""
+        val metin = when {
+            upgCalisiyor -> "⚒ Upgrade • +$upgHedef → +${upgHedef + 1} • gecen $upgGecen • yanan $upgYanan$kaynak"
+            running && rotaCalisiyor -> "🔵 Banka turu$kaynak"
+            running -> "🟢 Farm • mob $kesilen • kutu $toplanan$kaynak"
+            else -> null
+        }
+        if (metin == null) {
+            durumBandi?.let { safeRemove(it) }
+            durumBandi = null
+            return
+        }
+        var v = durumBandi
+        if (v == null) {
+            val tv = TextView(this).apply {
+                textSize = 12f
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(0x99000000.toInt())
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+            }
+            try {
+                wm.addView(tv, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT).apply {
+                    flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    x = dp(4)
+                    y = (screenH * 0.60f).toInt()
+                })
+            } catch (e: Exception) { return }
+            durumBandi = tv
+            v = tv
+        }
+        v.text = metin
+    }
+
     // ================= Upgrade Bot: Farm'dan bağımsız, Anvil'de seviye seviye basar =================
     // Aşama 1: oyuncu Anvil'in yanında durur; kağıtlar envanterin İLK hücresinde, itemler diğer hücrelerde.
     // Bot tüm itemleri önce +2, sonra hepsini +3 ... +7 yapar, sonra +8 dener; ilk +8'de durur.
@@ -2248,7 +2345,7 @@ class MacroService : AccessibilityService() {
 
     private fun upgNpcKaydet(tur: String) {
         if (running || upgCalisiyor) { toast("Önce botu durdur"); return }
-        if (!ScreenSampler.running) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver"); return }
+        if (!ScreenSampler.running && !erisimEkranBaslat()) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver"); return }
         toast("Konum okunuyor…")
         rh.post {
             upgKonumBekle { k ->
@@ -2474,7 +2571,7 @@ class MacroService : AccessibilityService() {
 
     private fun upgBaslat(tam: Boolean) {
         if (running) { toast("Önce farmı durdur"); return }
-        if (!ScreenSampler.running) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver, sonra durdur"); return }
+        if (!ScreenSampler.running && !erisimEkranBaslat()) { toast("Ekran okuma kapalı: önce bir kez ▶ BAŞLAT'a basıp ekran iznini ver, sonra durdur"); return }
         if (cfg.openT == null) { toast("Önce 🔍 EKRANI TANI"); return }
         upgCalisiyor = true
         upgTam = tam
@@ -2618,6 +2715,7 @@ class MacroService : AccessibilityService() {
     private fun upgBitir(neden: String) {
         if (!upgCalisiyor) return
         upgCalisiyor = false
+        ui.post { if (!running) erisimEkranDurdur() }
         if (yuruAktif) yuruBitir(false, "upgrade durdu")
         if (!running && !konumGerekliMi()) konumDurdur()
         val ozet = (2..8).mapNotNull { sv -> val c = upgSeviye.count { it == sv }; if (c > 0) "+$sv: $c" else null }.joinToString(" • ")
@@ -3382,7 +3480,11 @@ class MacroService : AccessibilityService() {
             "basla" -> ui.post {
                 if (running) return@post
                 if (!oyundaMi()) bildirim(999_997, "Projeindir Bot", "Panelden başlat geldi ama oyun açık değil")
-                else { TestLog.olay("PANEL_BASLAT", "panelden başlatıldı", ""); startMacro() }
+                else {
+                    TestLog.olay("PANEL_BASLAT", "panelden baslatildi", "ekran_paylasimi=${ScreenSampler.running}")
+                    if (!ScreenSampler.running && erisimEkranBaslat()) ui.postDelayed({ if (!running) startMacro() }, 1500)
+                    else startMacro()
+                }
             }
         }
         // Yeni mesajlar
@@ -4833,7 +4935,10 @@ class MacroService : AccessibilityService() {
             stopMacro("Bot yanıt vermiyor, güvenli durduruldu")
             return
         }
-        // 2) Ekran paylaşımı çalışırken kapandıysa kör dokunma: dur
+        // 2) Ekran paylasimi kapandiysa once izinsiz ekran okumaya gec, olmazsa dur
+        if (yakalamaVardi && !ScreenSampler.running && erisimEkranBaslat()) {
+            TestLog.olay("IZIN_KAYBI_YEDEK", "ekran paylasimi kapandi, izinsiz ekran okumaya gecildi", "")
+        }
         if (yakalamaVardi && !ScreenSampler.running) {
             if (yakalamaYokSince == 0L) {
                 yakalamaYokSince = simdi
@@ -7184,6 +7289,7 @@ class MacroService : AccessibilityService() {
 
     private fun stopMacro(reason: String? = null) {
         val calisiyordu = running
+        ui.post { if (!upgCalisiyor) erisimEkranDurdur() }
         if (koAktif) try { KoOyun.barKaydet(this, screenW, screenH) } catch (_: Exception) {}
         // Minor acik kaldiysa kapat (mana akip gitmesin) - sadece oyun gercekten ondeyse dokun,
         // yoksa (oyun kapandi/arka planda) baska bir uygulamaya yanlislikla dokunmus oluruz
