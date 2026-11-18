@@ -355,9 +355,14 @@ class MacroService : AccessibilityService() {
     /** Secili oyunun paket adi (yuklu uygulamalardan bulunur, oyun basina bir kez) */
     @Suppress("DEPRECATION")
     private fun oyunPaketiBul(): String? {
-        val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else "myko"
+        val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else if (Config.ozelMi(this)) "ozel" else "myko"
         if (oyunPaketArandi == oyun) return oyunPaketAdi
         oyunPaketArandi = oyun
+        if (oyun == "ozel") {
+            val s = Config.ozelPaket(this)
+            oyunPaketAdi = if (s.isNotEmpty()) s else null
+            return oyunPaketAdi
+        }
         if (oyun == "ko") {
             val secili = Config.koPaket(this)
             if (secili.isNotEmpty()) { oyunPaketAdi = secili; return secili }
@@ -530,6 +535,8 @@ class MacroService : AccessibilityService() {
     private var yanlisOyunUyarilan = ""
 
     private fun ondekiOyunKodu(p: String): String? {
+        val oz = Config.ozelPaket(this)
+        if (oz.isNotEmpty() && p == oz) return "ozel"
         val k = p.lowercase()
         return when {
             k.contains("revenger") -> "rev"
@@ -541,7 +548,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun oyunAdiKod(k: String): String = when (k) {
-        "rev" -> "RevengerOnline"; "nowa" -> "NowaOnline"; "ko" -> "KO Mobile"; else -> "MykoMobile"
+        "rev" -> "RevengerOnline"; "nowa" -> "NowaOnline"; "ko" -> "KO Mobile"; "ozel" -> Config.ozelAd(this); else -> "MykoMobile"
     }
 
     private fun yanlisOyunUyari() {

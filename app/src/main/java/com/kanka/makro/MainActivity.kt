@@ -1027,15 +1027,58 @@ class MainActivity : Activity() {
 
     /** "Oyun seç" listesi: seçilen oyun için yeniden "Bağlan" gerekir */
     private fun oyunListesi() {
-        val oyunlar = listOf("MykoMobile" to "myko", "RevengerOnline" to "rev", "NowaOnline" to "nowa", "KO Mobile" to "ko")
+        val oyunlar = listOf("MykoMobile" to "myko", "RevengerOnline" to "rev", "NowaOnline" to "nowa", "KO Mobile" to "ko", "➕ Özel oyun ekle" to "ozel")
         AlertDialog.Builder(this)
             .setTitle("Oyun seç")
             .setItems(oyunlar.map { it.first }.toTypedArray()) { _, i ->
                 val kod = oyunlar[i].second
+                if (kod == "ozel") { ozelKur(); return@setItems }
                 if (Config.oyun(this) != kod) sunucuOnayYaz(false)
                 oyunSec(kod)
                 lisansYenile()
                 refresh()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    /** Ozel oyun ekle: ad gir, yuklu uygulamadan paketi sec. Myko motoru, ayri veri. */
+    private fun ozelKur() {
+        val input = EditText(this).apply { setText(Config.ozelAd(this@MainActivity)); hint = "Oyun adı" }
+        AlertDialog.Builder(this)
+            .setTitle("Özel oyun adı")
+            .setView(input)
+            .setPositiveButton("Devam") { _, _ ->
+                val ad = input.text.toString().ifBlank { "Özel Oyun" }
+                Config.ozelAdYaz(this, ad)
+                ozelPaketSec(ad)
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun ozelPaketSec(ad: String) {
+        val pm = packageManager
+        val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val liste = try {
+            pm.queryIntentActivities(q, 0)
+                .filter { it.activityInfo.packageName != packageName }
+                .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+        } catch (e: Exception) { emptyList() }
+        if (liste.isEmpty()) { toast("Uygulama listesi alınamadı"); return }
+        AlertDialog.Builder(this)
+            .setTitle("$ad hangi uygulama?")
+            .setItems(liste.map { it.first }.toTypedArray()) { _, i ->
+                Config.ozelPaketYaz(this, liste[i].second)
+                Config.oyunSec(this, "ozel")
+                if (Config.load(this).points.isEmpty()) Config.hazirAyar(this)
+                MacroService.instance?.oyunDegisti()
+                sunucuOnayYaz(false)
+                toast("$ad seçildi")
+                lisansYenile(); refresh()
             }
             .setNegativeButton("Vazgeç", null)
             .show()
