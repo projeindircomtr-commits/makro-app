@@ -1037,7 +1037,7 @@ class MacroService : AccessibilityService() {
 
         // Sürükleme + ikon tık
         fun dragListener(hedef: View) = object : View.OnTouchListener {
-            var sx = 0; var sy = 0; var tx = 0f; var ty = 0f; var moved = false
+            var sx = 0; var sy = 0; var tx = 0f; var ty = 0f; var moved = false; var sonHareket = 0L
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -1051,9 +1051,12 @@ class MacroService : AccessibilityService() {
                         val yukPx = if (root.height > 0) root.height else dp(48)
                         params.x = (sx + dx).coerceIn(0, maxOf(0, screenW - genisPx))
                         params.y = (sy + dy).coerceIn(0, maxOf(0, screenH - yukPx))
-                        try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
+                        // Her dokunus olayinda relayout janka yol aciyordu: kare basina en fazla bir kez guncelle
+                        val simdi = android.os.SystemClock.uptimeMillis()
+                        if (simdi - sonHareket >= 16L) { sonHareket = simdi; try { wm.updateViewLayout(root, params) } catch (_: Exception) {} }
                     }
                     MotionEvent.ACTION_UP -> {
+                        try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
                         if (!moved && v === panelIkonBtn) {
                             // Bot çalışıyorsa ikon = DURDUR; duruyorsa panel açılsın
                             if (running) stopMacro()
@@ -1353,7 +1356,8 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Config.koMu(this)) emptyList() else
-            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }, "⚒ Upgrade Bot" to { upgradeMenu() })
+            (listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) +
+                if (Lisans.ozellikVar("upgrade")) listOf("⚒ Upgrade Bot" to { upgradeMenu() }) else emptyList())
         // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
         val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
         showMenu(
@@ -3440,7 +3444,7 @@ class MacroService : AccessibilityService() {
                 mesajKontrol()
             } catch (e: Exception) {
             }
-            ah.postDelayed(this, 30_000)   // panelden başlat/durdur en geç 30 sn'de gelsin
+            ah.postDelayed(this, 10_000)   // panelden başlat/durdur en geç 10 sn'de gelsin
         }
     }
 
