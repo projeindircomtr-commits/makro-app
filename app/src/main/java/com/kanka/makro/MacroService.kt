@@ -689,10 +689,10 @@ class MacroService : AccessibilityService() {
         val yeni = (eski.split("\n").filter { it.isNotBlank() } + satir).takeLast(40).joinToString("\n")
         pr.edit().putString("log", yeni).commit()
 
-        // Koruma: sistem agir kisitlamaya girdiyse (SEVERE ve ustu) ya da pil cok sicaksa dur
-        if ((termal >= 3 || (!sicak.isNaN() && sicak >= 46f)) && (running || pazarCalisiyor)) {
-            val neden = if (termal >= 3) "Telefon aşırı ısındı (termal seviye $termal)"
-            else "Pil sıcaklığı %.1f°C".format(sicak)
+        // Koruma: SADECE pil GERCEKTEN cok sicaksa dur. OS termal durumu (termal>=3) Poco'da
+        // telefon soguk olsa bile yanlis tetikliyordu; kaldirildi. Pil sensoru gercek sinyal.
+        if ((!sicak.isNaN() && sicak >= 50f) && (running || pazarCalisiyor)) {
+            val neden = "Pil sıcaklığı %.1f°C".format(sicak)
             bildirim(4200, "🌡 Bot durduruldu", "$neden. Soğuyunca tekrar başlat.")
             if (pazarCalisiyor) pazarDurdur()
             if (running) stopMacro("$neden. Bot durdu")
