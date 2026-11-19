@@ -1031,14 +1031,60 @@ class MainActivity : Activity() {
         val ozelVar = Config.ozelPaket(this).isNotEmpty()
         if (ozelVar) oyunlar.add(Config.ozelAd(this) to "ozel")
         oyunlar.add((if (ozelVar) "➕ Özel oyunu değiştir" else "➕ Özel oyun ekle") to "ozel_ekle")
+        oyunlar.add("🔁 Seçili oyunun uygulamasını değiştir" to "paket_sec")
         AlertDialog.Builder(this)
             .setTitle("Oyun seç")
             .setItems(oyunlar.map { it.first }.toTypedArray()) { _, i ->
                 val kod = oyunlar[i].second
                 if (kod == "ozel_ekle") { ozelKur(); return@setItems }
+                if (kod == "paket_sec") { oyunUygulamaSec(); return@setItems }
                 if (Config.oyun(this) != kod) sunucuOnayYaz(false)
                 oyunSec(kod)
+                paketBelirsizseSor(kod)
                 lisansYenile()
+                refresh()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    /** Benzer isimli birden fazla uygulama varsa (MykoMobile / MykoOnline gibi) hangisi olduğunu bir kez sor */
+    private fun paketBelirsizseSor(kod: String) {
+        if (kod == "ozel" || Config.oyunPaket(this, kod).isNotEmpty()) return
+        val a = Config.oyunAdaylari(this, kod)
+        if (a.size <= 1) return
+        AlertDialog.Builder(this)
+            .setTitle("${Config.oyunAd(this)} hangi uygulama?")
+            .setItems(a.map { it.second }.toTypedArray()) { _, i ->
+                Config.oyunPaketYaz(this, kod, a[i].first)
+                MacroService.instance?.oyunDegisti()
+                toast("${Config.oyunAd(this)} → ${a[i].second}")
+                refresh()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    /** Seçili oyunun hangi uygulama olduğunu elle seç (tüm yüklü uygulamalar) */
+    @Suppress("DEPRECATION")
+    private fun oyunUygulamaSec() {
+        val o = Config.oyun(this)
+        if (o == "ozel") { ozelPaketSec(Config.ozelAd(this)); return }
+        val pm = packageManager
+        val liste = try {
+            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                .filter { it.activityInfo.packageName != packageName }
+                .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+        } catch (e: Exception) { emptyList() }
+        if (liste.isEmpty()) { toast("Uygulama listesi alınamadı"); return }
+        AlertDialog.Builder(this)
+            .setTitle("${Config.oyunAd(this)} hangi uygulama?")
+            .setItems(liste.map { it.first }.toTypedArray()) { _, i ->
+                Config.oyunPaketYaz(this, o, liste[i].second)
+                MacroService.instance?.oyunDegisti()
+                toast("${Config.oyunAd(this)} → ${liste[i].first}")
                 refresh()
             }
             .setNegativeButton("Vazgeç", null)
@@ -1418,22 +1464,9 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun findGame(): Intent? {
         return try {
-            val pm = packageManager
-            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            if (Config.koMu(this)) {
-                val secili = Config.koPaket(this)
-                if (secili.isNotEmpty()) return pm.getLaunchIntentForPackage(secili)
-            }
-            val ko = Config.koMu(this)
-            val hit = pm.queryIntentActivities(q, 0).firstOrNull {
-                val pk = it.activityInfo.packageName
-                val ad = it.loadLabel(pm).toString()
-                if (ko) pk.contains("komobile", true) || ad.contains("ko mobile", true) || ad.contains("komobile", true)
-                else if (Config.revMi(this)) pk.contains("revenger", true) || ad.contains("revenger", true)
-                else if (Config.nowaMi(this)) pk.contains("nowa", true) || ad.contains("nowa", true)
-                else pk.contains("myko", true) || ad.contains("myko", true)
-            } ?: return null
-            pm.getLaunchIntentForPackage(hit.activityInfo.packageName)
+            // Global: seçili oyunun KAYITLI uygulaması açılır (benzer isimli başka oyun değil)
+            val p = Config.oyunPaketiCoz(this, Config.oyun(this))
+            if (p.isNullOrEmpty()) null else packageManager.getLaunchIntentForPackage(p)
         } catch (e: Exception) {
             null
         }

@@ -418,6 +418,58 @@ class Config {
             genel(ctx).edit().putString("koPaket", p).commit()
         }
 
+        /** Her oyunun kayıtlı uygulama paketi (KO ve Özel'in eski kayıtları aynen kullanılır) */
+        fun oyunPaket(ctx: Context, o: String): String = when (o) {
+            "ozel" -> ozelPaket(ctx)
+            "ko" -> koPaket(ctx)
+            else -> genel(ctx).getString("paket_$o", "") ?: ""
+        }
+
+        fun oyunPaketYaz(ctx: Context, o: String, p: String) {
+            when (o) {
+                "ozel" -> ozelPaketYaz(ctx, p)
+                "ko" -> koPaketYaz(ctx, p)
+                else -> genel(ctx).edit().putString("paket_$o", p).commit()
+            }
+        }
+
+        /** Bu oyuna benzeyen yüklü uygulamalar; başka oyuna kayıtlı olanlar hariç, en iyi eşleşen başta */
+        @Suppress("DEPRECATION")
+        fun oyunAdaylari(ctx: Context, o: String): List<Pair<String, String>> {
+            if (o == "ozel") return emptyList()
+            val baska = listOf("myko", "ko", "rev", "nowa", "ozel").filter { it != o }
+                .map { oyunPaket(ctx, it) }.filter { it.isNotEmpty() }.toSet()
+            val tam = when (o) { "ko" -> listOf("komobile", "ko mobile"); "rev" -> listOf("revengeronline", "revenger online")
+                "nowa" -> listOf("nowaonline", "nowa online"); else -> listOf("mykomobile", "myko mobile") }
+            val kok = when (o) { "ko" -> listOf("komobile", "ko mobile"); "rev" -> listOf("revenger"); "nowa" -> listOf("nowa"); else -> listOf("myko") }
+            return try {
+                val pm = ctx.packageManager
+                pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN)
+                    .addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
+                    .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                    .distinctBy { it.first }
+                    .filter { it.first != ctx.packageName && it.first !in baska }
+                    .mapNotNull { (pk, ad) ->
+                        val p = pk.lowercase(); val a = ad.lowercase()
+                        if (o == "ko" && (p.contains("myko") || a.contains("myko"))) return@mapNotNull null
+                        fun var_(l: List<String>) = l.any { p.contains(it.replace(" ", "")) || a.contains(it) }
+                        val skor = if (var_(tam)) 2 else if (var_(kok)) 1 else 0
+                        if (skor > 0) Triple(pk, ad, skor) else null
+                    }
+                    .sortedByDescending { it.third }
+                    .map { it.first to it.second }
+            } catch (e: Exception) { emptyList() }
+        }
+
+        /** Kayıtlı paket; yoksa en iyi aday (tek aday varsa kalıcı kaydeder) */
+        fun oyunPaketiCoz(ctx: Context, o: String): String? {
+            val k = oyunPaket(ctx, o)
+            if (k.isNotEmpty()) return k
+            val a = oyunAdaylari(ctx, o)
+            if (a.size == 1) oyunPaketYaz(ctx, o, a[0].first)
+            return a.firstOrNull()?.first
+        }
+
         /** Secili oyunun hazir ayarini yukle */
         /**
          * Secili oyunun EKRAN ayarlari (HP/MP/hedef bari, kutu butonu, sureler).

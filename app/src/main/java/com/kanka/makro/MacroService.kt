@@ -358,30 +358,8 @@ class MacroService : AccessibilityService() {
         val oyun = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else if (Config.ozelMi(this)) "ozel" else "myko"
         if (oyunPaketArandi == oyun) return oyunPaketAdi
         oyunPaketArandi = oyun
-        if (oyun == "ozel") {
-            val s = Config.ozelPaket(this)
-            oyunPaketAdi = if (s.isNotEmpty()) s else null
-            return oyunPaketAdi
-        }
-        if (oyun == "ko") {
-            val secili = Config.koPaket(this)
-            if (secili.isNotEmpty()) { oyunPaketAdi = secili; return secili }
-        }
-        oyunPaketAdi = try {
-            val pm = packageManager
-            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            pm.queryIntentActivities(q, 0).firstOrNull {
-                val pk = it.activityInfo.packageName
-                val ad = it.loadLabel(pm).toString()
-                if (oyun == "ko") pk.contains("komobile", true) || ad.contains("ko mobile", true) ||
-                    ad.contains("komobile", true)
-                else if (oyun == "rev") pk.contains("revenger", true) || ad.contains("revenger", true)
-                else if (oyun == "nowa") pk.contains("nowa", true) || ad.contains("nowa", true)
-                else pk.contains("myko", true) || ad.contains("myko", true)
-            }?.activityInfo?.packageName
-        } catch (e: Exception) {
-            null
-        }
+        // Global: her oyun kendi kayıtlı uygulamasına bağlı; "myko geçen ilk uygulama" tahmini yok
+        oyunPaketAdi = try { Config.oyunPaketiCoz(this, oyun) } catch (e: Exception) { null }
         return oyunPaketAdi
     }
 
@@ -409,6 +387,7 @@ class MacroService : AccessibilityService() {
         val oyun = oyunPaketiBul()
         if (oyun != null && p == oyun) return true
         if (oyunPaketi.isNotEmpty() && p == oyunPaketi) return true
+        if (oyun != null) return false   // oyunun uygulaması biliniyor: başka uygulama (benzer isimli olsa da) oyun değil
         return if (Config.koMu(this)) p.contains("komobile", true)
         else if (Config.revMi(this)) p.contains("revenger", true)
         else if (Config.nowaMi(this)) p.contains("nowa", true)
@@ -554,6 +533,7 @@ class MacroService : AccessibilityService() {
     private fun ondekiOyunKodu(p: String): String? {
         val oz = Config.ozelPaket(this)
         if (oz.isNotEmpty() && p == oz) return "ozel"
+        for (o in listOf("myko", "rev", "nowa", "ko")) if (Config.oyunPaket(this, o) == p) return o
         val k = p.lowercase()
         return when {
             k.contains("revenger") -> "rev"
