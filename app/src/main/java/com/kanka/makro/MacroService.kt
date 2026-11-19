@@ -582,13 +582,10 @@ class MacroService : AccessibilityService() {
         ekranUyari()   // başlatıcı / karakter seçme ekranındaysa onu da söyler
         kartGoster("🎓 Bu oyunun ekranını öğret  ·  ${Config.oyunAd(this)}",
             "Bot bu ekranı henüz tanımıyor. Karakterinle oyunun İÇİNDEYSEN (can ve mana çubuğu görünüyor) bir kere öğret; bundan sonra bu oyunu hep tanır.\n\n" +
-                "1) '✏ Ekranı öğret'e bas.\n" +
-                "2) Üstte 'HP / MP / Koordinat alanı' seçiliyken sol üstteki can çubuğu + mana çubuğu + koordinat yazısının HEPSİNİ içine alan TEK bir kare çiz. Bot içinden kendisi ayırır.\n" +
-                "3) Oyunda bir mob seç, 'Mob can çubuğu'na geç ve mobun can çubuğuna bir kere dokun.\n" +
-                "4) Kaydet.\n\n" +
+                "'🎓 Adım adım öğret'e bas; bot seni 4 adımda götürür: 1) can/mana/koordinat  2) mob  3) Open  4) kutu toplama (Collect All). Her adımda ✓ Tamam ile ilerlersin.\n\n" +
                 "Başlatıcı ya da karakter seçme ekranındaysan önce oyuna gir, sonra tekrar 🔍 EKRANI TANI.",
             listOf("Sonra" to { kartKapat() },
-                "✏ Ekranı öğret" to { kartKapat(); cizimEditoru(sonraki = { ekranOgretildi() }) }))
+                "🎓 Adım adım öğret" to { kartKapat(); ogretAdim(1) }))
     }
 
     private fun ekranOgretildi() {
@@ -1908,7 +1905,9 @@ class MacroService : AccessibilityService() {
         "mp" to ("MP çubuğu" to 0xFF4DA3FF.toInt()),
         "hedef" to ("Mob can çubuğu" to 0xFFFF9F1A.toInt()),
         "collect" to ("Collect All penceresi" to 0xFF39D98A.toInt()),
-        "koord" to ("Koordinat yazısı" to 0xFFFFE14D.toInt())
+        "koord" to ("Koordinat yazısı" to 0xFFFFE14D.toInt()),
+        "isim" to ("Mob adı" to 0xFFFF6BD6.toInt()),
+        "open" to ("Open düğmesi" to 0xFFB98CFF.toInt())
     )
     /** Kullanıcının çizdiği 3 şey: HP/MP/koordinat TEK karede (içinden bot kendisi ayırır), mob can çubuğu, Collect All */
     private val CIZIM_SECIM = listOf("hud", "hedef", "collect")
@@ -1961,6 +1960,8 @@ class MacroService : AccessibilityService() {
             collectAnkorGX = ScreenSampler.toGrid(r[0])
             collectAnkorGY = ScreenSampler.toGrid(r[1])
         }
+        m["isim"]?.let { r -> isimRect = intArrayOf(r[0], r[1], r[2], r[3]) }
+        ogretilenSablonlar()
         TestLog.olay("CIZIM_UYGULANDI", "kullanıcının çizdiği yerler kullanılıyor", m.entries.joinToString(" ") { "${it.key}=${it.value.joinToString(",")}" })
     }
 
@@ -1969,7 +1970,7 @@ class MacroService : AccessibilityService() {
         cizimKok = null
     }
 
-    private fun cizimEditoru(sonraki: (() -> Unit)? = null) {
+    private fun cizimEditoru(sonraki: (() -> Unit)? = null, yalniz: String? = null, ipucu: String? = null) {
         if (running) { toast("Önce botu durdur"); return }
         // Çubukları bulmak için oyun görüntüsü lazım
         if (!ScreenSampler.running) { toast("Önce panelde 🔍 EKRANI TANI'ya bas, sonra çiz"); sonraki?.invoke(); return }
@@ -1980,6 +1981,7 @@ class MacroService : AccessibilityService() {
         val renk = CIZIM_ETIKET.mapValues { it.value.second }
         val ad = CIZIM_ETIKET.mapValues { it.value.first }
         val cv = CizimView(this, renk, ad, kare, screenW, screenH)
+        if (yalniz != null) cv.secili = yalniz
         for ((k, v) in cizimOku()) cv.kutular[k] = Rect(v[0], v[1], v[2], v[3])
         val kok = FrameLayout(this)
         kok.addView(cv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -2000,13 +2002,13 @@ class MacroService : AccessibilityService() {
                 t.setTextColor(if (sec) Color.BLACK else Color.WHITE)
                 t.text = (if (cv.kutular.containsKey(k)) "✓ " else "") + ad[k]
             }
-            bilgi.text = when (cv.secili) {
+            bilgi.text = (ipucu ?: when (cv.secili) {
                 "hud" -> "✏ Sol üstte HP çubuğu + MP çubuğu + koordinatın HEPSİNİ içine alan TEK bir kare çiz. Bot içinden kendisi ayırır."
                 "hedef" -> "👆 Mob can çubuğuna bir kere DOKUN, bot çubuğu kendisi bulur. (Önce oyunda bir mob seçili olsun.)"
                 else -> "✏ Collect All penceresinin etrafına kare çiz. (Önce bir kutu aç, pencere açıkken gel.)"
-            } + " Yuvarlak tutamaçlarla büyütüp küçültebilirsin."
+            }) + " Yuvarlak tutamaçlarla büyütüp küçültebilirsin."
         }
-        for (k in CIZIM_SECIM) {
+        for (k in (if (yalniz != null) listOf(yalniz) else CIZIM_SECIM)) {
             val t = TextView(this).apply {
                 textSize = 12f; setPadding(dp(10), dp(6), dp(10), dp(6))
                 setOnClickListener { cv.secili = k; yenile() }
@@ -2041,11 +2043,11 @@ class MacroService : AccessibilityService() {
             if (kare != null && kutular.isNotEmpty()) cizimGonder(kare, LinkedHashMap(kutular)) else kare?.recycle()
             sonraki?.invoke()
         }
-        dugme("💾 Kaydet", 0xFF2E9E5B.toInt()) {
+        dugme(if (yalniz != null) "✓ Tamam" else "💾 Kaydet", 0xFF2E9E5B.toInt()) {
             if (kaydediliyor) return@dugme
             val hud = cv.kutular["hud"]
             val kutular = LinkedHashMap(cv.kutular)
-            if (hud == null || kare == null) { kaydet(kutular, ""); return@dugme }
+            if (hud == null || kare == null || (yalniz != null && yalniz != "hud")) { kaydet(kutular, ""); return@dugme }
             kaydediliyor = true
             bilgi.text = "🔍 Kare inceleniyor: HP, MP ve koordinat aranıyor..."
             hudCoz(kare, hud) { bulunan ->
@@ -2569,6 +2571,142 @@ class MacroService : AccessibilityService() {
         toast("🧪 Pot turu: Town → potçu → slot")
         altDugmeTap(1, false) { rh.postDelayed({ if (rotaCalisiyor) potTurYap { townAt(true) } }, 6000) }
         return true
+    }
+
+    // ================= Adım adım ekran öğretme (her oyunda): can/mana → mob → Open → Collect All =================
+    private var ogretDugme: View? = null
+
+    private fun ogretSablonDosya(ad: String) = java.io.File(filesDir, "ogret_${ad}_${ekranAnahtar()}.png")
+
+    /** Ekrandan kesilen bölgeyi botun arama ızgarasına küçültüp şablon olarak kaydeder */
+    private fun ogretSablonKaydet(ad: String, kare: Bitmap, r: IntArray, tol: Int, tx: Float, ty: Float): Boolean = try {
+        val sx = kare.width.toFloat() / screenW; val sy = kare.height.toFloat() / screenH
+        val x1 = (r[0] * sx).toInt().coerceIn(0, kare.width - 2); val y1 = (r[1] * sy).toInt().coerceIn(0, kare.height - 2)
+        val x2 = (r[2] * sx).toInt().coerceIn(x1 + 2, kare.width); val y2 = (r[3] * sy).toInt().coerceIn(y1 + 2, kare.height)
+        val kes = Bitmap.createBitmap(kare, x1, y1, x2 - x1, y2 - y1)
+        val gw = Math.round((r[2] - r[0]) * ScreenSampler.SCALE / ScreenSampler.GRID).coerceAtLeast(4)
+        val gh = Math.round((r[3] - r[1]) * ScreenSampler.SCALE / ScreenSampler.GRID).coerceAtLeast(3)
+        val sc = Bitmap.createScaledBitmap(kes, gw, gh, true)
+        java.io.FileOutputStream(ogretSablonDosya(ad)).use { sc.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        profYaz("ogret_meta_${ad}_${ekranAnahtar()}", "$tol,$tx,$ty")
+        TestLog.olay("OGRET_SABLON", "$ad şablonu öğretildi", "boy=${gw}x$gh tus=$tx,$ty")
+        true
+    } catch (e: Exception) { hataKaydet("ogretSablonKaydet", e); false }
+
+    private fun ogretSablonYukle(ad: String): Sablon? = try {
+        val f = ogretSablonDosya(ad)
+        val b = if (f.exists()) android.graphics.BitmapFactory.decodeFile(f.absolutePath) else null
+        if (b == null) null else {
+            val m = (profOku("ogret_meta_${ad}_${ekranAnahtar()}") ?: "").split(",")
+            val px = IntArray(b.width * b.height)
+            b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
+            for (i in px.indices) px[i] = px[i] and 0xFFFFFF
+            Sablon(b.width, b.height, px, m.getOrNull(0)?.toIntOrNull() ?: 20,
+                m.getOrNull(1)?.toFloatOrNull() ?: 0.5f, m.getOrNull(2)?.toFloatOrNull() ?: 0.5f)
+        }
+    } catch (e: Exception) { null }
+
+    /** Bu oyunda öğretilen Open / Collect şablonları varsa hazır görsellerin yerine kullan */
+    private fun ogretilenSablonlar() {
+        if (Config.koMu(this)) return
+        ogretSablonYukle("open")?.let { cfg.openT = it }
+        ogretSablonYukle("collect")?.let { cfg.collectT = it; cfg.collectT2 = null; collectVaryant = null }
+    }
+
+    /** Kartı kapatıp oyuna döndürür; iş bitince üstteki küçük düğmeye basılır */
+    private fun oyundaYap(baslik: String, metin: String, dugme: String, atlaIs: (() -> Unit)?, sonra: () -> Unit) {
+        val tuslar = ArrayList<Pair<String, () -> Unit>>()
+        tuslar.add("Sonra" to { kartKapat() })
+        if (atlaIs != null) tuslar.add("Atla" to { kartKapat(); atlaIs() })
+        tuslar.add("Oyuna dön" to {
+            kartKapat()
+            ogretDugme?.let { safeRemove(it) }
+            val bar = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundColor(0xE0101010.toInt())
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+            }
+            bar.addView(btn(dugme) {
+                ogretDugme?.let { safeRemove(it) }; ogretDugme = null
+                ui.postDelayed({ sonra() }, 450)   // düğme kalksın, ekranın temiz karesi gelsin
+            })
+            bar.addView(btn("✕") { ogretDugme?.let { safeRemove(it) }; ogretDugme = null })
+            try {
+                wm.addView(bar, lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; x = 0; y = dp(4)
+                })
+                ogretDugme = bar
+            } catch (e: Exception) { hataKaydet("oyundaYap", e) }
+        })
+        kartGoster(baslik, "$metin\n\n'Oyuna dön'e bas; iş bitince ekranın üstünde çıkan '$dugme' düğmesine bas.", tuslar)
+    }
+
+    private fun ogretAdim(n: Int) {
+        if (running) { toast("Önce botu durdur"); return }
+        if (!ScreenSampler.running && !erisimEkranBaslat()) { toast("Ekran okuma kapalı: önce 🔍 EKRANI TANI"); return }
+        val oyun = Config.oyunAd(this)
+        when (n) {
+            1 -> kartGoster("🎓 Ekranı öğret  ·  1/4  ·  CAN / MANA / KOORDİNAT  ·  $oyun",
+                "Sol üstteki can çubuğu + mana çubuğu + koordinat yazısının HEPSİNİ içine alan TEK bir kare çiz, sonra ✓ Tamam. Bot içinden HP, MP ve koordinatı kendisi ayırır.",
+                listOf("Sonra" to { kartKapat() }, "✏ Çiz" to {
+                    kartKapat()
+                    cizimEditoru(sonraki = {
+                        if (cizimVar()) ogretAdim(2)
+                        else { toast("Can çubuğu bulunamadı: kareyi can + mana + koordinatı içine alacak şekilde tekrar çiz"); ogretAdim(1) }
+                    }, yalniz = "hud", ipucu = "✏ Sol üstte can + mana çubuğu ve koordinatın HEPSİNİ içine alan TEK bir kare çiz, sonra ✓ Tamam.")
+                }))
+            2 -> oyundaYap("🎓 Ekranı öğret  ·  2/4  ·  MOB",
+                "Oyunda bir MOB seç (mobun üstüne dokun). Mobun can çubuğu ve adı ekranda görününce '✓ Mob seçili'ye bas.",
+                "✓ Mob seçili", { ogretAdim(3) }) {
+                cizimEditoru(sonraki = {
+                    if (!cizimOku().containsKey("hedef")) { toast("Mob can çubuğu işaretlenmedi"); ogretAdim(2) }
+                    else cizimEditoru(sonraki = { ogretAdim(3) }, yalniz = "isim",
+                        ipucu = "✏ Mobun ADI yazısının etrafına kare çiz (slot kilidi bununla mobu tanır), sonra ✓ Tamam. İstemiyorsan İptal.")
+                }, yalniz = "hedef", ipucu = "👆 Mobun can çubuğuna bir kere DOKUN, bot çubuğu kendisi bulur. Sonra ✓ Tamam.")
+            }
+            3 -> oyundaYap("🎓 Ekranı öğret  ·  3/4  ·  OPEN (kutu açma)",
+                "Seçtiğin mobu öldür. Üstünde 'Open' (kutu) çıkınca ona BASMADAN '✓ Open göründü'ye bas.",
+                "✓ Open göründü", { ogretAdim(4) }) {
+                val kare = ScreenSampler.tamKare()
+                cizimEditoru(sonraki = {
+                    val r = cizimOku()["open"]
+                    if (r != null && kare != null && ogretSablonKaydet("open", kare, r, openTol(20), 0.5f, 0.5f)) toast("✅ Open öğrenildi")
+                    else toast("Open işaretlenmedi, hazır görsel kullanılacak")
+                    kare?.recycle()
+                    ogretAdim(4)
+                }, yalniz = "open", ipucu = "✏ 'Open' düğmesinin etrafına SIKI bir kare çiz, sonra ✓ Tamam.")
+            }
+            4 -> oyundaYap("🎓 Ekranı öğret  ·  4/4  ·  KUTU TOPLAMA (Collect All)",
+                "Şimdi Open'a bas. Kutu penceresi (Collect All) açılınca ona BASMADAN '✓ Pencere açık'a bas.",
+                "✓ Pencere açık", { ogretBitti() }) {
+                val kare = ScreenSampler.tamKare()
+                cizimEditoru(sonraki = {
+                    val r = cizimOku()["collect"]
+                    if (r == null || kare == null) { kare?.recycle(); toast("Pencere işaretlenmedi, hazır görsel kullanılacak"); ogretBitti() }
+                    else dokunusYakala("👆 Şimdi pencerede COLLECT ALL tuşuna bir kere dokun") { x, y ->
+                        val tx = ((x - r[0]) / (r[2] - r[0]).coerceAtLeast(1)).coerceIn(0.02f, 0.98f)
+                        val ty = ((y - r[1]) / (r[3] - r[1]).coerceAtLeast(1)).coerceIn(0.02f, 0.98f)
+                        if (ogretSablonKaydet("collect", kare, r, 25, tx, ty)) toast("✅ Kutu toplama öğrenildi")
+                        kare.recycle()
+                        ogretilenSablonlar()
+                        ogretBitti()
+                    }
+                }, yalniz = "collect", ipucu = "✏ Kutu penceresinin TAMAMINI kare içine al, sonra ✓ Tamam. Ardından Collect All tuşuna bir kere dokunacaksın.")
+            }
+        }
+    }
+
+    private fun ogretBitti() {
+        ogretilenSablonlar()
+        if (cizimVar()) ekranTanindi = true
+        panelGuncelle()
+        TestLog.olay("EKRAN_OGRETILDI", "adım adım öğretme bitti", "oyun=${Config.oyun(this)} open=${ogretSablonDosya("open").exists()} collect=${ogretSablonDosya("collect").exists()}")
+        kartGoster("✅ Ekran öğrenildi  ·  ${Config.oyunAd(this)}",
+            "Can/mana, mob, Open ve kutu toplama bu oyuna kalıcı kaydedildi. Bot atağı kesmeden seri vurur; mob ölünce Open'a basıp Collect All ile toplar ve atağa devam eder.\n\n" +
+                "Sırada: farm yerine git, tuşları kaydet, istersen banka ve pot turu.",
+            listOf("Sonra" to { kartKapat() },
+                "▶ Kuruluma devam" to { kartKapat(); sihirbaz = true; sihirbazAdim = 3; tusAdimiYapildi = false; kurulumSonrakiAdim() }))
     }
 
     // ================= Upgrade Bot: Farm'dan bağımsız, Anvil'de seviye seviye basar =================
@@ -3204,8 +3342,8 @@ class MacroService : AccessibilityService() {
                 "• Bot panelini oyun tuşlarının olmadığı bir köşeye çek. Yer kaplarsa panelin solundaki 🔽 düğmesine bas.\n" +
                 "• Ekran rengi filtresi, gece modu açma; ekranı kapatma.\n" +
                 "• Oyunda envanter, harita gibi pencereleri açık bırakma.\n\n" +
-                (if (Config.koMu(this)) "" else "İstersen '✏ Çizerek işaretle' ile HP/MP çubuklarının, mob can çubuğunun ve koordinat yazısının yerini parmağınla çiz: bot bu telefonda tam oraya bakar."), listOf(
-                sonra) + (if (Config.koMu(this)) emptyList() else listOf("✏ Çizerek işaretle" to { kartKapat(); cizimEditoru(sonraki = { sihirbazAdim = 3; kurulumSonrakiAdim() }) })) + listOf(
+                (if (Config.koMu(this)) "" else "İstersen '🎓 Adım adım öğret' ile HP/MP çubuklarının, mob can çubuğunun ve koordinat yazısının yerini parmağınla çiz: bot bu telefonda tam oraya bakar."), listOf(
+                sonra) + (if (Config.koMu(this)) emptyList() else listOf("🎓 Adım adım öğret" to { kartKapat(); ogretAdim(1) })) + listOf(
                 "Okudum, devam" to { kartKapat(); sihirbazAdim = 3; kurulumSonrakiAdim() }), kurulumResmi(1))
             3 -> kartGoster("Adım 3/$n  ·  FARM YERİNE GİT",
                 "Karakterini kasacağın yere (slotuna) götür. Oraya varınca 'Vardım'a bas.", listOf(
