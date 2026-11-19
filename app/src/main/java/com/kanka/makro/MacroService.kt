@@ -411,6 +411,7 @@ class MacroService : AccessibilityService() {
         return if (Config.koMu(this)) p.contains("komobile", true)
         else if (Config.revMi(this)) p.contains("revenger", true)
         else if (Config.nowaMi(this)) p.contains("nowa", true)
+        else if (Config.ozelMi(this)) false   // ozel oyun: paket eslesmediyse oyunda sayma (myko'ya dusme)
         else p.contains("myko", true)
     }
 
@@ -418,7 +419,22 @@ class MacroService : AccessibilityService() {
      * Makro sadece oyunun icinde: oyundan cikinca panel gizlenir ve acik kalan
      * butun pencereler (duzenleme, kayit, menu) kapanir; baska yerde dokunus engellenmez.
      */
+    /** Ozel oyun secili ve paketi henuz yoksa: actigi gercek oyunu otomatik kaydet. */
+    private fun ozelPaketYakala() {
+        if (running || !Config.ozelMi(this) || Config.ozelPaket(this).isNotEmpty()) return
+        val p = sonPaket
+        if (p.isEmpty() || gormezdenGel(p)) return
+        val k = p.lowercase()
+        if (k.contains("launcher") || k.contains("home") || k.contains("myko") ||
+            k.contains("komobile") || k.contains("revenger") || k.contains("nowa")) return
+        Config.ozelPaketYaz(this, p)
+        oyunDegisti()
+        toast("🎮 ${Config.ozelAd(this)} kaydedildi (açık oyun paketi)")
+        TestLog.olay("OZEL_PAKET_YAKALA", "ozel oyun paketi otomatik kaydedildi", "paket=$p")
+    }
+
     private fun oyunGorunurluk() {
+        ozelPaketYakala()
         if (oyundaMi()) {
             yanlisOyunUyarilan = ""
             panel?.visibility = View.VISIBLE
@@ -689,14 +705,8 @@ class MacroService : AccessibilityService() {
         val yeni = (eski.split("\n").filter { it.isNotBlank() } + satir).takeLast(40).joinToString("\n")
         pr.edit().putString("log", yeni).commit()
 
-        // Koruma: SADECE pil GERCEKTEN cok sicaksa dur. OS termal durumu (termal>=3) Poco'da
-        // telefon soguk olsa bile yanlis tetikliyordu; kaldirildi. Pil sensoru gercek sinyal.
-        if ((!sicak.isNaN() && sicak >= 50f) && (running || pazarCalisiyor)) {
-            val neden = "Pil sıcaklığı %.1f°C".format(sicak)
-            bildirim(4200, "🌡 Bot durduruldu", "$neden. Soğuyunca tekrar başlat.")
-            if (pazarCalisiyor) pazarDurdur()
-            if (running) stopMacro("$neden. Bot durdu")
-        }
+        // Isı nedeniyle otomatik durdurma KAPALI (kullanıcı isteği). Cihazın kendi donanım
+        // koruması aşırı ısıda zaten devreye girer; sıcaklık yalnızca sistem kaydına yazılır.
     }
 
     private val sistemIzle: Runnable = object : Runnable {
