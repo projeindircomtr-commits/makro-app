@@ -395,6 +395,7 @@ class MacroService : AccessibilityService() {
             uOlc = 0f; uOlcKaynak = ""; olcek = null; ekranTanindi = false
             revInnOpenGX = -1; revInnOpenGY = -1
             tgtProfilKesin = false
+            slotIz.clear(); rotaIz.clear(); slotYukle(); rotaYukle()   // yollar oyuna özel
             cfg = Config.load(this)
             modBtn?.text = modYazi()
             statusTv?.text = Config.oyunAd(this) + " hazır"
@@ -570,7 +571,7 @@ class MacroService : AccessibilityService() {
     private fun yanlisOyunUyari() {
         val p = sonPaket
         val on = ondekiOyunKodu(p) ?: return
-        val secili = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else "myko"
+        val secili = if (Config.koMu(this)) "ko" else if (Config.revMi(this)) "rev" else if (Config.nowaMi(this)) "nowa" else if (Config.ozelMi(this)) "ozel" else "myko"
         if (on == secili || p == yanlisOyunUyarilan) return
         yanlisOyunUyarilan = p
         // Otomatik oyun tanima: bot duruyorsa ve pazar modu degilse, ondeki desteklenen oyuna kendi gec
@@ -1197,7 +1198,7 @@ class MacroService : AccessibilityService() {
         rh.post {
             val ok = try {
                 updateScreenSize()
-                if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this)) ScreenSampler.grab() != null
+                if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this) || Config.ozelMi(this)) ScreenSampler.grab() != null
                 else Preset.olcekBul(this) != null
             } catch (e: Exception) {
                 false
@@ -1373,7 +1374,7 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Config.koMu(this)) emptyList() else
-            (listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) +
+            (listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }, "🧪 Pot turu (HP/MP al)" to { potMenu() }) +
                 if (Lisans.ozellikVar("upgrade")) listOf("⚒ Upgrade Bot" to { upgradeMenu() }) else emptyList())
         // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
         val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
@@ -2229,6 +2230,7 @@ class MacroService : AccessibilityService() {
         val kaynak = if (erisimEkran) " • 📷 yedek" else ""
         val metin = when {
             upgCalisiyor -> "⚒ Upgrade • +$upgHedef → +${upgHedef + 1} • gecen $upgGecen • yanan $upgYanan$kaynak"
+            rotaCalisiyor && (potAsamada || potSade) -> "🧪 Pot turu$kaynak"
             running && rotaCalisiyor -> "🔵 Banka turu$kaynak"
             running -> "🟢 Farm • mob $kesilen • kutu $toplanan$kaynak"
             else -> null
@@ -2257,6 +2259,306 @@ class MacroService : AccessibilityService() {
             v = tv
         }
         v.text = metin
+    }
+
+    // ================= Pot turu: potçudan HP/MP pot al (dokunarak öğretilir, her server'da çalışır) =================
+    // Öğretme: potçunun yanında dur → koordinat kaydedilir → dükkânı açma, 1 parti HP, 1 parti MP, kapatma
+    // dokunuşlarını bir kere SEN yaparsın; bot kaydeder ve oyuna iletir. Turda aynısını tekrarlar.
+    @Volatile private var potSade = false        // sadece pot için çıkılan tur (banka yok)
+    @Volatile private var potAsamada = false     // potçuya yürüyor / alıyor
+    private var potSonTur = 0L                   // son pot turu (elapsedRealtime): kısa sürede tekrar çıkma
+
+    private fun potPref() = getSharedPreferences("pot_bot_" + Config.oyun(this), MODE_PRIVATE)
+    /** Özel oyunun yolları Myko'nunkileri ezmesin */
+    private fun rotaKey(k: String) = if (Config.ozelMi(this)) k + "_ozel" else k
+
+    private fun potDiziYaz(l: List<FloatArray>) = l.joinToString(";") { "${it[0].toInt()},${it[1].toInt()},${it[2].toInt()}" }
+    private fun potDiziOku(k: String): List<FloatArray> =
+        (potPref().getString(k, "") ?: "").split(";").mapNotNull { p ->
+            p.split(",").mapNotNull { it.trim().toFloatOrNull() }.takeIf { it.size == 3 }?.toFloatArray()
+        }
+
+    private fun potHazirMi(): Boolean =
+        potPref().getInt("x", -1) >= 0 && (potDiziOku("hp").isNotEmpty() || potDiziOku("mp").isNotEmpty())
+    /** 0 kapalı, 1 banka turunda, 2 pot bitince, 3 ikisi de */
+    private fun potModu() = potPref().getInt("mod", 3).coerceIn(0, 3)
+    private fun potBankadaAl() = !potSade && potHazirMi() && (potModu() == 1 || potModu() == 3)
+
+    /** Dokunuşları kaydeder VE aynı anda oyuna iletir (oyun normal tepki verir). ✓ Bitti → liste, ✕ → null */
+    private fun dokunusKaydet(baslik: String, sonuc: (List<FloatArray>?) -> Unit) {
+        val liste = ArrayList<FloatArray>()
+        var son = SystemClock.uptimeMillis()
+        var bitti = false
+        val kat = View(this).apply { setBackgroundColor(0x18000000) }
+        val katLp = lp(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        val yazi = TextView(this).apply {
+            text = "$baslik  ·  0"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt()); setPadding(dp(6), 0, dp(10), 0)
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xE0101010.toInt())
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        val barLp = lp(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; x = 0; y = dp(4)
+        }
+        fun yaz() { yazi.text = "$baslik  ·  ${liste.size}" }
+        fun kapat(r: List<FloatArray>?) {
+            if (bitti) return
+            bitti = true
+            safeRemove(kat); safeRemove(bar)
+            sonuc(r)
+        }
+        bar.addView(yazi)
+        bar.addView(btn("↶") { if (liste.isNotEmpty()) liste.removeAt(liste.size - 1); yaz() })
+        bar.addView(btn("✓ Bitti") { kapat(ArrayList(liste)) })
+        bar.addView(btn("✕") { kapat(null) })
+        kat.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_DOWN && !bitti) {
+                val x = e.rawX; val y = e.rawY
+                val simdi = SystemClock.uptimeMillis()
+                val ara = if (liste.isEmpty()) 1200L else (simdi - son)
+                son = simdi
+                liste.add(floatArrayOf(x, y, ara.coerceIn(700L, 3000L).toFloat()))
+                yaz()
+                // Dokunuşu oyuna ilet: katman bir anlığına dokunulmaz olur, aynı noktaya basılır
+                katLp.flags = katLp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                try { wm.updateViewLayout(kat, katLp) } catch (_: Exception) { }
+                tap(x, y, 0f) {
+                    ui.postDelayed({
+                        if (!bitti) {
+                            katLp.flags = katLp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                            try { wm.updateViewLayout(kat, katLp) } catch (_: Exception) { }
+                        }
+                    }, 200)
+                }
+            }
+            true
+        }
+        try {
+            wm.addView(kat, katLp)
+            wm.addView(bar, barLp)
+        } catch (e: Exception) {
+            hataKaydet("dokunusKaydet", e)
+            kapat(null)
+        }
+    }
+
+    private fun potMenu() {
+        val sp = potPref()
+        val modAd = arrayOf("Kapalı", "Her banka turunda", "Sadece pot bitince", "Banka turunda + pot bitince")
+        showMenu("🧪 Pot turu" + (if (potHazirMi()) "  ✅ hazır" else "  (kurulmadı)"), listOf<Pair<String, () -> Unit>>(
+            "1) Potçuyu öğret (adım adım)" to { potOgret() },
+            "2) Ne zaman: ${modAd[potModu()]}" to { potModSec() },
+            "3) Kaç parti: HP ${sp.getInt("hp_n", 1)} · MP ${sp.getInt("mp_n", 1)}" to { potAdetSec(null) },
+            "▶ Şimdi dene: Town → potçu → slot" to {
+                if (running) toast("Önce botu durdur, sonra dene")
+                else if (!potSadeBasla(true)) toast("Önce potçuyu öğret; ayrıca 🏙 Otomatik çanta boşaltma (slot + Inn yolu) kurulu olmalı")
+            },
+            "🗑 Pot ayarlarını sil" to { sp.edit().clear().apply(); toast("Pot ayarları silindi") }
+        ))
+    }
+
+    private fun potOgret() {
+        if (running || rotaCalisiyor) { toast("Önce botu durdur"); return }
+        if (!ScreenSampler.running && !erisimEkranBaslat()) { toast("Ekran okuma kapalı: önce 🔍 EKRANI TANI'ya bas"); return }
+        kartGoster("🧪 Pot turu  ·  1/5  ·  POTÇUNUN YANINA GİT",
+            "Karakterini pot satan NPC'nin (potçu) hemen yanına götür. Bankaya yakınsa en iyisi.\n\n" +
+                "Orada dur ve 'Buradayım'a bas: bot bu noktanın koordinatını kaydeder, her turda tam buraya yürür.",
+            listOf("Vazgeç" to { kartKapat() }, "Buradayım" to { kartKapat(); potKonumAl() }))
+    }
+
+    private fun potKonumAl() {
+        toast("Konum okunuyor…")
+        rh.post {
+            upgKonumBekle { k ->
+                ui.post {
+                    if (k == null) {
+                        toast("Koordinat okunamadı: karakterin koordinatı (x,y) ekranda görünmeli")
+                    } else {
+                        potPref().edit().putInt("x", k[0]).putInt("y", k[1]).apply()
+                        TestLog.olay("POT_NPC_KAYIT", "potçu yeri kaydedildi", "${k[0]},${k[1]}")
+                        toast("✅ Potçu yeri: ${k[0]},${k[1]}")
+                        potAdim(2)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun potAdim(n: Int) {
+        val (anahtar, baslik, metin) = when (n) {
+            2 -> Triple("ac", "2/5  ·  DÜKKÂNI AÇ",
+                "'Kaydet'e bas, sonra potçunun dükkânını açmak için normalde neye dokunuyorsan SIRAYLA ona dokun (NPC'nin kendisi, Open, Trade, Satın al menüsü...).\n\n" +
+                    "Bot her dokunuşunu kaydeder VE oyuna iletir; oyun normal tepki verir. Dükkân penceresi açılınca üstteki ✓ Bitti'ye bas. Yanlış dokunursan ↶ ile geri al.")
+            3 -> Triple("hp", "3/5  ·  BİR PARTİ HP POT AL",
+                "Dükkân açıkken 'Kaydet'e bas ve BİR parti HP pot almak için gereken her şeye sırayla dokun: HP potu, varsa adet / MAX tuşu, Satın al, Onay. Bitince ✓ Bitti.\n\nHP pot almayacaksan 'Atla'.")
+            4 -> Triple("mp", "4/5  ·  BİR PARTİ MP POT AL",
+                "Aynısını MP pot için yap: 'Kaydet' → MP potu, adet / MAX, Satın al, Onay → ✓ Bitti.\n\nMP almayacaksan 'Atla'.")
+            else -> Triple("kapat", "5/5  ·  DÜKKÂNI KAPAT",
+                "'Kaydet'e bas ve dükkân penceresini kapatan tuşa (X / Kapat) dokun, sonra ✓ Bitti. Pencere kendiliğinden kapanıyorsa 'Atla'.")
+        }
+        fun ileri() { if (n < 5) potAdim(n + 1) else potAdetSec { potModSec { potBitti() } } }
+        val tuslar = ArrayList<Pair<String, () -> Unit>>()
+        tuslar.add("Vazgeç" to { kartKapat() })
+        if (n > 2) tuslar.add("Atla" to { kartKapat(); potPref().edit().remove(anahtar).apply(); ileri() })
+        tuslar.add("Kaydet" to {
+            kartKapat()
+            dokunusKaydet(baslik.substringAfter("·").trim()) { l ->
+                if (l == null) { toast("Pot öğretme iptal edildi"); return@dokunusKaydet }
+                if (l.isEmpty()) {
+                    toast("Hiç dokunmadın, bu adım tekrar")
+                    potAdim(n)
+                    return@dokunusKaydet
+                }
+                potPref().edit().putString(anahtar, potDiziYaz(l)).apply()
+                TestLog.olay("POT_DIZI", "$anahtar kaydedildi", "${l.size} dokunuş")
+                toast("✅ ${l.size} dokunuş kaydedildi")
+                ileri()
+            }
+        })
+        kartGoster("🧪 Pot turu  ·  $baslik", metin, tuslar)
+    }
+
+    private fun potAdetSec(sonra: (() -> Unit)?) {
+        val secenek = listOf(1, 2, 3, 4, 5, 8, 10)
+        showMenu("Bir turda kaç parti HP alsın? (1 parti = öğrettiğin bir alış)", secenek.map { s ->
+            "$s parti HP" to {
+                potPref().edit().putInt("hp_n", s).apply()
+                showMenu("Kaç parti MP alsın?", secenek.map { m ->
+                    "$m parti MP" to {
+                        potPref().edit().putInt("mp_n", m).apply()
+                        toast("Her turda HP $s · MP $m parti")
+                        sonra?.invoke()
+                        Unit
+                    }
+                })
+                Unit
+            }
+        })
+    }
+
+    private fun potModSec(sonra: (() -> Unit)? = null) {
+        val ad = listOf("Kapalı", "Her banka turunda (çanta boşaltınca)", "Sadece pot bitince (HP uzun süre düşük)", "İkisi de (önerilen)")
+        showMenu("Bot ne zaman pot almaya gitsin?", ad.mapIndexed { i, a ->
+            a to {
+                potPref().edit().putInt("mod", i).apply()
+                toast("Pot turu: $a")
+                sonra?.invoke()
+                Unit
+            }
+        })
+    }
+
+    private fun potBitti() {
+        kartGoster("✅ Pot turu hazır",
+            "Bot artık seçtiğin zamanlarda: (gerekirse Town) → potçuya yürür → dükkânı açar → öğrettiğin gibi HP/MP alır → kapatır → slota döner ve farma devam eder.\n\n" +
+                "⚠ Yürüme, '🏙 Otomatik çanta boşaltma' kurulumunun (slot + Inn yolu) öğrettiği haritayı kullanır; o kurulum bir kez yapılmış olmalı.\n\n" +
+                "Denemek için: ☰ Menü → 🧪 Pot turu → ▶ Şimdi dene.",
+            listOf("Tamam" to { kartKapat() }))
+    }
+
+    /** Potçuya yürü + al. Her durumda sonra() çağrılır (başarısızsa pot alınmadan devam) */
+    private fun potTurYap(sonra: () -> Unit) {
+        if (!rotaCalisiyor) return
+        potAsamada = true
+        potSonTur = SystemClock.elapsedRealtime()
+        val sp = potPref()
+        val hx = sp.getInt("x", -1); val hy = sp.getInt("y", -1)
+        fun bitir(ok: Boolean, neden: String) {
+            potAsamada = false
+            TestLog.olay(if (ok) "POT_TAMAM" else "POT_ATLANDI", if (ok) "pot alındı" else "pot alınamadı: $neden", "konum=$konumX,$konumY")
+            if (!ok) toast("🧪 Pot alınamadı ($neden), devam")
+            if (rotaCalisiyor) rh.postDelayed({ sonra() }, 600)
+        }
+        if (hx < 0) { bitir(false, "potçu yeri yok"); return }
+        val p = haritaYolu(intArrayOf(hx, hy), emptyList())
+        if (p == null) { bitir(false, "yol bulunamadı"); return }
+        TestLog.olay("POT_YURU", "potçuya yürünüyor", "$konumX,$konumY → $hx,$hy")
+        yuruBaslat(p.first, 1.0, 90_000L, p.second) { ok, neden ->
+            rh.post {
+                if (!rotaCalisiyor) return@post
+                if (!ok) { bitir(false, "yürünemedi: $neden"); return@post }
+                rh.postDelayed({ if (rotaCalisiyor) potSatinAl { bitir(true, "") } }, 700)
+            }
+        }
+    }
+
+    private fun potSatinAl(sonra: () -> Unit) {
+        val sp = potPref()
+        val ac = potDiziOku("ac").toMutableList()
+        val hp = potDiziOku("hp"); val mp = potDiziOku("mp"); val kp = potDiziOku("kapat")
+        val hn = sp.getInt("hp_n", 1).coerceIn(1, 20); val mn = sp.getInt("mp_n", 1).coerceIn(1, 20)
+        // NPC'nin Open balonu bu sefer biraz başka yerdeyse (1-2 adım farkla durduysa) ona bas
+        if (ac.isNotEmpty()) {
+            val f = ScreenSampler.grab(); val op = cfg.openT
+            val pos = if (f != null && op != null) try { findOpen(f, op) } catch (_: Exception) { null } else null
+            if (pos != null && op != null) {
+                val t = sablonHedef(op, pos)
+                if (Math.hypot((t.x - ac[0][0]).toDouble(), (t.y - ac[0][1]).toDouble()) < screenH * 0.25) {
+                    ac[0] = floatArrayOf(t.x, t.y, ac[0][2])
+                }
+            }
+        }
+        val plan = ArrayList<FloatArray>(ac)
+        if (hp.isNotEmpty()) repeat(hn) { plan.addAll(hp) }
+        if (mp.isNotEmpty()) repeat(mn) { plan.addAll(mp) }
+        plan.addAll(kp)
+        TestLog.olay("POT_ALIS", "potçuda alış", "ac=${ac.size} hp=${hp.size}x$hn mp=${mp.size}x$mn kapat=${kp.size}")
+        potDiziOynat(plan, 0, sonra)
+    }
+
+    private fun potDiziOynat(dizi: List<FloatArray>, i: Int, sonra: () -> Unit) {
+        if (!rotaCalisiyor) return
+        if (i >= dizi.size) { rh.postDelayed({ sonra() }, 900); return }
+        val d = dizi[i]
+        rh.postDelayed({
+            if (!rotaCalisiyor) return@postDelayed
+            tap(d[0], d[1], 0f) { potDiziOynat(dizi, i + 1, sonra) }
+        }, if (i == 0) 300L else d[2].toLong())
+    }
+
+    /** Sadece pot için tur: Town → potçu → Town → slot. zorla=true: menüden deneme */
+    private fun potSadeBasla(zorla: Boolean): Boolean {
+        if (rotaCalisiyor || Config.koMu(this) || !potHazirMi()) return false
+        if (!zorla) {
+            if (potModu() != 2 && potModu() != 3) return false
+            // az önce pot turu yapıldıysa tekrar çıkma (pot alınamadıysa döngüye girmesin)
+            if (potSonTur > 0L && SystemClock.elapsedRealtime() - potSonTur < 10 * 60_000L) return false
+        }
+        if (!ScreenSampler.running) erisimEkranBaslat()
+        if (slotIz.size < 2) slotYukle()
+        if (rotaIz.size < 2) rotaYukle()
+        YolHaritasi.yukle(this)
+        if (!townHazirMi()) return false
+        updateScreenSize()
+        if (uOlc <= 0f) uYukle()
+        sablonlariYukle()
+        rotaMod = 2
+        rotaCalisiyor = true
+        rotaMesgul = true
+        rotaBas = SystemClock.uptimeMillis()
+        rotaTekrar = false
+        bTasinan = 0
+        bIdx = 0
+        townAtDeneme = 0
+        townDonusDeneme = 0
+        townInnDeneme = 0
+        townKurtarmaYapildi = false
+        for (t in 0..1) {
+            altDugmeKonum[t] = profOku("alt${t}_${ekranAnahtar()}")?.split(",")?.mapNotNull { it.toFloatOrNull() }
+                ?.takeIf { it.size == 2 && it[0] in 0f..screenW.toFloat() && it[1] in 0f..screenH.toFloat() }?.toFloatArray()
+        }
+        potSade = true
+        hpLowSince = 0L
+        rotaAsama = 11
+        konumBaslat()
+        TestLog.olay("POT_TUR_BASLADI", if (zorla) "menüden deneme" else "HP uzun süre düşük: pot almaya gidiliyor",
+            "potcu=${potPref().getInt("x", -1)},${potPref().getInt("y", -1)}")
+        toast("🧪 Pot turu: Town → potçu → slot")
+        altDugmeTap(1, false) { rh.postDelayed({ if (rotaCalisiyor) potTurYap { townAt(true) } }, 6000) }
+        return true
     }
 
     // ================= Upgrade Bot: Farm'dan bağımsız, Anvil'de seviye seviye basar =================
@@ -5381,7 +5683,7 @@ class MacroService : AccessibilityService() {
 
     // ---------------- kalıcı iz ----------------
     private fun rotaYukle() {
-        val s = getSharedPreferences("rota", MODE_PRIVATE).getString("iz", "") ?: ""
+        val s = getSharedPreferences("rota", MODE_PRIVATE).getString(rotaKey("iz"), "") ?: ""
         val liste = ArrayList<IntArray>()
         for (p in s.split(";")) {
             val a = p.split(",")
@@ -5403,7 +5705,7 @@ class MacroService : AccessibilityService() {
             if (sb.isNotEmpty()) sb.append(';')
             sb.append(p[0]).append(',').append(p[1])
         }
-        getSharedPreferences("rota", MODE_PRIVATE).edit().putString("iz", sb.toString()).apply()
+        getSharedPreferences("rota", MODE_PRIVATE).edit().putString(rotaKey("iz"), sb.toString()).apply()
     }
 
     private fun rotaHazirMi(): Boolean = rotaIz.size >= 2 && !Config.koMu(this) && ScreenSampler.running
@@ -6099,6 +6401,7 @@ class MacroService : AccessibilityService() {
     }
 
     private fun rotaBaslatIc(mod: Int) {
+        if (!rotaCalisiyor) { potSade = false; potAsamada = false }
         if (rotaCalisiyor) {
             toast("Rota zaten çalışıyor")
             return
@@ -6441,6 +6744,13 @@ class MacroService : AccessibilityService() {
 
     private fun rotaDon() {
         if (!rotaCalisiyor) return
+        // Pot turu kuruluysa: bankadan sonra potçuya uğra, pot al, sonra slota dön
+        if (potBankadaAl()) { potTurYap { rotaDonIc(true) }; return }
+        rotaDonIc(false)
+    }
+
+    private fun rotaDonIc(potSonrasi: Boolean) {
+        if (!rotaCalisiyor) return
         if (rotaMod == 2) {
             townAt(true)
             return
@@ -6451,8 +6761,11 @@ class MacroService : AccessibilityService() {
         geri.add(bk)
         if (geri.size < 2) geri.add(intArrayOf(bk[0], bk[1]))
         rotaAsama = 8
-        TestLog.olay("ROTA_DONUS", "slota dönülüyor", "nokta=${geri.size} hedef=${bk[0]},${bk[1]}")
-        yuruBaslat(geri, 5.0, 150_000L) { ok, neden ->
+        // Potçudan dönülüyorsa bankanın ters yolu geçersiz: öğrenen haritadan yeni yol
+        val hy = if (potSonrasi) haritaYolu(bk, geri) else null
+        val yol = hy?.first ?: geri
+        TestLog.olay("ROTA_DONUS", "slota dönülüyor", "nokta=${yol.size} hedef=${bk[0]},${bk[1]} pot=$potSonrasi")
+        yuruBaslat(yol, 5.0, 150_000L, hy?.second ?: false) { ok, neden ->
             rh.post {
                 if (!rotaCalisiyor) return@post
                 if (ok) rotaBitir() else rotaIptal("dönüş: $neden")
@@ -6470,6 +6783,7 @@ class MacroService : AccessibilityService() {
 
     private fun rotaBitirSessiz() {
         rotaCalisiyor = false
+        potSade = false; potAsamada = false
         rotaMesgul = false
         cantaDoluBayrak = false
         doluKutuAt = 0L
@@ -6538,7 +6852,7 @@ class MacroService : AccessibilityService() {
     private val TOWN_BOS_ESIK = 3
 
     private fun slotYukle() {
-        val s = getSharedPreferences("rota", MODE_PRIVATE).getString("slotiz", "") ?: ""
+        val s = getSharedPreferences("rota", MODE_PRIVATE).getString(rotaKey("slotiz"), "") ?: ""
         val liste = ArrayList<IntArray>()
         for (p in s.split(";")) {
             val a = p.split(",")
@@ -6560,7 +6874,7 @@ class MacroService : AccessibilityService() {
             if (sb.isNotEmpty()) sb.append(';')
             sb.append(p[0]).append(',').append(p[1])
         }
-        getSharedPreferences("rota", MODE_PRIVATE).edit().putString("slotiz", sb.toString()).apply()
+        getSharedPreferences("rota", MODE_PRIVATE).edit().putString(rotaKey("slotiz"), sb.toString()).apply()
     }
 
     private fun townHazirMi(): Boolean = slotHedef() != null && innHedef() != null && !Config.koMu(this) && ScreenSampler.running
@@ -6581,6 +6895,7 @@ class MacroService : AccessibilityService() {
 
     private fun townBaslatIc(cantaBiliniyor: Boolean) {
         if (rotaCalisiyor) return
+        potSade = false; potAsamada = false
         if (Config.koMu(this) || !ScreenSampler.running || !oyundaMi()) {
             townSonKontrol = SystemClock.elapsedRealtime()
             return
@@ -6654,7 +6969,7 @@ class MacroService : AccessibilityService() {
     // ---------- cihaz profili: bir kez doğrulanıp öğrenilen ekran yerleşimleri bu cihaz için kalıcı saklanır ----------
     // Anahtar: ekran boyutu (+ gerekirse arayüz ölçeği). Ekran/arayüz ölçeği değişirse anahtar değişir, eski kayıt kullanılmaz.
     /** Cihaz profili anahtarı: ekran boyutu + (RevengerOnline ise) oyun öneki. Oyunlar birbirinin öğrendiğini ezmesin. */
-    private fun ekranAnahtar() = (if (Config.revMi(this)) "rev_" else if (Config.nowaMi(this)) "nowa_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
+    private fun ekranAnahtar() = (if (Config.revMi(this)) "rev_" else if (Config.nowaMi(this)) "nowa_" else if (Config.ozelMi(this)) "ozel_" else "") + "${maxOf(screenW, screenH)}x${minOf(screenW, screenH)}"
     private fun profOku(k: String): String? = try {
         getSharedPreferences("cihaz_profil", MODE_PRIVATE).getString(k, null)
     } catch (e: Exception) { null }
@@ -7208,8 +7523,9 @@ class MacroService : AccessibilityService() {
             TestLog.olay("TOWN_TAMAM", "slota varıldı, farma devam", "konum=$konumX,$konumY sapma=${d.toInt()} sure_ms=${SystemClock.uptimeMillis() - rotaBas} tasinan=$bTasinan")
             rotaSayisi++
             townSonKontrol = SystemClock.elapsedRealtime()
+            val potTuru = potSade
             rotaBitirSessiz()
-            toast("🎒 Çanta boşaltıldı ($bTasinan eşya), slota dönüldü")
+            toast(if (potTuru) "🧪 Pot alındı, slota dönüldü, farma devam" else "🎒 Çanta boşaltıldı ($bTasinan eşya), slota dönüldü")
         } else {
             townDonusHata("slot sapması aşıldı (${if (taze) d.toInt().toString() else "konum yok"} birim)")
         }
@@ -7470,7 +7786,11 @@ class MacroService : AccessibilityService() {
         if (genieAktif()) { genieAdim(now); return }
         // Otomatik ekran tanima: once olcegi bul, sonra her seyi ona gore yerlestir
         if (otoMod && olcek == null) {
-            if (now - sonTarama >= 1500) {
+            if (Config.ozelMi(this)) {
+                // Ozel oyun: Myko isaretleri yok, sablon eslestirme yapma.
+                // Varsayilan olceg + senin cizdigin HP/MP/hedef cubuklari (cizimUygula) kullanilir.
+                olcekUygula(Preset.varsayilanOlcek(this))
+            } else if (now - sonTarama >= 1500) {
                 sonTarama = now
                 val o = try {
                     Preset.olcekBul(this)
@@ -7890,6 +8210,8 @@ class MacroService : AccessibilityService() {
         if (isLow(hp)) {
             if (hpLowSince == 0L) hpLowSince = now
             else if (now - hpLowSince > cfg.hpStop * 1000L) {
+                // Pot turu kuruluysa durmak yerine pot almaya git (Town → potçu → slot), farm sonra devam eder
+                if (oyundaMi() && potSadeBasla(false)) { stepPlanla(300); return true }
                 // Ölmeden güvene: bu cihazda daha önce doğrulanmış Town düğmesi varsa önce Town at
                 val town = profOku("alt1_${ekranAnahtar()}")?.split(",")?.mapNotNull { it.toFloatOrNull() }
                 if (town != null && town.size == 2 && oyundaMi()) {
