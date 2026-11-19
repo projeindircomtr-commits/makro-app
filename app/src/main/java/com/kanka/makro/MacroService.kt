@@ -425,8 +425,8 @@ class MacroService : AccessibilityService() {
         val p = sonPaket
         if (p.isEmpty() || gormezdenGel(p)) return
         val k = p.lowercase()
-        if (k.contains("launcher") || k.contains("home") || k.contains("myko") ||
-            k.contains("komobile") || k.contains("revenger") || k.contains("nowa")) return
+        if (k.contains("launcher") || k.contains("home") || k.contains("mykomobile") ||
+            k.contains("komobile") || k.contains("revenger") || k.contains("nowaonline")) return
         Config.ozelPaketYaz(this, p)
         oyunDegisti()
         toast("🎮 ${Config.ozelAd(this)} kaydedildi (açık oyun paketi)")

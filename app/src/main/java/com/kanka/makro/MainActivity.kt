@@ -1027,12 +1027,15 @@ class MainActivity : Activity() {
 
     /** "Oyun seç" listesi: seçilen oyun için yeniden "Bağlan" gerekir */
     private fun oyunListesi() {
-        val oyunlar = listOf("MykoMobile" to "myko", "RevengerOnline" to "rev", "NowaOnline" to "nowa", "KO Mobile" to "ko", "➕ Özel oyun ekle" to "ozel")
+        val oyunlar = mutableListOf("MykoMobile" to "myko", "RevengerOnline" to "rev", "NowaOnline" to "nowa", "KO Mobile" to "ko")
+        val ozelVar = Config.ozelPaket(this).isNotEmpty()
+        if (ozelVar) oyunlar.add(Config.ozelAd(this) to "ozel")
+        oyunlar.add((if (ozelVar) "➕ Özel oyunu değiştir" else "➕ Özel oyun ekle") to "ozel_ekle")
         AlertDialog.Builder(this)
             .setTitle("Oyun seç")
             .setItems(oyunlar.map { it.first }.toTypedArray()) { _, i ->
                 val kod = oyunlar[i].second
-                if (kod == "ozel") { ozelKur(); return@setItems }
+                if (kod == "ozel_ekle") { ozelKur(); return@setItems }
                 if (Config.oyun(this) != kod) sunucuOnayYaz(false)
                 oyunSec(kod)
                 lisansYenile()
