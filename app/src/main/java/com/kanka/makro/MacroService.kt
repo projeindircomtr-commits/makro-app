@@ -577,6 +577,33 @@ class MacroService : AccessibilityService() {
         statusTv?.setTextColor(if (calisiyor) 0xFF7CFF7C.toInt() else 0xFFFF9E9E.toInt())
     }
 
+    /** Ekran tanınmadı: bu oyunun ekranını çizerek öğret (her oyunda çalışır). Bitince kurulum devam eder. */
+    private fun ekraniOgretKarti() {
+        ekranUyari()   // başlatıcı / karakter seçme ekranındaysa onu da söyler
+        kartGoster("🎓 Bu oyunun ekranını öğret  ·  ${Config.oyunAd(this)}",
+            "Bot bu ekranı henüz tanımıyor. Karakterinle oyunun İÇİNDEYSEN (can ve mana çubuğu görünüyor) bir kere öğret; bundan sonra bu oyunu hep tanır.\n\n" +
+                "1) '✏ Ekranı öğret'e bas.\n" +
+                "2) Üstte 'HP / MP / Koordinat alanı' seçiliyken sol üstteki can çubuğu + mana çubuğu + koordinat yazısının HEPSİNİ içine alan TEK bir kare çiz. Bot içinden kendisi ayırır.\n" +
+                "3) Oyunda bir mob seç, 'Mob can çubuğu'na geç ve mobun can çubuğuna bir kere dokun.\n" +
+                "4) Kaydet.\n\n" +
+                "Başlatıcı ya da karakter seçme ekranındaysan önce oyuna gir, sonra tekrar 🔍 EKRANI TANI.",
+            listOf("Sonra" to { kartKapat() },
+                "✏ Ekranı öğret" to { kartKapat(); cizimEditoru(sonraki = { ekranOgretildi() }) }))
+    }
+
+    private fun ekranOgretildi() {
+        if (!cizimVar()) {
+            toast("Can çubuğu bulunamadı: kareyi can + mana çubuğu ve koordinatı içine alacak şekilde tekrar çiz")
+            ekraniOgretKarti()
+            return
+        }
+        ekranTanindi = true
+        TestLog.olay("EKRAN_OGRETILDI", "ekran çizerek öğretildi", "oyun=${Config.oyun(this)} ekran ${screenW}x$screenH")
+        panelGuncelle()
+        toast("✅ Ekran öğrenildi, kuruluma devam")
+        sihirbazBaslat()
+    }
+
     /** Ekran tanınamadıysa nedenini yazıdan anlayıp kullanıcıya ne yapacağını söyler */
     private fun ekranUyari() {
         val bm = try { ScreenSampler.tamKare() } catch (e: Exception) { null }
@@ -1178,8 +1205,9 @@ class MacroService : AccessibilityService() {
         rh.post {
             val ok = try {
                 updateScreenSize()
-                if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this) || Config.ozelMi(this)) ScreenSampler.grab() != null
-                else Preset.olcekBul(this) != null
+                if (Config.koMu(this) || Config.pazarMi(this) || Config.genieMi(this)) ScreenSampler.grab() != null
+                else if (Config.ozelMi(this)) cizimVar() && ScreenSampler.grab() != null   // özel oyun: önce ekranı öğret
+                else Preset.olcekBul(this) != null || (cizimVar() && ScreenSampler.grab() != null)   // hazır görsel yoksa öğretilen çizim
             } catch (e: Exception) {
                 false
             }
@@ -1190,14 +1218,14 @@ class MacroService : AccessibilityService() {
                     TestLog.olay("EKRAN_TANINDI", "oyun ekranı tanındı", "ekran ${screenW}x$screenH")
                     panelGuncelle()
                     if (!sessiz) sihirbazBaslat()
-                } else if (n < 5) {
+                } else if (n < 5 && !(Config.ozelMi(this) && !cizimVar())) {
                     ui.postDelayed({ taniDene(n + 1, sessiz) }, 800)
                 } else {
                     taniCalisiyor = false
                     TestLog.olay("EKRAN_TANINMADI", "tanıma denemesi başarısız", "ekran ${screenW}x$screenH fark=${Preset.sonFark} olcek=${Preset.sonOlcekDegeri}")
                     if (sessiz) panelGuncelle() else {
                         durumYaz("❌ Ekran tanınmadı", false)
-                        ekranUyari()
+                        ekraniOgretKarti()
                     }
                 }
             }
@@ -1888,6 +1916,8 @@ class MacroService : AccessibilityService() {
     @Volatile private var cizimKoord: IntArray? = null
 
     private fun cizimAnahtar() = "cizim_${ekranAnahtar()}"
+    /** Bu oyunun ekranı çizerek öğretilmiş mi (HP çubuğu bulunmuş) */
+    private fun cizimVar(): Boolean = cizimOku().containsKey("hp")
 
     /** Kayıtlı çizim: etiket -> [x1,y1,x2,y2] (ekran pikseli) */
     private fun cizimOku(): Map<String, IntArray> {
@@ -7783,7 +7813,7 @@ class MacroService : AccessibilityService() {
                     // Yedek olcek SADECE HP bari o olcekte gercekten gorunuyorsa kullanilir.
                     // Gorunmuyorsa yanlis yerlere dokunmamak icin bekle ve tekrar tara.
                     val yo = Preset.varsayilanOlcek(this)
-                    if (yedekOlcekMakul(yo)) {
+                    if (yedekOlcekMakul(yo) || cizimVar()) {   // ekran çizerek öğretildiyse varsayılan ölçek + çizim
                         olcekUygula(yo, yedek = true)
                     } else {
                         bekleNeden = "🔍"
