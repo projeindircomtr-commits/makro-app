@@ -2137,6 +2137,12 @@ class MacroService : AccessibilityService() {
                 }
                 secilen?.let { r -> sonuc["koord"] = ekran(r.left / 2, r.top / 2, (r.right + 1) / 2 + 1, (r.bottom + 1) / 2 + 1) }
                 bm.recycle()
+                if (!sonuc.containsKey("hp") || !sonuc.containsKey("mp")) {
+                    var kr = 0; var mv = 0
+                    for (c in px) { if (isRed(c)) kr++; if (isBlue(c)) mv++ }
+                    TestLog.olay("HUD_AYRILAMADI", "çizilen karede HP/MP ayrılamadı",
+                        "kare=${w}x$h kaynak=${kare.width}x${kare.height} ekran=${screenW}x$screenH kutu=${hud.left},${hud.top},${hud.right},${hud.bottom} kirmizi=$kr mavi=$mv yazi=${satirlar?.size ?: -1} bulunan=${sonuc.keys}")
+                }
                 bitti(sonuc)
             }
         }
@@ -2653,7 +2659,7 @@ class MacroService : AccessibilityService() {
                     kartKapat()
                     cizimEditoru(sonraki = {
                         if (cizimVar()) ogretAdim(2)
-                        else { toast("Can çubuğu bulunamadı: kareyi can + mana + koordinatı içine alacak şekilde tekrar çiz"); ogretAdim(1) }
+                        else ogretElle(0)   // otomatik ayıramadı: tek tek çizdir
                     }, yalniz = "hud", ipucu = "✏ Sol üstte can + mana çubuğu ve koordinatın HEPSİNİ içine alan TEK bir kare çiz, sonra ✓ Tamam.")
                 }))
             2 -> oyundaYap("🎓 Ekranı öğret  ·  2/4  ·  MOB",
@@ -2695,6 +2701,28 @@ class MacroService : AccessibilityService() {
                 }, yalniz = "collect", ipucu = "✏ Kutu penceresinin TAMAMINI kare içine al, sonra ✓ Tamam. Ardından Collect All tuşuna bir kere dokunacaksın.")
             }
         }
+    }
+
+    /** Otomatik ayırma bulamadıysa HP, MP ve koordinatı TEK TEK çizdirir; kare olduğu gibi kaydedilir */
+    private fun ogretElle(i: Int) {
+        val adimlar = listOf(
+            Triple("hp", "❤ CAN (HP) çubuğu", "✏ Kırmızı CAN çubuğunun üstünde parmağını sürükleyerek çubuğu TAM kaplayan bir kare çiz (üstündeki sayı dahil), sonra ✓ Tamam."),
+            Triple("mp", "💧 MANA (MP) çubuğu", "✏ Mavi MANA çubuğunun üstünde sürükleyerek çubuğu TAM kaplayan bir kare çiz, sonra ✓ Tamam."),
+            Triple("koord", "📍 Koordinat yazısı", "✏ Koordinat yazısının (örn. 211,431) etrafına kare çiz, sonra ✓ Tamam. Oyunda koordinat yoksa İptal.")
+        )
+        if (i >= adimlar.size) {
+            if (cizimVar()) ogretAdim(2)
+            else kartGoster("🎓 Can çubuğu kaydedilmedi", "Can (HP) çubuğu olmadan bot canını okuyamaz. Tekrar çizelim mi?",
+                listOf("Sonra" to { kartKapat() }, "✏ Tekrar çiz" to { kartKapat(); ogretElle(0) }))
+            return
+        }
+        val (k, ad, ipucu) = adimlar[i]
+        if (i == 0) toast("Otomatik ayıramadım, tek tek işaretleyelim: önce CAN çubuğu")
+        cizimEditoru(sonraki = {
+            if (k == "koord" || cizimOku().containsKey(k)) ogretElle(i + 1)
+            else kartGoster("🎓 $ad işaretlenmedi", "Bu adım gerekli. Tekrar çizelim mi?",
+                listOf("Sonra" to { kartKapat() }, "✏ Tekrar çiz" to { kartKapat(); ogretElle(i) }))
+        }, yalniz = k, ipucu = ipucu)
     }
 
     private fun ogretBitti() {
@@ -5795,6 +5823,7 @@ class MacroService : AccessibilityService() {
     // ---- yürüme durumu ----
     private var yuruAktif = false
     private var yuruYol: List<IntArray> = emptyList()
+    private var yuruKalibreTekrar = 0
     private var yuruPlanli = false                       // yol öğrenen haritadan hesaplandı (takılınca yeniden hesaplanır)
     private var yuruIdx = 0
     private var yuruMod = 0                              // 0 = kalibre-1 (ileri), 1 = kalibre-2 (ileri+sağ), 2 = izle
@@ -5971,7 +6000,7 @@ class MacroService : AccessibilityService() {
             konumOkunamadi("OCR boş döndü")
             return
         }
-        var t = metin.replace('\n', ' ').replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
+        var t = metin.replace('\n', ' ').replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1').replace('Z', '2').replace('z', '2')   // MykoMobile raporu: "212,4Z2" = 212,422
         if (Config.nowaMi(this)) {
             // NowaOnline yazı tipinde OCR '1'i 'L', '3'ü 'a/A' okuyor (raporlardan: "aL3,345" = 313,345)
             t = t.replace('L', '1').replace('A', '3').replace('a', '3')
@@ -5996,8 +6025,8 @@ class MacroService : AccessibilityService() {
         val simdi = SystemClock.uptimeMillis()
         val bx = konumX
         val by = konumY
-        // Nowa: baştaki rakam düşmüş okuma ("11,360" yerine "311,360") konum sayılmasın
-        if (Config.nowaMi(this) && bx >= 0) {
+        // Baştaki rakam düşmüş okuma ("12,420" yerine "212,420") konum sayılmasın (önce Nowa, MykoMobile raporunda da görüldü)
+        if (bx >= 0) {
             fun dustu(v: Int, onceki: Int) = v < 1000 && (1..4).any { k -> Math.abs(v + k * 100 - onceki) <= 15 && Math.abs(v - onceki) > 40 }
             if (dustu(x, bx) || dustu(y, by)) {
                 konumOkunamadi("baştaki rakam eksik görünüyor: $x,$y (önceki $bx,$by)")
@@ -6350,6 +6379,7 @@ class MacroService : AccessibilityService() {
     private fun yuruBaslat(yol: List<IntArray>, tol: Double, zamanAsimi: Long, planli: Boolean = false, sonuc: (Boolean, String) -> Unit) {
         yuruYol = yol
         yuruPlanli = planli
+        yuruKalibreTekrar = 0
         yuruIdx = 0
         yuruTol = tol
         yuruBas = SystemClock.uptimeMillis()
@@ -6432,7 +6462,14 @@ class MacroService : AccessibilityService() {
                 val w2 = Math.atan2((ky - p0[1]).toDouble(), (kx - p0[0]).toDouble())
                 val dl = aciSar(w2 - yuruV0)
                 if (Math.abs(dl) < 0.8 || Math.abs(dl) > 2.3) {
-                    yuruBitir(false, "kalibrasyon: yön ölçülemedi (fark ${"%.2f".format(dl)} rad)")
+                    // Genelde yanlış okunan bir koordinattan olur: yürümeyi iptal etmeden kalibrasyonu 2 kez baştan dene
+                    if (yuruKalibreTekrar < 2) {
+                        yuruKalibreTekrar++
+                        TestLog.olay("KALIBRASYON_TEKRAR", "yön ölçülemedi (fark ${"%.2f".format(dl)} rad), yeniden ölçülüyor", "deneme=$yuruKalibreTekrar")
+                        yuruMod = 0; yuruModBas = now; yuruP0 = null
+                    } else {
+                        yuruBitir(false, "kalibrasyon: yön ölçülemedi (fark ${"%.2f".format(dl)} rad)")
+                    }
                 } else {
                     yuruS = if (dl > 0) 1 else -1
                     yuruC = yuruV0 + yuruS * Math.PI / 2
