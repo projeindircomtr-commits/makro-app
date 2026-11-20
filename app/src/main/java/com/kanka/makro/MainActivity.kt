@@ -1685,6 +1685,14 @@ class MainActivity : Activity() {
 
     // ================= Ekran yakalama izni =================
 
+    // net-konum-yama4
+    @Suppress("DEPRECATION")
+    private fun netKonumBaslat() {
+        val i = android.net.VpnService.prepare(this)
+        if (i == null) startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
+        else startActivityForResult(i, 101)
+    }
+
     @Suppress("DEPRECATION")
     private fun askCapture() {
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -1710,7 +1718,7 @@ class MainActivity : Activity() {
         if (launchAfterCapture) {
             launchAfterCapture = false
             if (ok) {
-                // Yakalama servisinin acilmasi icin kisa bekle
+                netKonumBaslat() // net-konum-yama4
                 startBtn.postDelayed({ launchGameAndStart() }, 700)
             }
         }
@@ -1720,6 +1728,12 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 101) {
+            // net-konum-yama4
+            if (resultCode == RESULT_OK) startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
+            else toast("VPN izni verilmedi — koordinat OCR ile okunacak")
+            return
+        }
         if (requestCode != 100) return
         if (resultCode != RESULT_OK || data == null) {
             toast("İzin verilmedi")

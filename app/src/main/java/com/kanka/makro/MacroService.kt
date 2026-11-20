@@ -59,6 +59,11 @@ class MacroService : AccessibilityService() {
         /** Uygulama ekranindan servise ulasmak icin (ayni surec) */
         @Volatile
         var instance: MacroService? = null
+
+        // net-konum-yama4
+        fun netKonumGuncelle(x: Int, y: Int) {
+            instance?.netKonumKabul(x, y)
+        }
     }
 
     private enum class Mod { BUTON, HP, MP, HEDEF_BAR, OPEN, COLLECT }
@@ -620,6 +625,8 @@ class MacroService : AccessibilityService() {
 
     override fun onDestroy() {
         TestLog.olay("SERVIS_DURDU", "onDestroy", "")
+        // net-konum-yama4
+        try { startService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_DURDUR)) } catch (_: Exception) {}
         konumDonguAktif = false
         yuruAktif = false
         jAktif = false
@@ -5453,6 +5460,8 @@ class MacroService : AccessibilityService() {
     }
 
     private fun konumOku() {
+        // net-konum-yama4
+        if (NetKonum.aktif) { if (android.os.SystemClock.uptimeMillis() - konumAt < 3000L && konumX >= 0) return }
         if (konumOkunuyor || !ScreenSampler.running || screenW <= 0) return
         // Telefonda ölçülmüş oransal bölge ile arayüz ölçeğine göre (üst-sol çapalı) bölgenin BİRLEŞİMİ:
         // arayüz farklı büyüklükte olan tablette yazının sağ ucu kesilmesin (aksi halde son rakam okunmaz)
@@ -5578,6 +5587,13 @@ class MacroService : AccessibilityService() {
         }
         konumAdayX = -1
         konumAdaySay = 0
+        konumKabul(x, y, simdi)
+    }
+
+    // net-konum-yama4
+    fun netKonumKabul(x: Int, y: Int) {
+        val simdi = android.os.SystemClock.uptimeMillis()
+        if (x < 0 || x > 5000 || y < 0 || y > 5000) return
         konumKabul(x, y, simdi)
     }
 
