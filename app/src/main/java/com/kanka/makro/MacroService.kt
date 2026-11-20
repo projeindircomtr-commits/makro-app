@@ -7979,7 +7979,7 @@ class MacroService : AccessibilityService() {
         }
         // Town döngüsü: her N dk envanteri kontrol et (ya da çanta dolu işareti), doluysa Town→Inn→banka→Town→slot
         if (testCalisiyor && cfg.townAcik && !rotaCalisiyor && !tapping && lootPhase == Loot.BOS &&
-            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townBayrakSon >= 15_000L) || townVakit()))  // v103-fix2: 120s->15s {
+            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townBayrakSon >= 15_000L) || townVakit())) {  // v103-fix2: 120s->15s
             val bil = cantaDoluBayrak
             if (bil) townBayrakSon = SystemClock.elapsedRealtime()
             TestLog.olay("TOWN_TETIK", if (bil) "çanta dolu işareti" else "süre doldu: ${cfg.townDk} dk", "")
