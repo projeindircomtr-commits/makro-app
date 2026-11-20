@@ -4732,6 +4732,11 @@ class MacroService : AccessibilityService() {
         // Çanta (Town) döngüsü tüm geçerli üyelerde; hız merdiveni/takılma durdurma gibi test özellikleri yalnızca Test yetkili hesapta
         testCalisiyor = Lisans.gecerliSimdi() && (cfg.townAcik || (Lisans.testHesabi() && cfg.testModu))
         if (testCalisiyor) testAyarlariUygula()
+        // p2-ekran-bilgi-toast-yama3 — farklı cihazlarda hangi ekran profilinin kullanıldığını göster
+        run {
+            val olcekStr = if (uOlc > 0f) "%.2f(ölç)".format(uOlc) else "%.2f(tahmini)".format(uiSEski())
+            toast("📱 ${screenW}x${screenH} · ölçek=$olcekStr · profil=${ekranAnahtar()}")
+        }
         alanBitti = false
         alanArdArda = 0
         alanBekleUntil = 0L
@@ -4906,8 +4911,9 @@ class MacroService : AccessibilityService() {
         stallSn = 0
         stallRef = kesilen + toplanan + basilanPot
         kontrolPencereBas = 0L
+        // p1c-oturum-her-zaman-yama3 — TestLog oturumu her bot çalışmasında başlasın (rapor için)
+        if (!TestLog.acik) TestLog.oturumBasla(this, testAyarOzeti())
         if (testCalisiyor) {
-            TestLog.oturumBasla(this, testAyarOzeti())
             agIzlemeBasla()
             toast("🏙 Çanta döngüsü açık: olaylar kaydediliyor")
             getSharedPreferences("test_durum", MODE_PRIVATE).edit().putBoolean("oturum_acik", true).apply()
@@ -4920,6 +4926,9 @@ class MacroService : AccessibilityService() {
             TestLog.oturumBitir(reason ?: "kullanıcı durdurdu")
             getSharedPreferences("test_durum", MODE_PRIVATE).edit().putBoolean("oturum_acik", false).apply()
         }
+        // p1b-harici-rapor-cagri-yama3 — test modu açık olmasa da bot çalıştıysa rapor yaz
+        if (TestLog.acik) TestLog.oturumBitir(reason ?: "kullanıcı durdurdu")
+        TestLog.hariciRaporYaz(surumAdi())
         testCalisiyor = false
     }
 

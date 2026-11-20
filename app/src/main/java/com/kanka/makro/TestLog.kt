@@ -68,6 +68,32 @@ object TestLog {
     fun hazirla(ctx: Context) {
         synchronized(kilit) {
             if (dosya == null) dosya = File(ctx.filesDir, "testlog.txt")
+            if (ctxRef == null) ctxRef = ctx.applicationContext
+        }
+    }
+
+    // p1a-harici-rapor-yama3
+    @Volatile private var ctxRef: android.content.Context? = null
+
+    /**
+     * Oturum bittiğinde özet raporu harici depolamaya yazar.
+     * Dosya: /sdcard/Android/data/<paket>/files/projeindir_rapor_TARIH.txt
+     * İzin gerektirmez (getExternalFilesDir — kendi uygulama klasörü).
+     * Dosya yöneticisinden "Android/data/com.kanka.makro/files/" altında görünür.
+     */
+    fun hariciRaporYaz(surum: String) {
+        val ctx = ctxRef ?: return
+        yazici.execute {
+            try {
+                val dir = ctx.getExternalFilesDir(null) ?: return@execute
+                dir.mkdirs()
+                val ad = "projeindir_rapor_${
+                    java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                        .format(java.util.Date())
+                }.txt"
+                val dosyaHarici = java.io.File(dir, ad)
+                dosyaHarici.writeText(rapor(surum), Charsets.UTF_8)
+            } catch (_: Exception) {}
         }
     }
 
