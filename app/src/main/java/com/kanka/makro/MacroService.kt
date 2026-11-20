@@ -1494,8 +1494,36 @@ class MacroService : AccessibilityService() {
                 respawnDeneme++
                 tap(screenW * 0.5f, screenH * 0.62f, 0f) { }
                 h.postDelayed({ if (nesil == respawnNesil && !running && oyundaMi()) tap(screenW * 0.5f, screenH * 0.67f, 0f) { } }, 400)
-                if (respawnDeneme < 6) h.postDelayed(this, 2000)
-                else toast("Respawn denendi — karakter dirildiyse botu tekrar başlat")
+                if (respawnDeneme < 6) {
+                    h.postDelayed(this, 2000)
+                } else {
+                    // v103-fix1: HP pikselini izle; kirmizilasinca startMacro() cagir
+                    var canlanmaDeneme = 0
+                    val canlanmaKontrol = object : Runnable {
+                        override fun run() {
+                            if (nesil != respawnNesil || running) return
+                            canlanmaDeneme++
+                            val hp = hpSol
+                            val c = if (hp[0] >= 0) ScreenSampler.readPixel(hp[0], hp[1]) else -1
+                            if (c >= 0 && isRed(c)) {
+                                // Karakter dirildiyse kisa bekleme sonra botu baslat
+                                h.postDelayed({
+                                    if (nesil == respawnNesil && !running && oyundaMi()) {
+                                        TestLog.olay("RESPAWN_CANLAN", "HP kirmiziladi, bot yeniden baslatiliyor", "")
+                                        startMacro()
+                                    }
+                                }, 2500)
+                                return
+                            }
+                            if (canlanmaDeneme < 40) {  // 40 x 1500ms = 60 saniye
+                                h.postDelayed(this, 1500)
+                            } else {
+                                toast("Respawn denendi — karakter dirildiyse botu tekrar başlat")
+                            }
+                        }
+                    }
+                    h.postDelayed(canlanmaKontrol, 1500)
+                }
             }
         }, 1500)
     }
@@ -1956,9 +1984,9 @@ class MacroService : AccessibilityService() {
         }
         m["collect"]?.let { r ->
             // Şablon sol üstünün ızgara yeri; çevresinde (geniş payla) aranır, tam yer ilk kutuda öğrenilir
-            collectKesin = false
             collectAnkorGX = ScreenSampler.toGrid(r[0])
             collectAnkorGY = ScreenSampler.toGrid(r[1])
+            collectKesin = true  // v103-fix3: kullanici ogrettiginde tam yer biliniyor
         }
         m["isim"]?.let { r -> isimRect = intArrayOf(r[0], r[1], r[2], r[3]) }
         ogretilenSablonlar()
@@ -7951,7 +7979,7 @@ class MacroService : AccessibilityService() {
         }
         // Town döngüsü: her N dk envanteri kontrol et (ya da çanta dolu işareti), doluysa Town→Inn→banka→Town→slot
         if (testCalisiyor && cfg.townAcik && !rotaCalisiyor && !tapping && lootPhase == Loot.BOS &&
-            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townBayrakSon >= 120_000L) || townVakit())) {
+            townHazirMi() && ((cantaDoluBayrak && SystemClock.elapsedRealtime() - townBayrakSon >= 15_000L) || townVakit()))  // v103-fix2: 120s->15s {
             val bil = cantaDoluBayrak
             if (bil) townBayrakSon = SystemClock.elapsedRealtime()
             TestLog.olay("TOWN_TETIK", if (bil) "çanta dolu işareti" else "süre doldu: ${cfg.townDk} dk", "")
