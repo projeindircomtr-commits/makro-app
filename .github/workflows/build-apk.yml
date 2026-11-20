@@ -1,0 +1,42 @@
+name: Android APK Derle
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodu Cek
+        uses: actions/checkout@v4
+
+      - name: JDK 17 Kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Gradle Yetkisi Ver
+        run: chmod +x gradlew
+
+      - name: Imza anahtarini coz
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then echo "$KEYSTORE_B64" | base64 -d > app/makro.keystore && echo "imza anahtari hazir"; else echo "KEYSTORE_B64 secret yok -> debug imza ile derlenecek"; fi
+      - name: Debug APK Derle
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASS }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: APK Dosyasini Yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjeindirBot-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Projeindir Bot • KO Mobile kurulum ve ayar rehberi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@600;800&family=Nunito+Sans:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --lacivert:#1E2A3A; --derin:#141C27; --kart:#223246;
+  --altin:#E0B04A; --krem:#F3E9D2; --gri:#A9B4C2; --yesil:#39B26B; --kirmizi:#E06464;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--derin);color:var(--krem);
+  font:17px/1.6 "Nunito Sans",system-ui,sans-serif}
+a{color:var(--altin)}
+a:focus-visible,summary:focus-visible{outline:3px solid var(--altin);outline-offset:3px;border-radius:6px}
+.sayfa{max-width:680px;margin:0 auto;padding:28px 18px 60px}
+h1,h2,h3{font-family:"Roboto Slab",Georgia,serif;line-height:1.25;margin:0}
+h1{font-size:2rem;font-weight:800}
+h2{font-size:1.35rem;font-weight:800;margin:0 0 10px}
+h3{font-size:1.05rem;font-weight:600}
+p{margin:0 0 12px}
+b,strong{color:#fff}
+
+/* Baslik: P amblemi */
+.bas{display:flex;gap:18px;align-items:center;margin-bottom:22px}
+.amblem{flex:0 0 86px;height:86px;border-radius:50%;background:var(--lacivert);
+  box-shadow:inset 0 0 0 5px var(--derin),inset 0 0 0 10px var(--altin);
+  display:grid;place-items:center;font:800 46px/1 "Roboto Slab",serif;color:#fff}
+.bas small{display:block;color:var(--altin);font-weight:700;margin-top:4px}
+.ozet{background:var(--lacivert);border-left:4px solid var(--altin);padding:14px 16px;border-radius:0 12px 12px 0;margin-bottom:28px}
+.ozet ul{margin:6px 0 0;padding-left:20px}
+
+/* Adimlar: altin yol cizgisi */
+.yol{list-style:none;margin:0;padding:0;position:relative}
+.yol::before{content:"";position:absolute;left:21px;top:8px;bottom:8px;width:3px;background:linear-gradient(var(--altin),#6b5524)}
+.adim{position:relative;padding:0 0 30px 62px}
+.no{position:absolute;left:0;top:0;width:45px;height:45px;border-radius:50%;
+  background:var(--altin);color:var(--derin);display:grid;place-items:center;
+  font:800 1.25rem "Roboto Slab",serif;box-shadow:0 0 0 5px var(--derin)}
+.adim h2{padding-top:7px}
+ol.alt{margin:6px 0 12px;padding-left:22px}
+ol.alt li{margin-bottom:6px}
+
+/* Telefonda gorulecek yazilar */
+.ekran{display:inline;background:#fff;color:#1a1a1a;border-radius:6px;padding:1px 6px;font-weight:700;font-size:.93em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.buton{display:inline;background:var(--yesil);color:#fff;border-radius:7px;padding:1px 7px;font-weight:700;font-size:.93em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+
+/* Marka bolumleri */
+details{background:var(--kart);border-radius:12px;margin:8px 0;overflow:hidden}
+summary{cursor:pointer;padding:12px 14px;font-weight:700;list-style:none;display:flex;justify-content:space-between;gap:10px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"＋";color:var(--altin)}
+details[open] summary::after{content:"－"}
+details .ic{padding:0 14px 12px}
+
+.not{border:1px dashed var(--gri);border-radius:12px;padding:10px 14px;color:var(--gri);font-size:.95rem;margin:10px 0}
+.uyari{background:#3a2226;border-left:4px solid var(--kirmizi);padding:12px 14px;border-radius:0 12px 12px 0;margin:10px 0}
+
+/* Tablet bolumu: ayri ve belirgin */
+.tablet{margin:10px 0 34px;padding:20px 18px;border-radius:18px;
+  background:var(--lacivert);box-shadow:inset 0 0 0 2px var(--altin)}
+.tablet h2{color:var(--altin)}
+
+/* Sorun cozme tablosu */
+.sorun{width:100%;border-collapse:collapse;font-size:.95rem}
+.sorun td{padding:10px 8px;border-top:1px solid #33455c;vertical-align:top}
+.sorun td:first-child{width:42%;color:#fff;font-weight:700}
+
+.panel{display:inline-flex;gap:14px;background:#262b31;border-radius:12px;padding:6px 14px;font-size:1.1rem;color:#fff}
+footer{margin-top:40px;text-align:center;color:var(--gri);font-size:.9rem}
+</style>
+</head>
+<body>
+<main class="sayfa">
+
+<header class="bas">
+  <div class="amblem" aria-hidden="true">P</div>
+  <div>
+    <h1>KO Mobile Farm Bot</h1>
+    <small>Projeindir Bot • Kurulum ve ayar rehberi</small>
+  </div>
+</header>
+
+<section class="ozet">
+  <p><b>Kurulum 5–10 dakika sürer, bir kere yapılır.</b> Gerekenler:</p>
+  <ul>
+    <li>Android 8 veya üstü telefon ya da tablet</li>
+    <li>Telefonda yüklü <b>KO Mobile</b></li>
+    <li>Projeindir Bot üyeliği (kullanıcı adı ve şifre)</li>
+    <li>İnternet bağlantısı</li>
+  </ul>
+  <p style="margin:10px 0 0">Bir üyelik <b>tek bir cihazda</b> çalışır. İlk giriş yaptığın cihaza bağlanır.</p>
+</section>
+
+<ol class="yol">
+
+<li class="adim">
+  <span class="no">1</span>
+  <h2>Uygulamayı indir ve yükle</h2>
+  <p>İndirme sayfası: <a href="https://projeindir.com.tr/bot/">projeindir.com.tr/bot</a></p>
+  <ol class="alt">
+    <li>İnen <b>.apk</b> dosyasına dokun.</li>
+    <li><span class="ekran">Bilinmeyen uygulamalar</span> uyarısı çıkarsa <span class="ekran">Ayarlar</span> → <b>Bu kaynaktan izin ver</b> → geri dön.</li>
+    <li><span class="ekran">Yükle</span>'ye bas. Play Protect uyarısında <span class="ekran">Daha fazla ayrıntı</span> → <span class="ekran">Yine de yükle</span>.</li>
+  </ol>
+  <p class="not">Güncelleme geldiğinde eskisini silme, yenisini üstüne yükle. Girişin ve ayarların korunur.</p>
+</li>
+
+<li class="adim">
+  <span class="no">2</span>
+  <h2>Giriş yap ve izinleri ver</h2>
+  <ol class="alt">
+    <li>Kullanıcı adı ve şifrenle giriş yap.</li>
+    <li><b>Kurulum</b> kartındaki <span class="buton">İzin ver</span> ile <b>Erişilebilirlik</b> iznini aç. Anahtar gri ve açılmıyorsa: Ayarlar → Uygulamalar → Projeindir Bot → sağ üst ⋮ → <b>Kısıtlanmış ayarlara izin ver</b>, sonra tekrar dene.</li>
+    <li><span class="buton">Ayarla</span> ile <b>Arka planda kapanmasın</b> adımını yap (pil kısıtlaması yok).</li>
+  </ol>
+</li>
+
+<li class="adim">
+  <span class="no">3</span>
+  <h2>Oyun olarak KO Mobile'ı seç</h2>
+  <p><b>Oyun</b> kartında <span class="buton">KO Mobile</span>'a dokun. KO'nun tuşları ve ayarları ayrı saklanır, diğer oyunun ayarları bozulmaz.</p>
+  <p>Kurulum kartında <span class="ekran">Oyun yüklü (KO Mobile)</span> yanında ❌ görürsen <b>📱 KO Mobile uygulamasını seç</b>'e bas ve listeden oyunu seç.</p>
+</li>
+
+<li class="adim">
+  <span class="no">4</span>
+  <h2>Başlat</h2>
+  <ol class="alt">
+    <li><span class="buton">▶ OYUNU AÇ VE BAŞLAT</span>'a bas.</li>
+    <li>Ekran paylaşımı sorulunca <b>Tüm ekran</b>'ı seç ve onayla. Bot HP, MP, hedef ve kutuyu ekrandan okur.</li>
+    <li>Karakterin oyuna girince sol üstteki panelde <b>▶</b>'a bas. Durdurmak için <b>⏸</b>.</li>
+  </ol>
+</li>
+
+</ol>
+
+<section class="tablet">
+  <h2>Hazır tuşlar</h2>
+  <p>KO Mobile ilk seçildiğinde tuşlar kendiliğinden yerleşir:</p>
+  <ul>
+    <li><b>Kılıç</b>: büyük saldırı butonu</li>
+    <li><b>Mob seç</b>: Z butonu</li>
+    <li><b>HP pot</b> ve <b>MP pot</b>: skill halkasındaki iksir yuvaları</li>
+    <li><b>Skill 1–3</b>: 1,5 sn arayla</li>
+  </ul>
+  <p>Senin skill ve iksir yerlerin farklıysa oyunda panelden <b>⋯ → 🛠 Tuşları düzenle</b>'yi aç. Etiketi doğru yuvanın üstüne sürükle ya da yeni tuş ekle, bitince <span class="ekran">Bitti ✓</span>.</p>
+</section>
+
+<section>
+  <h2>Ayarlar</h2>
+  <table class="sorun">
+    <tr><td>Çalışma süresi</td><td>Bot bu süre dolunca kendisi durur. Uzun süre kesintisiz bırakma.</td></tr>
+    <tr><td>❤️ HP potu</td><td>Can bu yüzdenin altına inince HP potu içer. Başlangıç için <b>%50</b>.</td></tr>
+    <tr><td>💧 MP potu</td><td>Mana bu yüzdenin altına inince MP potu içer. Başlangıç için <b>%30</b>.</td></tr>
+    <tr><td>Minor</td><td>Tuş listesinde Minor varsa, can ayarladığın yüzdenin altına inince basar.</td></tr>
+    <tr><td>Kutuları topla</td><td>Mob ölünce ortada çıkan sandık butonuna basıp düşenleri toplar.</td></tr>
+    <tr><td>🎯 Mob kilidi</td><td>Oyunda bir mob seç, ismi üstte görünsün, panelden <b>⋯ → 🎯 Seçili mobu kilitle</b>. Bot sadece kilitlediğin moblara vurur, diğerlerini kırmızı X ile bırakır. Birden fazla mob kilitleyebilirsin. Ana ekrandaki <b>Kaldır</b> ile sıfırlanır.</td></tr>
+    <tr><td>🏃 Mesafe sınırı</td><td>Seçilen mob belirlenen sürede vurulmaya başlanmazsa (uzaktaysa) bırakır ve başka mob seçer.</td></tr>
+    <tr><td>Skill süreleri</td><td><b>Kayıtlı tuşlar</b>'da her skillin <b>sn</b> değeri, o skillin kaç saniyede bir basılacağıdır. Skilli oyunda elle bas, ikonun üstündeki geri sayıma bak ve sn'yi bunun biraz üstüne yaz. Kutucukla aç/kapat, ▲▼ ile öncelik sırasını değiştir.</td></tr>
+  </table>
+  <p class="not">KO Mobile'da dokunuşlar arasında her zaman en az 0,7 saniye vardır, hız ayarı bunu değiştirmez. Takılan bir mobun canı 12 saniye azalmazsa bot onu bırakıp yenisini seçer.</p>
+</section>
+
+<section>
+  <h2>Sorun çözme</h2>
+  <table class="sorun">
+    <tr><td>Panel oyunda görünmüyor</td><td>3. adımdaki <b>KO Mobile uygulamasını seç</b>'i yap. Erişilebilirlik izni kapanmışsa 2. adımı tekrarla.</td></tr>
+    <tr><td>Kutuları toplamıyor</td><td><b>Kutuları topla</b> açık mı bak. Sandık butonu soluksa toplanacak bir şey kalmamıştır. Envanter dolu olabilir.</td></tr>
+    <tr><td>Pot içmiyor</td><td>Tuşları düzenle'de HP pot ve MP pot etiketleri iksirlerin üstünde mi kontrol et. Sol üstteki HP/MP barının önünde bir pencere olmamalı.</td></tr>
+    <tr><td>Hep aynı mobda takılıyor</td><td>Mesafe sınırını aç ya da mob kilidi kullan.</td></tr>
+    <tr><td>Yanlış yerlere basıyor</td><td>Tuş yerlerin farklıdır, <b>Tuşları düzenle</b>'den düzelt. Ekran paylaşımında <b>Tüm ekran</b> seçili olmalı.</td></tr>
+    <tr><td>Bot kendiliğinden durdu</td><td>Panelde sebebi yazar: süre bitti, HP uzun süre düşük kaldı (pot bitmiş olabilir) ya da üyelik/internet.</td></tr>
+  </table>
+</section>
+
+<div class="uyari" style="margin-top:28px">
+  <b>Bilmen gereken:</b> Otomatik oynatma araçları oyunun kurallarına aykırı olabilir ve oyun hesabının kapatılmasına yol açabilir. Kullanmadan önce sunucunun kurallarını oku. Karar ve risk sana aittir.
+</div>
+
+<footer>
+  Projeindir Bot • Yapımcı: Muhammed Salman<br>
+  <a href="https://projeindir.com.tr">projeindir.com.tr</a> • <a href="https://projeindir.com.tr/bot/">İndir</a> • <a href="https://projeindir.com.tr/konu/komobile-farm-bot-031026">Konu sayfası</a>
+</footer>
+
+</main>
+</body>
+</html>
