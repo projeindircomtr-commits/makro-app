@@ -1319,7 +1319,7 @@ class MacroService : AccessibilityService() {
             "4️⃣  ▶ BAŞLAT → '● BOT ÇALIŞIYOR' görünür\n" +
             "5️⃣  Durdurmak için ⏸ DURDUR\n\n" +
             "BOT DURURSA:\n" +
-            "• Mob can çubuğu görülmüyor → ✏ Ekranı çizerek işaretle\n" +
+            // p2-kilavuz-cizim-satirlari-kaldirildi-yama2final
             "• HP/MP bulunamadı → 🔍 EKRANI TANI'yı tekrar yap\n" +
             "• Tamamen sıfırla → 🧹 Ekran öğrenmesini sıfırla\n\n" +
             "⚠ HP/MP ve mob can çubuğu üstünü boş tut",
@@ -1364,7 +1364,8 @@ class MacroService : AccessibilityService() {
         // teknik/test olanlari yoneticiListesi'ne koy.
         val yonetici = Lisans.yoneticiMi()
         val testListesi: List<Pair<String, () -> Unit>> = if (Config.koMu(this)) emptyList() else
-            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }, "⚒ Upgrade Bot" to { upgradeMenu() })
+            listOf<Pair<String, () -> Unit>>("🏙 Otomatik çanta boşaltma" to { townSihirbaz() }) +
+            (if (Lisans.ozellikVar("upgrade")) listOf<Pair<String, () -> Unit>>("⚒ Upgrade Bot" to { upgradeMenu() }) else emptyList()) // p3-upgrade-bot-lisansli-yama2final
         // Bar/kutu kaydı ve test ekranları menüden kaldırıldı (ekran otomatik tanınıyor)
         val yoneticiListesi: List<Pair<String, () -> Unit>> = emptyList()
         showMenu(
@@ -1388,7 +1389,7 @@ class MacroService : AccessibilityService() {
                     } else veriOnayKarti()
                 }
             ) else emptyList()) + listOf<Pair<String, () -> Unit>>(
-                "✏ Ekranı çizerek işaretle" to { if (Config.koMu(this)) toast("KO'da gerekmiyor: barları bot kendisi buluyor") else cizimEditoru() },
+                // p1-cizim-menu-kaldirildi-yama2final
                 "📍 Slot kilidi (alan sınırı)" to { if (Config.koMu(this)) toast("KO'da koordinat okunmuyor, slot kilidi yok") else slotKilidiMenu() },
                 "🔓 Mob kilitlerini kaldır" to {
                     val c = Config.load(this)
@@ -4477,9 +4478,9 @@ class MacroService : AccessibilityService() {
     private fun modMenu() {
         val farmAcik = Config.botGorunur("farm")
         val pkAcik = Config.botGorunur("pk")
-        val pazarAcik = Config.botGorunur("pazar") && !Config.revMi(this) && !Config.nowaMi(this)   // RevengerOnline'da Pazar yok
+        // p4-pazar-mod-menu-kaldirildi-yama2final
         val genieAcik = Config.botGorunur("genie")
-        val say = listOf(farmAcik, pkAcik, pazarAcik, genieAcik).count { it }
+        val say = listOf(farmAcik, pkAcik, genieAcik).count { it }
         if (say <= 1) {
             // Tek mod acik: secenek yok, dogrudan o modun ayarlari
             Config.modDuzelt(this)
@@ -4500,13 +4501,7 @@ class MacroService : AccessibilityService() {
             ui.postDelayed({ ayarKarti() }, 250)
         })
         if (pkAcik) liste.add((if (pk) "✓ " else "") + "⚔ PK Bot" to { pkKarakterMenu() })
-        if (pazarAcik) liste.add((if (Config.pazarMi(this)) "✓ " else "") + "🏪 Pazar Bot" to {
-            if (running) stopMacro()
-            Config.pazarSec(this)
-            modBtn?.text = modYazi()
-            statusTv?.text = "🏪 Pazar hazır"
-            pazarKarti()
-        })
+        // p4b-pazar-liste-kaldirildi-yama2final
         showMenu("Bot seç", liste)
     }
 
@@ -6256,12 +6251,9 @@ class MacroService : AccessibilityService() {
         TestLog.olay("ROTA_MENU", "Inn Hostes Open basılıyor", "")
         bankaOncekiTam = tamSnap()
         revBankaKor = false
-        if (Config.revMi(this) && bankaPencereVar()) {
-            // Rev: Open doğrudan Warehouse açmış olabilir, menü dokunuşu gereksiz
-            rh.postDelayed({ rotaPencereBekle(0) }, 100)
-            return
-        }
-        tap(uiX(2320f), uiYOrta(485f), 0f) { rh.postDelayed({ rotaPencereBekle(0) }, 600) }
+        // p5-rota-menu-ac-cift-tap-duzeltildi-yama2final
+        // rotaOpenAra() zaten Open'a bastı; burada tekrar basma, sadece pencereyi bekle
+        rh.postDelayed({ rotaPencereBekle(0) }, 800)
     }
     private var revBankaKor = false
 

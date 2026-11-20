@@ -253,7 +253,7 @@ class Config {
          */
         fun botGorunur(kod: String): Boolean = when (kod) {
             "farm" -> true
-            "pk", "genie" -> false
+            "pk", "genie", "pazar" -> false // p4c-pazar-gorunur-false-yama2final
             else -> Lisans.ozellikVar(kod)
         }
 
