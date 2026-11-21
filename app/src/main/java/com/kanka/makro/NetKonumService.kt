@@ -43,7 +43,11 @@ class NetKonumService : VpnService() {
             .setContentTitle("NetKonum aktif")
             .setContentText("Oyun koordinatları ağdan okunuyor")
             .build()
-        startForeground(BILDIRIM_ID, bildirim)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(BILDIRIM_ID, bildirim, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(BILDIRIM_ID, bildirim)
+        }
 
         val builder = Builder()
             .setSession("NetKonum")
