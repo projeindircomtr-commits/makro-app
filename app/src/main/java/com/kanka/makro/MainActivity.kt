@@ -1417,6 +1417,7 @@ class MainActivity : Activity() {
             askCapture()
             return
         }
+        netKonumBaslat() // net-konum-yama4
         launchGameAndStart()
     }
 
