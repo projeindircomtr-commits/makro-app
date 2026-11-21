@@ -1690,8 +1690,13 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun netKonumBaslat() {
         val i = android.net.VpnService.prepare(this)
-        if (i == null) startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
-        else startActivityForResult(i, 101)
+        if (i == null) {
+            toast("NetKonum: izin var, servis baslatiliyor") // net-konum-debug
+            startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
+        } else {
+            toast("NetKonum: VPN izin dialogu aciliyor") // net-konum-debug
+            startActivityForResult(i, 101)
+        }
     }
 
     @Suppress("DEPRECATION")

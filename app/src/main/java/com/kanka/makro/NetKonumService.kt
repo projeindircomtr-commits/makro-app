@@ -9,7 +9,10 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.widget.Toast
 
 class NetKonumService : VpnService() {
 
@@ -54,6 +57,9 @@ class NetKonumService : VpnService() {
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
 
         val fd = builder.establish() ?: run {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(this@NetKonumService, "NetKonum: VPN kurulamadi (baska VPN aktif mi?)", Toast.LENGTH_LONG).show()
+            }
             stopSelf()
             return
         }
