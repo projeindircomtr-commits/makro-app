@@ -46,7 +46,11 @@ class NetKonumService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(BILDIRIM_ID, bildirim, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(BILDIRIM_ID, bildirim, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
             startForeground(BILDIRIM_ID, bildirim)
+        }
         }
 
         val builder = Builder()

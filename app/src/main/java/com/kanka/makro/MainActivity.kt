@@ -1735,9 +1735,12 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 101) {
-            // net-konum-yama4
-            if (resultCode == RESULT_OK) startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
-            else toast("VPN izni verilmedi — koordinat OCR ile okunacak")
+            if (resultCode == RESULT_OK) {
+                startForegroundService(android.content.Intent(this, NetKonumService::class.java).setAction(NetKonumService.ACTION_BASLAT))
+            } else {
+                toast("VPN izni verilmedi — koordinat OCR ile okunacak")
+            }
+            devamEkranIzni()
             return
         }
         if (requestCode != 100) return
